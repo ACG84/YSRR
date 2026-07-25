@@ -160,7 +160,14 @@ class LLGRollout:
     # ------------------------------------------------------------ relaxation
 
     @torch.no_grad()
-    def relax(self, m: torch.Tensor, h_static: torch.Tensor, steps: int, alpha_relax: float) -> torch.Tensor:
+    def relax(
+        self,
+        m: torch.Tensor,
+        h_static: torch.Tensor,
+        steps: int,
+        alpha_relax: float,
+        warn_tol: float = 0.02,
+    ) -> torch.Tensor:
         """Damped integration to the equilibrium magnetisation.
 
         Run with large uniform damping so the precession dies out in few steps.
@@ -169,10 +176,33 @@ class LLGRollout:
         what the reference implementation does. The design still receives
         gradients through the driven dynamics, where ``h_static`` enters at
         every step.
+
+        :param warn_tol: warn if the magnetisation is still moving by more than
+            this fraction per step when the budget runs out.
+
+        Stopping short here is quietly destructive: the probes report
+        ``m - m0``, so a residual relaxation transient rides on every readout
+        and is *independent of the drive*. Symptoms are a probe signal that
+        barely responds to the excitation amplitude and gradients that point
+        nowhere useful. Raise ``relax_steps`` until the warning stops.
         """
+        last_step = None
         for _ in range(int(steps)):
-            m = self.rk4_step(m, h_static, None, alpha=alpha_relax)
-            m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+            m_next = self.rk4_step(m, h_static, None, alpha=alpha_relax)
+            m_next = m_next / m_next.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+            last_step = (m_next - m).abs().max()
+            m = m_next
+
+        if last_step is not None and float(last_step) > warn_tol:
+            import warnings
+
+            warnings.warn(
+                f"relaxation did not converge in {int(steps)} steps "
+                f"(|dm| = {float(last_step):.3g} on the last step, tolerance {warn_tol:g}). "
+                f"Probe readouts will contain a drive-independent transient; "
+                f"increase cfg.solver.relax_steps.",
+                stacklevel=2,
+            )
         return m
 
     # --------------------------------------------------------------- rollout

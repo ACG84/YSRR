@@ -123,7 +123,11 @@ class AntennaSource(Source):
         x0 = int(x) - width // 2
         xs = [xi for xi in range(x0, x0 + width) if 0 <= xi < nx]
         if taper and width > 1:
-            window = torch.hann_window(width + 2)[1:-1]
+            # periodic=False: torch's default periodic window is asymmetric (it
+            # drops the last sample so the window tiles seamlessly for FFT use),
+            # which would put the antenna's peak weight off-centre and steer the
+            # beam a fraction of a degree off axis.
+            window = torch.hann_window(width + 2, periodic=False)[1:-1]
         else:
             window = torch.ones(width)
         for k, xi in enumerate(xs):

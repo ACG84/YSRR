@@ -16,7 +16,7 @@ def test_freeform_reduces_to_uniform_bias_at_init(f32):
 
     h = geom.static_field()
     assert h.shape == (*cfg.mesh.n, 3)
-    b = MU_0 * h
+    b = MU_0 * h.detach()
     assert torch.allclose(b[..., 1], torch.full_like(b[..., 1], cfg.fields.B0), atol=1e-9)
     assert float(b[..., 0].abs().max()) == 0.0
     assert float(b[..., 2].abs().max()) == 0.0
@@ -33,7 +33,7 @@ def test_freeform_offset_is_bounded_by_B1(f32):
     with torch.no_grad():
         geom.rho.copy_(torch.randn_like(geom.rho) * 50)  # absurdly large request
 
-    b = MU_0 * geom.static_field()[..., 1]
+    b = MU_0 * geom.static_field().detach()[..., 1]
     assert float(b.max()) <= cfg.fields.B0 + cfg.fields.B1 + 1e-9
     assert float(b.min()) >= cfg.fields.B0 - cfg.fields.B1 - 1e-9
 
@@ -44,7 +44,7 @@ def test_unbounded_mode_is_unbounded(f32):
     geom = mnn.FreeFormFieldGeometry(cfg.mesh, cfg.fields, cfg.material, bound="none")
     with torch.no_grad():
         geom.rho.fill_(10.0)
-    b = MU_0 * geom.static_field()[..., 1]
+    b = MU_0 * geom.static_field().detach()[..., 1]
     assert float(b.max()) > cfg.fields.B0 + 5 * cfg.fields.B1
 
 
@@ -58,7 +58,7 @@ def test_design_mask_freezes_cells_outside_it(f32):
     with torch.no_grad():
         geom.rho.fill_(1.0)
 
-    b = MU_0 * geom.static_field()[:, :, 0, 1]
+    b = MU_0 * geom.static_field().detach()[:, :, 0, 1]
     inside = b[5:10, 5:10]
     outside = b.clone()
     outside[5:10, 5:10] = cfg.fields.B0
@@ -98,11 +98,11 @@ def test_ms_geometry_clamps_to_physical_range(f32):
     geom = mnn.MsGeometry(cfg.mesh, cfg.fields, cfg.material, bound="clamp")
     with torch.no_grad():
         geom.rho.fill_(-3.0)
-    assert float(geom.Ms_field().min()) >= 0.0
+    assert float(geom.Ms_field().detach().min()) >= 0.0
 
     with torch.no_grad():
         geom.rho.fill_(7.0)
-    assert float(geom.Ms_field().max()) <= cfg.material.Ms + 1e-6
+    assert float(geom.Ms_field().detach().max()) <= cfg.material.Ms + 1e-6
 
 
 def test_binarize_is_sign_forward_identity_backward(f32):

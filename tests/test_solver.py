@@ -35,8 +35,11 @@ def test_larmor_precession_frequency(f64):
     cfg.material.abc_width = 0
     cfg.material.alpha = 0.0
     cfg.solver.demag = False
-    cfg.solver.dt = 1e-13
-    cfg.solver.timesteps = 2000
+    # The record has to be long enough to resolve the line: the FFT bin spacing
+    # is 1/(dt * timesteps), and at 3.5 GHz a 0.2 ns record gives 5 GHz bins --
+    # coarser than the frequency being measured. 32 ns gives ~31 MHz bins.
+    cfg.solver.dt = 2e-12
+    cfg.solver.timesteps = 16384
 
     alpha = mnn.absorbing_damping(cfg.mesh, cfg.material)
     roll = mnn.LLGRollout(cfg.mesh, cfg.solver, cfg.material.A, alpha, cfg.material.Ms)
@@ -77,9 +80,12 @@ def test_damping_relaxes_towards_the_field(f64):
 
     m = torch.tensor([[[[1.0, 0.0, 0.1]]]], dtype=torch.float64)
     m = m / m.norm()
-    m = roll.relax(m, h_static, steps=400, alpha_relax=0.5)
+    # The relaxation time is ~(1 + a^2)/(a * gamma * H) ~ 113 ps here, so 400
+    # steps of 1 ps is only ~3.5 time constants and leaves ~1e-3 of the initial
+    # tilt behind. 1500 steps clears it by an order of magnitude.
+    m = roll.relax(m, h_static, steps=1500, alpha_relax=0.5)
 
-    assert float(m[0, 0, 0, 2]) == pytest.approx(1.0, abs=1e-3)
+    assert float(m[0, 0, 0, 2]) == pytest.approx(1.0, abs=1e-4)
 
 
 def test_norm_is_conserved_over_a_rollout(tiny_cfg):

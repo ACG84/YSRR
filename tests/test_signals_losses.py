@@ -123,8 +123,11 @@ def test_jitter_spreads_tokens_within_a_class(f32):
     tight = mnn.vowel_dataset(cfg, n_per_class=8, jitter=0.0, seed=3)
     loose = mnn.vowel_dataset(cfg, n_per_class=8, jitter=0.1, seed=3)
 
-    assert float(tight.carrier_frequencies[tight.labels == 0].std()) < 1e3
-    assert float(loose.carrier_frequencies[loose.labels == 0].std()) > 1e6
+    # std must be taken down each formant column: across the whole (N, 3) block
+    # it would measure the ~700 MHz spacing between F1, F2 and F3 instead of the
+    # token-to-token spread, and never go near zero.
+    assert float(tight.carrier_frequencies[tight.labels == 0].std(dim=0).max()) < 1e3
+    assert float(loose.carrier_frequencies[loose.labels == 0].std(dim=0).min()) > 1e6
 
 
 def test_dataset_is_reproducible(f32):

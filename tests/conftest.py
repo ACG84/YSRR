@@ -49,7 +49,10 @@ def tiny_cfg(f32):
     cfg.mesh.nx = cfg.mesh.ny = 24
     cfg.material.abc_width = 4
     cfg.solver.timesteps = 24
-    cfg.solver.relax_steps = 8
+    # Enough relax steps that the equilibrium has actually settled. Too few and
+    # every probe reading carries a drive-independent relaxation transient --
+    # see LLGRollout.relax.
+    cfg.solver.relax_steps = 60
     return cfg
 
 
@@ -65,6 +68,6 @@ def grad_cfg(f64):
     cfg.mesh.nx = cfg.mesh.ny = 16
     cfg.material.abc_width = 3
     cfg.solver.timesteps = 12
-    cfg.solver.relax_steps = 4
+    cfg.solver.relax_steps = 20
     cfg.solver.demag = False
     return cfg

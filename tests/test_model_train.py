@@ -71,39 +71,54 @@ def test_output_scales_with_drive_amplitude(tiny_cfg):
     assert float(ratio) == pytest.approx(4.0, rel=0.05)
 
 
-def test_strong_drive_leaves_the_linear_regime(f32):
-    """At tens of mT the response must stop being quadratic.
+def test_strong_drive_breaks_superposition(f32):
+    """Superposition must hold at 1 mT and fail at high drive.
 
-    This is the whole premise of the paper: the non-linearity is intrinsic to
-    the LLG equation and appears once the precession angle grows past a few
-    degrees. If this test fails, the "non-linear" tasks are running linear
-    physics and cannot do better than a linear readout.
+    This is the premise the whole paper rests on: the non-linearity is
+    intrinsic to the LLG equation and switches on once the precession angle
+    grows past a few degrees. Superposition is the right way to test it --
+    drive with A, with B, and with A+B, and compare the response of the sum
+    against the sum of the responses. A linear medium satisfies that exactly,
+    and a medium that satisfies it cannot compute anything a linear readout of
+    the input spectrum could not.
+
+    Testing it this way rather than by the exponent of an amplitude sweep is
+    deliberate: the response does depart from quadratic under strong drive, but
+    not always in the direction one would guess, so the exponent makes for a
+    fragile assertion while superposition is unambiguous.
     """
     cfg = mnn.get_preset("tiny")
     cfg.mesh.nx = cfg.mesh.ny = 32
     cfg.material.abc_width = 4
-    cfg.solver.timesteps = 120
-    cfg.solver.relax_steps = 20
+    cfg.solver.timesteps = 150
+    cfg.solver.relax_steps = 60
 
-    def run(bt):
+    def deviation(bt):
         cfg.fields.Bt = bt
         model = _model(cfg)
-        with torch.no_grad():
-            result = model.run(mnn.tone(cfg, 4.0e9))
-            m0 = model.equilibrium()
-        # precession angle away from equilibrium, and the probe intensities
-        angle = float((result.m - m0).norm(dim=-1).max())
-        return angle, model(mnn.tone(cfg, 4.0e9))
+        m0 = model.equilibrium()
 
-    angle_lin, u_lin = run(1e-3)
-    angle_nl, u_nl = run(80e-3)
+        a = mnn.tone(cfg, 3.8e9)
+        b = mnn.tone(cfg, 4.4e9)
+        with torch.no_grad():
+            da = model.run(a).m - m0
+            db = model.run(b).m - m0
+            dab = model.run(a + b).m - m0
+
+        residual = (dab - (da + db)).norm()
+        return float(residual / dab.norm().clamp_min(1e-30)), float(dab.norm(dim=-1).max())
+
+    dev_lin, angle_lin = deviation(1e-3)
+    dev_nl, angle_nl = deviation(120e-3)
 
     assert angle_lin < 0.05, "1 mT should barely tilt the magnetisation"
-    assert angle_nl > 0.15, "80 mT should drive a large precession angle"
+    assert angle_nl > 0.15, "120 mT should drive a large precession angle"
 
-    # quadratic scaling would give exactly (80/1)^2 = 6400
-    ratio = float((u_nl.sum() / u_lin.sum().clamp_min(1e-30)))
-    assert ratio < 0.9 * 6400, f"response still quadratic (ratio {ratio:.0f} vs 6400)"
+    assert dev_lin < 0.02, f"superposition already broken at 1 mT ({dev_lin:.3f})"
+    assert dev_nl > 10 * dev_lin, (
+        f"superposition still holds under strong drive: {dev_nl:.3f} vs {dev_lin:.3f} -- "
+        f"the non-linear tasks would be running linear physics"
+    )
 
 
 def test_equilibrium_is_cached_and_invalidated(tiny_cfg):

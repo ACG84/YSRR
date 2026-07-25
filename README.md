@@ -57,7 +57,12 @@ python scripts/train_focus.py  --preset focus  --epochs 20
 python scripts/train_demux.py  --preset demux  --epochs 30
 python scripts/train_vowels.py --preset vowels --epochs 30 --Bt-mT 50
 python scripts/plot_convergence.py runs/*/checkpoint.pt -o convergence.html
+python scripts/render_field.py runs/focus_check/checkpoint.pt --task focus
 ```
+
+`plot_convergence.py` writes an HTML report of the loss curves plus Spearman ρ
+and R² between them. `render_field.py` replays each dataset input through the
+trained design and animates the resulting spin-wave field.
 
 Every script takes `--preset tiny` for a smoke run that finishes in about a minute.
 
@@ -108,7 +113,9 @@ Frequency demultiplexing works fine in the linear regime — distinct frequencie
 never need to interact. Vowel classification does not: the classes differ in
 spectral *envelope*, which is precisely what a linear medium cannot separate.
 That contrast is the paper's central claim, and
-`test_model_train.py::test_strong_drive_leaves_the_linear_regime` pins it down.
+`test_model_train.py::test_strong_drive_breaks_superposition` pins it down: drive with A,
+with B, and with A+B, then compare the response of the sum against the sum of the
+responses. Deviation is under 2% at 1 mT and more than 10× that at 120 mT.
 
 ---
 
@@ -165,17 +172,53 @@ band, rather than letting you discover it an hour into a run that could not work
 
 ## Results
 
-Focusing, `focus` preset (100×100 cells at 50 nm = 5 µm square, 12 ns rollout,
-4 GHz, 1 mT, free-form design):
+### Focusing
 
-| | epoch 0 | epoch 7 |
+`focus` preset (100×100 cells at 50 nm = 5 µm square, 12 ns rollout, 4 GHz,
+1 mT drive, free-form design, 11 detectors), 20 epochs at lr 0.08:
+
+| | epoch 0 | best (epoch 18) | final (epoch 19) |
+|---|---|---|---|
+| focus loss | 1.013 | **−3.139** | −2.428 |
+| probe contrast | −0.61 dB | **+36.1 dB** | +26.5 dB |
+
+The trained design puts **99.7%** of the output intensity on the target
+detector; its nearest rival gets 0.22%. About 60–80 s per epoch on 4 CPU cores.
+
+Note the last epoch gives back 10 dB — the learning rate is too large late in
+the run, so keep the best checkpoint rather than the last one.
+
+The converged design is a horizontally striated graded-index structure spanning
+**−40.6 to +42.1 mT** about the 60 mT bias (17.2 mT RMS), with a striation
+spacing that tracks the ~460 nm wavelength. Nothing asked for a lens; gradient
+descent found one.
+
+**Convergence statistics** (`scripts/plot_convergence.py`):
+
+| | Spearman ρ | R² |
 |---|---|---|
-| focus loss | 1.013 | −1.121 |
-| probe contrast | −0.61 dB | **+16.2 dB** |
+| loss vs epoch | −0.980 | 0.939 |
+| contrast vs epoch | +0.962 | 0.909 |
+| **contrast vs loss** | **−0.991** | **0.977** |
 
-+16 dB means the target probe receives ~42× the intensity of its strongest
-competitor, starting from a design that was actually losing to one. About 60 s
-per epoch on 4 CPU cores.
+The third row is the one that matters. Nothing guarantees a priori that
+minimising a log intensity ratio maximises contrast in dB; at ρ = −0.991 the
+surrogate objective is a faithful proxy for the figure of merit.
+
+### The focusing design is broadband
+
+Probing it at frequencies it never trained on
+(`scripts/render_field.py --sweep 3.6 4.0 4.4`):
+
+| input | share on detector 5 |
+|---|---|
+| 3.60 GHz (never seen) | 99.8% |
+| 4.00 GHz (trained) | 99.7% |
+| 4.40 GHz (never seen) | 98.5% |
+
+Expected for a geometric phase structure rather than a resonant one — and the
+reason demultiplexing needs its own training run with per-frequency targets.
+A design that focuses everything cannot separate anything.
 
 ---
 
@@ -196,7 +239,8 @@ magnonic_nn/
   train.py        training loop, per-sample accumulation, checkpointing
   tasks.py        build_focusing / build_demux / build_vowels
   plotting.py     design, snapshots, integrated intensity, convergence
-scripts/          CLI entry points
+  stats.py        Spearman / Pearson / R², running correlations
+scripts/          CLI entry points, incl. render_field.py and plot_convergence.py
 tests/            physics, gradients and training checks
 ```
 

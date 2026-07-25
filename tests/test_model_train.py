@@ -321,6 +321,74 @@ def test_checkpoint_round_trip(f32, tmp_path):
     assert torch.equal(restored.geometry.rho, model.geometry.rho)
 
 
+def test_gradient_norm_is_logged(f32):
+    """Without it, over-stepping and collapsed gradients look identical.
+
+    Both show up as a loss that stops improving, and the fix for one is the
+    opposite of the fix for the other.
+    """
+    cfg = mnn.get_preset("tiny")
+    cfg.mesh.nx = cfg.mesh.ny = 16
+    cfg.material.abc_width = 3
+    cfg.solver.timesteps = 12
+    cfg.solver.demag = False
+
+    task = mnn.build_focusing(cfg, n_probes=3)
+    history = mnn.train(task.model, task.signals, task.targets, task.loss_fn,
+                        epochs=2, lr=0.05, verbose=False)
+
+    assert len(history.metrics["grad_norm"]) == 2
+    assert all(v > 0 for v in history.metrics["grad_norm"])
+
+
+def test_best_checkpoint_tracks_the_monitored_metric(f32, tmp_path):
+    """Saving only the last epoch throws away better designs than it keeps.
+
+    These trajectories are not monotone -- the focusing run's best design was
+    an epoch before its last.
+    """
+    cfg = mnn.get_preset("tiny")
+    cfg.mesh.nx = cfg.mesh.ny = 16
+    cfg.material.abc_width = 3
+    cfg.solver.timesteps = 12
+    cfg.solver.demag = False
+
+    task = mnn.build_focusing(cfg, n_probes=3)
+    best = tmp_path / "best.pt"
+    history = mnn.train(task.model, task.signals, task.targets, task.loss_fn,
+                        epochs=3, lr=0.1, best_path=best,
+                        monitor=("loss", "min"), verbose=False)
+
+    assert best.exists()
+    payload = torch.load(best, weights_only=False)
+    assert payload["monitor"] == "loss"
+    assert payload["monitor_value"] == pytest.approx(min(history.loss))
+
+
+def test_resume_honours_a_new_learning_rate(f32, tmp_path):
+    """``Optimizer.load_state_dict`` restores param_groups wholesale.
+
+    Resuming a run specifically to lower the step size would otherwise keep the
+    old learning rate, silently defeating the entire point of the rerun.
+    """
+    cfg = mnn.get_preset("tiny")
+    cfg.mesh.nx = cfg.mesh.ny = 16
+    cfg.material.abc_width = 3
+    cfg.solver.timesteps = 12
+    cfg.solver.demag = False
+
+    model = _model(cfg, n_probes=2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.08)
+    path = mnn.save_checkpoint(tmp_path / "ckpt.pt", model, optimizer, epoch=0)
+
+    fresh = torch.optim.Adam(model.parameters(), lr=0.08)
+    mnn.load_checkpoint(path, model, fresh)
+    assert fresh.param_groups[0]["lr"] == pytest.approx(0.08)  # restored as saved
+
+    mnn.load_checkpoint(path, model, fresh, lr=0.015)
+    assert fresh.param_groups[0]["lr"] == pytest.approx(0.015)
+
+
 def test_history_records_metrics(f32):
     history = mnn.TrainHistory()
     history.log(0.5, 1.0, accuracy=0.9)

@@ -89,6 +89,8 @@ def train(
     on_epoch=None,
     history: TrainHistory | None = None,
     grad_clip: float | None = None,
+    best_path=None,
+    monitor: tuple = ("loss", "min"),
     verbose: bool = True,
 ) -> TrainHistory:
     """Optimise the scatterer design.
@@ -107,10 +109,21 @@ def train(
         gradient of a wave rollout can be badly scaled early on, when the design
         is near-uniform and small changes swing the interference pattern a long
         way; clipping stops a single outlier step from destroying the design.
+    :param best_path: if given, write a checkpoint whenever ``monitor`` improves.
+        Worth setting on any real run: these trajectories are not monotone, and
+        saving only the last epoch routinely throws away a better design than
+        the one you keep.
+    :param monitor: ``(name, mode)`` selecting what ``best_path`` tracks.
+        ``name`` is ``"loss"`` or any key in ``metric_fns``; ``mode`` is
+        ``"min"`` or ``"max"``.
     """
     optimizer = optimizer or torch.optim.Adam(model.parameters(), lr=lr)
     history = history or TrainHistory()
     metric_fns = metric_fns or {}
+
+    monitor_name, monitor_mode = monitor
+    better = (lambda a, b: a < b) if monitor_mode == "min" else (lambda a, b: a > b)
+    best_value = float("inf") if monitor_mode == "min" else float("-inf")
 
     for epoch in range(epochs):
         t_start = time.time()
@@ -126,19 +139,36 @@ def train(
             loss.backward()
             loss_value = float(loss.detach())
 
-        if grad_clip is not None:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        # Record the gradient norm before any clipping. Without it there is no
+        # way to tell a run that is over-stepping from one whose gradients have
+        # collapsed -- both look like a loss that stops improving.
+        grad_norm = float(
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), grad_clip if grad_clip is not None else float("inf")
+            )
+        )
         optimizer.step()
 
         with torch.no_grad():
             metrics = {name: float(fn(u, targets)) for name, fn in metric_fns.items()}
+        metrics["grad_norm"] = grad_norm
 
         elapsed = time.time() - t_start
         history.log(loss_value, elapsed, **metrics)
 
+        current = loss_value if monitor_name == "loss" else metrics.get(monitor_name)
+        is_best = current is not None and better(current, best_value)
+        if is_best:
+            best_value = current
+            if best_path is not None:
+                save_checkpoint(best_path, model, optimizer, history, epoch,
+                                extra={"monitor": monitor_name, "monitor_value": current})
+
         if verbose:
             extra = "".join(f"  {k}={v:.4f}" for k, v in metrics.items())
-            print(f"epoch {epoch:3d}  loss={loss_value:.6f}{extra}  ({elapsed:.1f}s)", flush=True)
+            star = "  *best" if is_best else ""
+            print(f"epoch {epoch:3d}  loss={loss_value:.6f}{extra}  ({elapsed:.1f}s){star}",
+                  flush=True)
 
         if on_epoch is not None:
             on_epoch(epoch, model, u.detach(), loss_value, history)
@@ -176,12 +206,22 @@ def save_checkpoint(path, model, optimizer=None, history=None, epoch=None, extra
     return path
 
 
-def load_checkpoint(path, model, optimizer=None):
-    """Restore from :func:`save_checkpoint`. Returns ``(epoch, history)``."""
+def load_checkpoint(path, model, optimizer=None, lr=None):
+    """Restore from :func:`save_checkpoint`. Returns ``(epoch, history)``.
+
+    :param lr: learning rate to force after restoring the optimiser.
+        ``Optimizer.load_state_dict`` restores ``param_groups`` wholesale,
+        including the learning rate the checkpoint was written with -- so
+        resuming a run specifically to lower the step size silently keeps the
+        old one unless this is passed.
+    """
     payload = torch.load(path, map_location=next(model.parameters()).device, weights_only=False)
     model.load_state_dict(payload["model_state_dict"])
     if optimizer is not None and "optimizer_state_dict" in payload:
         optimizer.load_state_dict(payload["optimizer_state_dict"])
+        if lr is not None:
+            for group in optimizer.param_groups:
+                group["lr"] = lr
 
     history = TrainHistory()
     if "history" in payload:

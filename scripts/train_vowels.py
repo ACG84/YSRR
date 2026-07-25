@@ -62,7 +62,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     history = mnn.TrainHistory()
     if args.resume:
-        _, history = mnn.load_checkpoint(args.resume, model, optimizer)
+        _, history = mnn.load_checkpoint(args.resume, model, optimizer, lr=args.lr)
         print(f"resumed from {args.resume} at epoch {len(history.loss)}")
 
     def on_epoch(epoch, model, u, loss, history):
@@ -75,6 +75,7 @@ def main():
         epochs=args.epochs, optimizer=optimizer,
         metric_fns=task.metric_fns, history=history,
         on_epoch=on_epoch, per_sample=args.per_sample, grad_clip=10.0,
+        best_path=outdir / 'checkpoint_best.pt', monitor=("accuracy", "max"),
     )
 
     # Held-out evaluation. This is the number that matters -- training accuracy

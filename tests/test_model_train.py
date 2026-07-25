@@ -365,6 +365,35 @@ def test_best_checkpoint_tracks_the_monitored_metric(f32, tmp_path):
     assert payload["monitor_value"] == pytest.approx(min(history.loss))
 
 
+def test_saturating_monitor_freezes_the_best_checkpoint(f32, tmp_path):
+    """A metric that plateaus stops updating ``best_path``, by design.
+
+    Ties do not count as improvements, so monitoring a coarse metric keeps the
+    first epoch that reached its ceiling. This is the failure that put a 7.9 dB
+    demultiplexer in ``checkpoint_best.pt`` while the same run went on to reach
+    16.2 dB, and it is why the scripts monitor the loss instead.
+    """
+    cfg = mnn.get_preset("tiny")
+    cfg.mesh.nx = cfg.mesh.ny = 16
+    cfg.material.abc_width = 3
+    cfg.solver.timesteps = 12
+    cfg.solver.demag = False
+
+    task = mnn.build_focusing(cfg, n_probes=3)
+    saturated = tmp_path / "saturated.pt"
+    mnn.train(task.model, task.signals, task.targets, task.loss_fn,
+              epochs=3, lr=0.1, metric_fns={"flat": lambda u, t: 1.0},
+              best_path=saturated, monitor=("flat", "max"), verbose=False)
+
+    assert torch.load(saturated, weights_only=False)["epoch"] == 0
+
+    # the continuous loss keeps improving, so it keeps updating
+    by_loss = tmp_path / "by_loss.pt"
+    mnn.train(task.model, task.signals, task.targets, task.loss_fn,
+              epochs=3, lr=0.1, best_path=by_loss, monitor=("loss", "min"), verbose=False)
+    assert torch.load(by_loss, weights_only=False)["epoch"] > 0
+
+
 def test_resume_honours_a_new_learning_rate(f32, tmp_path):
     """``Optimizer.load_state_dict`` restores param_groups wholesale.
 

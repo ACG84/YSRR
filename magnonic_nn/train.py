@@ -116,6 +116,13 @@ def train(
     :param monitor: ``(name, mode)`` selecting what ``best_path`` tracks.
         ``name`` is ``"loss"`` or any key in ``metric_fns``; ``mode`` is
         ``"min"`` or ``"max"``.
+
+        Prefer a continuous quantity. A coarse metric that saturates -- accuracy
+        over three inputs takes four possible values -- reaches its ceiling long
+        before the design stops improving, and since ties do not update, the
+        "best" checkpoint freezes on the first epoch to hit the ceiling. On the
+        demultiplexer run that would have kept a 7.9 dB design in preference to
+        the 16.2 dB one the same run went on to find.
     """
     optimizer = optimizer or torch.optim.Adam(model.parameters(), lr=lr)
     history = history or TrainHistory()

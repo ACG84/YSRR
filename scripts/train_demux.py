@@ -57,7 +57,12 @@ def main():
         epochs=args.epochs, optimizer=optimizer,
         metric_fns=task.metric_fns, history=history,
         on_epoch=on_epoch, per_sample=args.per_sample, grad_clip=10.0,
-        best_path=outdir / 'checkpoint_best.pt', monitor=("accuracy", "max"),
+        # Monitor the loss rather than accuracy. Accuracy over three inputs
+        # can only take four values and saturates at 1.0 long before the design
+        # stops improving -- monitoring it would freeze the "best" checkpoint on
+        # the first epoch that got all three right, at half the contrast the run
+        # eventually reaches.
+        best_path=outdir / 'checkpoint_best.pt', monitor=("loss", "min"),
     )
 
     # Per-channel diagnostics: one intensity map and one probe spectrum each.

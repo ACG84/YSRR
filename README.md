@@ -205,6 +205,38 @@ The third row is the one that matters. Nothing guarantees a priori that
 minimising a log intensity ratio maximises contrast in dB; at ρ = −0.991 the
 surrogate objective is a faithful proxy for the figure of merit.
 
+### Frequency demultiplexing
+
+`demux` task on a 64×64 film (3.2 µm square, 14 ns rollout, 1 mT drive),
+3.8 / 4.1 / 4.4 GHz to three separate detectors:
+
+| input | detector | share of output | contrast |
+|---|---|---|---|
+| 3.8 GHz | 0 | 98.0% | +18.9 dB |
+| 4.1 GHz | 1 | 95.2% | +14.8 dB |
+| 4.4 GHz | 2 | 96.7% | +15.8 dB |
+
+Routing accuracy 3/3, mean contrast **16.5 dB**. One design, three inputs,
+three different outputs — and this works in the *linear* regime, because
+distinct frequencies never need to interact for a dispersive scatterer to send
+them different ways.
+
+Conditioning over the run, with `lr = 0.015`:
+
+```
+epoch   0  loss=0.2169  contrast= 7.86 dB  grad_norm=1.072
+epoch   5  loss=0.0690  contrast=13.63 dB  grad_norm=0.310
+epoch  10  loss=0.0608  contrast=14.40 dB  grad_norm=0.296
+epoch  19  loss=0.0356  contrast=16.20 dB  grad_norm=0.124
+```
+
+The gradient norm falling by ~9× as the loss flattens is the signature of
+approaching a minimum rather than of collapsed gradients — which is why it is
+logged. An earlier attempt at `lr = 0.08` thrashed instead (accuracy cycling
+0 → 0.33 → 0.67 → 1.0 → 0.33), because Adam moves each element by roughly `lr`
+per step regardless of gradient magnitude, and 0.08 against a parameter RMS of
+0.197 is a 41% swing per epoch.
+
 ### The focusing design is broadband
 
 Probing it at frequencies it never trained on

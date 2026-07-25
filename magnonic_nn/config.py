@@ -233,14 +233,23 @@ def _demux() -> SimConfig:
 def _vowels() -> SimConfig:
     """Vowel classification in the non-linear regime.
 
-    ``Bt = 50 mT`` is the amplitude at which the paper reports the non-linear
-    network clearly beating the linear one.
+    ``Bt = 20 mT`` puts the peak precession angle around 21 degrees, which
+    breaks superposition decisively (133% deviation between the response to a
+    sum of tones and the sum of the responses, against 0.6% at 1 mT) without
+    driving the film into switching. At 50 mT the peak ``|m - m0|`` reaches
+    1.99 out of a possible 2 -- parts of the film reverse, and the result is
+    then about domain formation rather than non-linear wave interference.
+
+    ``renormalize`` is on because large-angle precession makes RK4 drift the
+    magnetisation norm: 2e-3 per rollout at 20 mT and 2e-2 at 50 mT, against
+    1e-7 with the projection. It costs nothing measurable.
     """
     return SimConfig(
         mesh=MeshConfig(nx=100, ny=100, nz=1, dx=50e-9, dy=50e-9, dz=20e-9),
         material=MaterialConfig(),
-        fields=FieldConfig(B0=60e-3, B1=50e-3, Bt=50e-3),
-        solver=SolverConfig(dt=20e-12, timesteps=800, relax_steps=100),
+        fields=FieldConfig(B0=60e-3, B1=50e-3, Bt=20e-3),
+        solver=SolverConfig(dt=20e-12, timesteps=800, relax_steps=100,
+                            renormalize=True),
     )
 
 

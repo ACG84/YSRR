@@ -30,6 +30,10 @@ def base_parser(description: str, default_preset: str) -> argparse.ArgumentParse
     p.add_argument("--timesteps", type=int, default=None, help="override rollout length")
     p.add_argument("--Bt-mT", type=float, default=None, dest="bt_mt",
                    help="excitation amplitude in mT (>~20 mT enters the non-linear regime)")
+    p.add_argument("--renormalize", dest="renormalize", action="store_true", default=None,
+                   help="project |m| back to 1 each step; needed once the precession "
+                        "angle is large, as it is in the non-linear regime")
+    p.add_argument("--no-renormalize", dest="renormalize", action="store_false")
     p.add_argument("--no-demag", action="store_true",
                    help="drop the demagnetisation field: ~3x faster, but the dispersion "
                         "becomes exchange-only and no longer matches a real film")
@@ -61,6 +65,8 @@ def setup(args, task_name: str):
         cfg.fields.Bt = args.bt_mt * 1e-3
     if args.no_demag:
         cfg.solver.demag = False
+    if args.renormalize is not None:
+        cfg.solver.renormalize = args.renormalize
 
     torch.manual_seed(args.seed)
 
@@ -81,7 +87,7 @@ def report_physics(cfg, freqs=()):
     print(f"  rollout       {cfg.solver.timesteps} x {cfg.solver.dt * 1e12:g} ps "
           f"= {cfg.duration * 1e9:.2f} ns")
     print(f"  bias          {cfg.fields.B0 * 1e3:g} mT   drive {cfg.fields.Bt * 1e3:g} mT "
-          f"({'non-linear' if cfg.fields.Bt >= 20e-3 else 'linear'} regime)")
+          f"({'non-linear' if cfg.fields.Bt >= 10e-3 else 'linear'} regime)")
     print(f"  FMR           {fmr / 1e9:.2f} GHz")
     print(f"  usable band   {lo / 1e9:.2f} .. {hi / 1e9:.2f} GHz "
           f"(propagating, and >= 6 cells per wavelength)")

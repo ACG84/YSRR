@@ -38,6 +38,9 @@ def main():
                    help="paper protocol: 4 training tokens per vowel, rest held out")
     p.add_argument("--jitter", type=float, default=0.06,
                    help="speaker-to-speaker formant variation")
+    p.add_argument("--probe-radius", type=float, default=3.0, dest="probe_radius",
+                   help="detector radius in cells; shrink it on a small mesh so "
+                        "neighbouring detectors do not overlap")
     args = p.parse_args()
 
     cfg, outdir = setup(args, "vowels")
@@ -50,6 +53,7 @@ def main():
         n_per_class=args.n_per_class,
         n_train_per_class=args.n_train_per_class,
         jitter=args.jitter,
+        probe_radius=args.probe_radius,
         seed=args.seed,
     )
     model = task.model

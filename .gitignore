@@ -1,0 +1,19 @@
+# Training artefacts: checkpoints are large and regenerable from the scripts.
+runs/
+*.pt
+*.vti
+*.vtr
+
+# Generated figures
+*.png
+!docs/*.png
+convergence.html
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/

@@ -132,7 +132,15 @@ def train(
     better = (lambda a, b: a < b) if monitor_mode == "min" else (lambda a, b: a > b)
     best_value = float("inf") if monitor_mode == "min" else float("-inf")
 
-    for epoch in range(epochs):
+    # Epochs are numbered globally, continuing whatever history was passed in.
+    # Using the local loop index instead makes every resumed run restart its
+    # count at zero, so a checkpoint written after a resume claims to be epoch 0
+    # and anything reading that field -- reports, renders, comparisons between
+    # runs -- silently mislabels it.
+    start_epoch = len(history.loss)
+
+    for local_epoch in range(epochs):
+        epoch = start_epoch + local_epoch
         t_start = time.time()
         optimizer.zero_grad(set_to_none=True)
 

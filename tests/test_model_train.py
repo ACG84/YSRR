@@ -365,6 +365,37 @@ def test_best_checkpoint_tracks_the_monitored_metric(f32, tmp_path):
     assert payload["monitor_value"] == pytest.approx(min(history.loss))
 
 
+def test_epoch_numbering_continues_across_a_resume(f32, tmp_path):
+    """A resumed run must keep counting, not restart at zero.
+
+    The checkpoint's ``epoch`` field is what reports and renders label runs
+    with; restarting the count makes a resumed checkpoint claim to be epoch 0.
+    """
+    cfg = mnn.get_preset("tiny")
+    cfg.mesh.nx = cfg.mesh.ny = 16
+    cfg.material.abc_width = 3
+    cfg.solver.timesteps = 12
+    cfg.solver.demag = False
+
+    task = mnn.build_focusing(cfg, n_probes=3)
+    path = tmp_path / "ckpt.pt"
+
+    history = mnn.train(task.model, task.signals, task.targets, task.loss_fn,
+                        epochs=3, lr=0.05, verbose=False)
+    assert len(history.loss) == 3
+
+    seen = []
+    mnn.train(task.model, task.signals, task.targets, task.loss_fn,
+              epochs=2, lr=0.05, history=history, verbose=False,
+              on_epoch=lambda e, m, u, l, h: seen.append(e))
+
+    assert seen == [3, 4]
+    assert len(history.loss) == 5
+
+    mnn.save_checkpoint(path, task.model, epoch=seen[-1])
+    assert torch.load(path, weights_only=False)["epoch"] == 4
+
+
 def test_saturating_monitor_freezes_the_best_checkpoint(f32, tmp_path):
     """A metric that plateaus stops updating ``best_path``, by design.
 

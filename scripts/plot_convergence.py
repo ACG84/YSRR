@@ -49,6 +49,23 @@ PANELS = [
         "zero_line": 0.0,
     },
     {
+        "key": "accuracy",
+        "title": "Training accuracy",
+        "subtitle": "fraction of training tokens whose strongest detector is the target",
+        "unit": "",
+        "decimals": 3,
+        "zero_line": None,
+    },
+    {
+        "key": "grad_norm",
+        "title": "Gradient norm",
+        "subtitle": "L2 norm of the design gradient, before clipping — falling as the loss "
+                    "flattens means approaching a minimum, not collapsing",
+        "unit": "",
+        "decimals": 3,
+        "zero_line": 0.0,
+    },
+    {
         "key": "epoch_seconds",
         "title": "Wall-clock per epoch",
         "subtitle": "one forward rollout plus one backward pass",
@@ -60,6 +77,7 @@ PANELS = [
 
 LABELS = {
     "epoch": "epoch",
+    "grad_norm": "grad norm",
     "loss": "loss",
     "contrast_dB": "contrast",
     "accuracy": "accuracy",
@@ -72,6 +90,7 @@ PAIR_NOTES = {
     ("loss", "contrast_dB"): "Does minimising the loss really maximise contrast?",
     ("epoch", "accuracy"): "Is accuracy improving monotonically?",
     ("loss", "accuracy"): "Does the loss track accuracy?",
+    ("loss", "grad_norm"): "Is the gradient shrinking as the loss falls?",
 }
 
 

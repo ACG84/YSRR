@@ -267,28 +267,42 @@ def synth_vowel(
 
 
 def class_separations(cfg, classes, band=None, mapping: str = "affine", scale: float = 2e6):
-    """Smallest gap between any two classes' mapped formants, per formant index.
+    """How far apart the hardest-to-tell-apart pair of classes is, in Hz.
 
-    The number to look at before scaling the task up. Every extra vowel has to
-    fit into the same fixed device band, so separations shrink as classes are
-    added, and once they fall below the rollout's spectral resolution
-    (``1 / duration``) no amount of training or data will separate those
-    classes. Returns ``(separations_Hz, resolution_Hz)`` where the first is a
-    list of the minimum pairwise gap for F1, F2 and F3.
+    Run this before scaling a task up: it says whether the rollout is long
+    enough to distinguish the classes at all, which no amount of training or
+    data can fix.
+
+    The criterion is the worst-case *pair*, scored by that pair's *best*
+    distinguishing formant. Two vowels only need to differ in one formant to be
+    told apart, so requiring all three to separate -- as an earlier version of
+    this function did -- is far stricter than the task demands and rejects
+    class sets that are perfectly workable. On the twelve-vowel inventory the
+    strict criterion reports 1 MHz and the correct one reports 20 MHz, a factor
+    of twenty in required resolution and roughly fifty in cost.
+
+    :returns: ``(gap_Hz, (class_a, class_b), resolution_Hz)`` -- the binding
+        pair's separation, which pair it is, and the rollout's spectral
+        resolution ``1 / duration``. The classes are distinguishable in
+        principle when ``gap > resolution``.
     """
+    import itertools
+
     if band is None:
         band = usable_band(cfg)
 
-    mapped = []
-    for name in classes:
-        formants, _ = FORMANTS[name]
-        mapped.append([_map_frequency(f, mapping, band, scale) for f in formants])
+    mapped = {
+        name: [_map_frequency(f, mapping, band, scale) for f in FORMANTS[name][0]]
+        for name in classes
+    }
 
-    seps = []
-    for i in range(3):
-        col = sorted(m[i] for m in mapped)
-        seps.append(min((b - a) for a, b in zip(col, col[1:])) if len(col) > 1 else float("inf"))
-    return seps, 1.0 / cfg.duration
+    worst, worst_pair = float("inf"), None
+    for a, b in itertools.combinations(classes, 2):
+        gap = max(abs(x - y) for x, y in zip(mapped[a], mapped[b]))
+        if gap < worst:
+            worst, worst_pair = gap, (a, b)
+
+    return worst, worst_pair, 1.0 / cfg.duration
 
 
 def vowel_dataset(

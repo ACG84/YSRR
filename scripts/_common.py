@@ -37,6 +37,12 @@ def base_parser(description: str, default_preset: str) -> argparse.ArgumentParse
     p.add_argument("--no-demag", action="store_true",
                    help="drop the demagnetisation field: ~3x faster, but the dispersion "
                         "becomes exchange-only and no longer matches a real film")
+    p.add_argument("--batch-size", type=int, default=None, dest="batch_size",
+                   help="samples per optimiser step; without it the whole training set "
+                        "is used every step and cost scales linearly with dataset size")
+    p.add_argument("--steps-per-epoch", type=int, default=None, dest="steps_per_epoch",
+                   help="optimiser steps per epoch (default: one full pass). Set 1 to "
+                        "keep epoch cost fixed however large the training set gets")
     p.add_argument("--per-sample", action="store_true",
                    help="backpropagate one sample at a time to keep memory flat")
     p.add_argument("--resume", default=None, help="checkpoint to resume from")

@@ -22,6 +22,7 @@ not need to do anything, but it is why each epoch costs
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -91,6 +92,8 @@ def train(
     grad_clip: float | None = None,
     best_path=None,
     monitor: tuple = ("loss", "min"),
+    batch_size: int | None = None,
+    steps_per_epoch: int | None = None,
     verbose: bool = True,
 ) -> TrainHistory:
     """Optimise the scatterer design.
@@ -123,6 +126,24 @@ def train(
         "best" checkpoint freezes on the first epoch to hit the ceiling. On the
         demultiplexer run that would have kept a 7.9 dB design in preference to
         the 16.2 dB one the same run went on to find.
+    :param batch_size: draw this many samples per optimiser step instead of
+        using the whole training set. ``None`` keeps full-batch descent.
+
+        This is what makes a realistic training set affordable. Every sample in
+        a step costs a full micromagnetic rollout plus its adjoint -- measured
+        at ~37 s per token per epoch for a 48x48 mesh over 1000 steps -- so
+        full-batch cost is strictly linear in dataset size. Going from 9 tokens
+        to a more honest 90 turns a 1.8-hour run into an 18-hour one. Drawing a
+        fixed-size minibatch instead makes the cost per step independent of how
+        large the pool is, so the design still sees the whole distribution,
+        just spread across steps rather than crammed into each one.
+    :param steps_per_epoch: optimiser steps per epoch. Defaults to one full
+        pass, ``ceil(N / batch_size)``. Set it to 1 to hold the cost of an
+        epoch fixed no matter how big the training set grows.
+
+        Samples are drawn by shuffling the whole set and consuming it, then
+        reshuffling -- not by independent draws -- so every token is seen
+        equally often rather than by luck.
     """
     optimizer = optimizer or torch.optim.Adam(model.parameters(), lr=lr)
     history = history or TrainHistory()
@@ -139,33 +160,71 @@ def train(
     # runs -- silently mislabels it.
     start_epoch = len(history.loss)
 
+    n_samples = signals.shape[0]
+    minibatch = batch_size is not None and batch_size < n_samples
+    if minibatch:
+        n_steps = steps_per_epoch or math.ceil(n_samples / batch_size)
+    else:
+        n_steps = steps_per_epoch or 1
+    pool: list = []
+
+    def next_indices():
+        """Shuffle-and-consume, so coverage is even rather than luck-dependent."""
+        nonlocal pool
+        if not minibatch:
+            return torch.arange(n_samples, device=targets.device)
+        picked = []
+        while len(picked) < batch_size:
+            if not pool:
+                pool = torch.randperm(n_samples).tolist()
+            picked.append(pool.pop())
+        return torch.tensor(picked, device=targets.device)
+
     for local_epoch in range(epochs):
         epoch = start_epoch + local_epoch
         t_start = time.time()
-        optimizer.zero_grad(set_to_none=True)
 
-        if per_sample:
-            loss_value = accumulate_gradients(model, signals, targets, loss_fn)
-            with torch.no_grad():
-                u = model(signals)
-        else:
-            u = model(signals)
-            loss = loss_fn(u, targets)
-            loss.backward()
-            loss_value = float(loss.detach())
+        step_losses, seen_u, seen_t, grad_norm = [], [], [], 0.0
+        for _ in range(n_steps):
+            idx = next_indices()
+            sig_b, tgt_b = signals[idx], targets[idx]
 
-        # Record the gradient norm before any clipping. Without it there is no
-        # way to tell a run that is over-stepping from one whose gradients have
-        # collapsed -- both look like a loss that stops improving.
-        grad_norm = float(
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(), grad_clip if grad_clip is not None else float("inf")
+            optimizer.zero_grad(set_to_none=True)
+            if per_sample:
+                step_loss = accumulate_gradients(model, sig_b, tgt_b, loss_fn)
+                with torch.no_grad():
+                    u = model(sig_b)
+            else:
+                u = model(sig_b)
+                loss = loss_fn(u, tgt_b)
+                loss.backward()
+                step_loss = float(loss.detach())
+
+            # Record the gradient norm before any clipping. Without it there is
+            # no way to tell a run that is over-stepping from one whose
+            # gradients have collapsed -- both look like a loss that stops
+            # improving.
+            grad_norm = float(
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), grad_clip if grad_clip is not None else float("inf")
+                )
             )
-        )
-        optimizer.step()
+            optimizer.step()
+
+            step_losses.append(step_loss)
+            seen_u.append(u.detach())
+            seen_t.append(tgt_b)
+
+        # Metrics are over the samples this epoch actually visited. With
+        # minibatching that is a sample of the training set, not all of it, so
+        # the logged numbers are noisier than a full-batch run's -- evaluate on
+        # the held-out set for a figure to quote.
+        u = torch.cat(seen_u)
+        targets_seen = torch.cat(seen_t)
+        loss_value = sum(step_losses) / len(step_losses)
 
         with torch.no_grad():
-            metrics = {name: float(fn(u, targets)) for name, fn in metric_fns.items()}
+            metrics = {name: float(fn(u, targets_seen)) for name, fn in metric_fns.items()}
         metrics["grad_norm"] = grad_norm
 
         elapsed = time.time() - t_start

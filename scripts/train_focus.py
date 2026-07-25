@@ -57,6 +57,7 @@ def main():
         epochs=args.epochs, optimizer=optimizer,
         metric_fns=task.metric_fns, history=history,
         on_epoch=on_epoch, grad_clip=10.0,
+        batch_size=args.batch_size, steps_per_epoch=args.steps_per_epoch,
         best_path=outdir / 'checkpoint_best.pt', monitor=("loss", "min"),
     )
 

@@ -365,6 +365,95 @@ def test_best_checkpoint_tracks_the_monitored_metric(f32, tmp_path):
     assert payload["monitor_value"] == pytest.approx(min(history.loss))
 
 
+def _batch_cfg():
+    cfg = mnn.get_preset("tiny")
+    cfg.mesh.nx = cfg.mesh.ny = 16
+    cfg.material.abc_width = 3
+    cfg.solver.timesteps = 10
+    cfg.solver.relax_steps = 8
+    cfg.solver.demag = False
+    return cfg
+
+
+def test_minibatch_cost_is_independent_of_training_set_size(f32):
+    """One step per epoch must cost the same however large the pool is.
+
+    This is the property that makes a realistic training set affordable: every
+    sample in a step is a full micromagnetic rollout plus its adjoint, so
+    full-batch cost is strictly linear in dataset size.
+    """
+    cfg = _batch_cfg()
+    calls = []
+
+    class Counting(mnn.SpinWaveNetwork):
+        def run(self, *a, **k):
+            calls.append(1)
+            return super().run(*a, **k)
+
+    for pool_size in (4, 16):
+        calls.clear()
+        signals = torch.stack([mnn.tone(cfg, 3.9e9 + 1e8 * i) for i in range(pool_size)])
+        targets = torch.arange(pool_size) % 2
+
+        src = mnn.LineSource(cfg.mesh, cfg.fields, 3, 0, 3, cfg.mesh.ny - 1)
+        probes = mnn.linear_probe_array(cfg.mesh, 2, x=11, r=1.0, margin=3)
+        model = Counting(cfg, [src], probes)
+
+        mnn.train(model, signals, targets, mnn.intensity_cross_entropy,
+                  epochs=2, lr=0.05, batch_size=2, steps_per_epoch=1, verbose=False)
+        assert sum(calls) == 4, f"pool {pool_size}: expected 4 rollouts, got {sum(calls)}"
+
+
+def test_minibatch_sampling_covers_the_set_evenly(f32):
+    """Shuffle-and-consume, not independent draws: no token starved by luck."""
+    cfg = _batch_cfg()
+    pool_size = 6
+    signals = torch.stack([mnn.tone(cfg, 3.9e9 + 1e8 * i) for i in range(pool_size)])
+    targets = torch.arange(pool_size) % 2
+
+    src = mnn.LineSource(cfg.mesh, cfg.fields, 3, 0, 3, cfg.mesh.ny - 1)
+    probes = mnn.linear_probe_array(cfg.mesh, 2, x=11, r=1.0, margin=3)
+    model = mnn.SpinWaveNetwork(cfg, [src], probes)
+
+    seen = []
+    orig = mnn.SpinWaveNetwork.run
+
+    def spy(self, signal, *a, **k):
+        match = (signals == signal).all(dim=(1, 2)).nonzero()
+        seen.append(int(match[0]))
+        return orig(self, signal, *a, **k)
+
+    torch.manual_seed(0)
+    mnn.SpinWaveNetwork.run = spy
+    try:
+        mnn.train(model, signals, targets, mnn.intensity_cross_entropy,
+                  epochs=3, lr=0.05, batch_size=2, steps_per_epoch=1, verbose=False)
+    finally:
+        mnn.SpinWaveNetwork.run = orig
+
+    # 3 epochs x 2 samples = one full pass over 6 tokens, each exactly once
+    assert sorted(seen) == list(range(pool_size))
+
+
+def test_full_batch_remains_the_default(f32):
+    """Omitting batch_size must not change existing behaviour."""
+    cfg = _batch_cfg()
+    signals = torch.stack([mnn.tone(cfg, 3.9e9), mnn.tone(cfg, 4.3e9)])
+    targets = torch.tensor([0, 1])
+
+    grads = []
+    for kwargs in ({}, {"batch_size": 2}):  # batch_size == N is still full batch
+        torch.manual_seed(9)
+        src = mnn.LineSource(cfg.mesh, cfg.fields, 3, 0, 3, cfg.mesh.ny - 1)
+        probes = mnn.linear_probe_array(cfg.mesh, 2, x=11, r=1.0, margin=3)
+        model = mnn.SpinWaveNetwork(cfg, [src], probes)
+        model.zero_grad(set_to_none=True)
+        mnn.intensity_cross_entropy(model(signals), targets).backward()
+        grads.append(model.geometry.rho.grad.clone())
+        _ = kwargs
+    assert torch.allclose(grads[0], grads[1])
+
+
 def test_epoch_numbering_continues_across_a_resume(f32, tmp_path):
     """A resumed run must keep counting, not restart at zero.
 

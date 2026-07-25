@@ -120,11 +120,31 @@ def gated_tones(cfg: SimConfig, freqs, gate_frac: float = 1.0, ramp_frac: float 
 
 # Formant frequencies (Hz) and bandwidths for the three vowels used in the
 # paper, from the Hillenbrand et al. (1995) adult-male averages.
+# Bandwidths are not tabulated by Hillenbrand; they follow the usual rule of
+# thumb that a formant's bandwidth scales with its centre frequency, taken here
+# as ~7% of F1 and ~9% of F2/F3. They set how sharply each resonance is defined
+# and only weakly affect class separability.
 FORMANTS = {
-    "ae": ((588.0, 1952.0, 2601.0), (130.0, 190.0, 260.0)),  # "had"
-    "ei": ((476.0, 2089.0, 2691.0), (110.0, 180.0, 250.0)),  # "hayed"
+    # the original three, kept as the default task
     "iy": ((342.0, 2322.0, 3000.0), (90.0, 170.0, 240.0)),   # "heed"
+    "ei": ((476.0, 2089.0, 2691.0), (110.0, 180.0, 250.0)),  # "hayed"  (= /ey/)
+    "ae": ((588.0, 1952.0, 2601.0), (130.0, 190.0, 260.0)),  # "had"
+    # the rest of the Hillenbrand adult-male set
+    "ih": ((427.0, 2034.0, 2684.0), (100.0, 180.0, 250.0)),  # "hid"
+    "eh": ((580.0, 1799.0, 2605.0), (130.0, 170.0, 250.0)),  # "head"
+    "ah": ((623.0, 1200.0, 2550.0), (140.0, 130.0, 240.0)),  # "hud"
+    "aa": ((768.0, 1333.0, 2522.0), (160.0, 140.0, 240.0)),  # "hod"
+    "ao": ((652.0, 997.0, 2538.0), (140.0, 110.0, 240.0)),   # "hawed"
+    "uh": ((469.0, 1122.0, 2434.0), (110.0, 120.0, 230.0)),  # "hood"
+    "ow": ((497.0, 910.0, 2459.0), (110.0, 100.0, 230.0)),   # "hoed"
+    "uw": ((378.0, 997.0, 2343.0), (90.0, 110.0, 220.0)),    # "who'd"
+    "er": ((474.0, 1379.0, 1710.0), (110.0, 140.0, 170.0)),  # "heard"
 }
+"""Formant centres (Hz) and bandwidths for the Hillenbrand et al. (1995)
+adult-male averages. The default task uses the first three, which are well
+separated; adding more packs the formant space and makes the task harder in a
+way that has nothing to do with the physics -- check
+:func:`class_separations` before blaming a poor result on the film."""
 
 _AUDIO_F_MIN = 300.0
 _AUDIO_F_MAX = 3100.0
@@ -244,6 +264,31 @@ def synth_vowel(
     if peak > 0:
         wave = wave / peak
     return wave, torch.tensor(f_mw, dtype=t.dtype)
+
+
+def class_separations(cfg, classes, band=None, mapping: str = "affine", scale: float = 2e6):
+    """Smallest gap between any two classes' mapped formants, per formant index.
+
+    The number to look at before scaling the task up. Every extra vowel has to
+    fit into the same fixed device band, so separations shrink as classes are
+    added, and once they fall below the rollout's spectral resolution
+    (``1 / duration``) no amount of training or data will separate those
+    classes. Returns ``(separations_Hz, resolution_Hz)`` where the first is a
+    list of the minimum pairwise gap for F1, F2 and F3.
+    """
+    if band is None:
+        band = usable_band(cfg)
+
+    mapped = []
+    for name in classes:
+        formants, _ = FORMANTS[name]
+        mapped.append([_map_frequency(f, mapping, band, scale) for f in formants])
+
+    seps = []
+    for i in range(3):
+        col = sorted(m[i] for m in mapped)
+        seps.append(min((b - a) for a, b in zip(col, col[1:])) if len(col) > 1 else float("inf"))
+    return seps, 1.0 / cfg.duration
 
 
 def vowel_dataset(

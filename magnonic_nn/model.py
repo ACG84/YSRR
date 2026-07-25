@@ -18,6 +18,8 @@ forbids.
 
 from __future__ import annotations
 
+import warnings
+
 import torch
 from torch import nn
 
@@ -72,6 +74,20 @@ class SpinWaveNetwork(nn.Module):
         self.sources = nn.ModuleList(sources)
         self.probes = nn.ModuleList(probes)
         self.geometry = geometry if geometry is not None else build_geometry(cfg)
+
+        # Sources capture their amplitude at construction, so a cfg.fields.Bt
+        # changed afterwards is silently ignored -- and since intensity scales
+        # as Bt^2, that shows up as a result which looks plausible and is simply
+        # the wrong drive. Catch the mismatch instead of letting it through.
+        for i, src in enumerate(self.sources):
+            if abs(src.amplitude_T - cfg.fields.Bt) > 1e-12:
+                warnings.warn(
+                    f"source {i} was built with Bt = {src.amplitude_T * 1e3:g} mT but the "
+                    f"config now says {cfg.fields.Bt * 1e3:g} mT. Sources take their "
+                    f"amplitude at construction; rebuild them after changing "
+                    f"cfg.fields.Bt.",
+                    stacklevel=2,
+                )
 
         alpha = absorbing_damping(cfg.mesh, cfg.material)
         self.register_buffer("alpha", alpha)

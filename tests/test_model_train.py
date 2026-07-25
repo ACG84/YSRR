@@ -163,6 +163,26 @@ def test_traces_and_snapshots(tiny_cfg):
     assert torch.allclose(result.traces.sum(dim=0), result.intensities, rtol=1e-6)
     assert result.snapshots is not None and result.snapshots.shape[1:] == (*tiny_cfg.mesh.n, 3)
 
+    # Snapshots must land on exact multiples of the requested interval. They
+    # used to be taken at checkpoint-chunk boundaries instead, which quantised
+    # the interval to sqrt(timesteps) and made any time axis derived from them
+    # wrong by that ratio.
+    assert result.snapshot_steps == list(range(8, tiny_cfg.solver.timesteps + 1, 8))
+    assert result.snapshots.shape[0] == len(result.snapshot_steps)
+
+
+def test_snapshot_interval_is_independent_of_chunk_size(tiny_cfg):
+    """Checkpoint segmentation must not perturb where snapshots are taken."""
+    steps = []
+    for chunk in (None, 3, 17):
+        tiny_cfg.solver.chunk_size = chunk
+        model = _model(tiny_cfg, n_probes=2)
+        with torch.no_grad():
+            steps.append(model.run(mnn.tone(tiny_cfg, 4.0e9), snapshot_every=5).snapshot_steps)
+
+    assert steps[0] == steps[1] == steps[2]
+    assert steps[0] == list(range(5, tiny_cfg.solver.timesteps + 1, 5))
+
 
 # ---------------------------------------------------------------------- tasks
 

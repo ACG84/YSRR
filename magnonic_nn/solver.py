@@ -230,8 +230,10 @@ class LLGRollout:
             disables checkpointing-free operation so keep it off during
             training when you do not need it.
         :param snapshot_every: record ``m`` every ``k`` steps for visualisation.
-            Snapshots are detached; requesting them during a training pass is
-            fine but doubles the field memory.
+            Snapshots are detached, and requesting them disables checkpointing
+            for this call -- recomputation would either duplicate every
+            snapshot or drop the recomputed ones, and this is an analysis path
+            that normally runs under ``no_grad`` anyway.
         """
         T = signal.shape[0]
         if signal.shape[1] != len(sources):
@@ -243,7 +245,7 @@ class LLGRollout:
         nz = self.mesh_cfg.nz
 
         chunk = self.cfg.chunk_size or max(1, int(round(math.sqrt(T))))
-        use_ckpt = self.cfg.checkpoint and torch.is_grad_enabled()
+        use_ckpt = self.cfg.checkpoint and torch.is_grad_enabled() and not snapshot_every
 
         m = m0
         totals = torch.zeros(len(probes), dtype=m0.dtype, device=m0.device)
@@ -261,19 +263,18 @@ class LLGRollout:
             args = (m, h_static, Ms, sig, m0)
             if use_ckpt:
                 out, m = checkpoint(
-                    self._run_chunk, *args, sources, probes, nz, use_reentrant=False
+                    self._run_chunk, *args, sources, probes, nz, None, 0, None,
+                    use_reentrant=False,
                 )
             else:
-                out, m = self._run_chunk(*args, sources, probes, nz)
+                out, m = self._run_chunk(
+                    *args, sources, probes, nz, snapshot_every, start,
+                    (snapshots, snapshot_steps) if snapshot_every else None,
+                )
 
             totals = totals + out.sum(dim=0)
             if record_traces:
                 traces.append(out)
-            if snapshot_every:
-                # record on chunk boundaries that land on the snapshot grid
-                if (stop % snapshot_every) < chunk:
-                    snapshots.append(m.detach().clone())
-                    snapshot_steps.append(stop)
 
         return RolloutResult(
             intensities=totals,
@@ -283,11 +284,18 @@ class LLGRollout:
             snapshot_steps=snapshot_steps,
         )
 
-    def _run_chunk(self, m, h_static, Ms, sig, m0, sources, probes, nz):
+    def _run_chunk(self, m, h_static, Ms, sig, m0, sources, probes, nz,
+                   snapshot_every=None, global_start=0, sink=None):
         """Integrate ``len(sig) - 1`` steps and return per-step probe intensities.
 
         Separated out so :func:`torch.utils.checkpoint` can recompute it during
         the backward pass instead of storing every intermediate state.
+
+        ``sink`` collects snapshots at true multiples of ``snapshot_every``
+        measured in global steps. Recording them here rather than at chunk
+        boundaries matters: the chunk length is ``sqrt(T)``, so boundary-only
+        sampling silently quantises the frame interval to that value and the
+        recorded times no longer match what the caller asked for.
         """
         self.set_Ms(Ms)
         n_steps = sig.shape[0] - 1
@@ -310,6 +318,12 @@ class LLGRollout:
             m = self.rk4_step(m, h_static, h_drive)
             dm_Ms = (m - m0) * Ms
             out.append(torch.stack([p(dm_Ms) for p in probes]))
+
+            if sink is not None:
+                step = global_start + n + 1
+                if step % snapshot_every == 0:
+                    sink[0].append(m.detach().clone())
+                    sink[1].append(step)
 
         return torch.stack(out), m
 

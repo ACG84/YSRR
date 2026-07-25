@@ -43,6 +43,22 @@ class MaterialConfig:
     A: float = 3.65e-12
     """Exchange stiffness (J/m)."""
 
+    Di: float = 0.0
+    """Interfacial DMI strength (J/m^2). Zero by default -- plain YIG has none.
+
+    This is the term that makes the medium **non-reciprocal**: it adds a
+    contribution linear in k to the dispersion, so ``omega(+k) != omega(-k)``
+    and a wave travels at a different speed forwards than backwards. Everything
+    else in this model is reciprocal, which is why a reciprocity measurement on
+    the default configuration returns 1.0000 exactly.
+
+    Scale, for the default 20 nm YIG at 4 GHz: 0.01 mJ/m^2 splits the two
+    directions by 55 MHz and their group velocities by 455 vs 405 m/s;
+    0.05 mJ/m^2 (the upper end of what is reported for YIG/Pt) gives 273 MHz
+    and 556 vs 304 m/s, an asymmetry approaching 2x; past ~0.2 mJ/m^2 the
+    backward branch stops propagating altogether and the film is a one-way
+    medium."""
+
     alpha: float = 1e-4
     """Bulk Gilbert damping in the propagation region."""
 

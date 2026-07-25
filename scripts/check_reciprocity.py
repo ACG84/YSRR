@@ -64,6 +64,10 @@ def main():
     p.add_argument("--timesteps", type=int, default=500)
     p.add_argument("--freq", type=float, default=4.0, help="GHz")
     p.add_argument("--threads", type=int, default=None)
+    p.add_argument("--dmi", type=float, default=0.0,
+                   help="interfacial DMI in mJ/m^2. Non-zero breaks reciprocity: it adds "
+                        "a term linear in k, so omega(+k) != omega(-k) and the wave "
+                        "travels at different speeds forwards and backwards")
     p.add_argument("--tolerance", type=float, default=0.99,
                    help="minimum cosine to call the medium reciprocal")
     args = p.parse_args()
@@ -79,7 +83,8 @@ def main():
 
     # deliberately not mirror-symmetric in either coordinate
     A, B = (args.nx // 4, args.nx // 3), (3 * args.nx // 4, 2 * args.nx // 3)
-    print(f"source A = {A}, detector B = {B}, {args.freq:.2f} GHz\n")
+    print(f"source A = {A}, detector B = {B}, {args.freq:.2f} GHz, "
+          f"Di = {args.dmi:g} mJ/m^2\n")
 
     worst = 1.0
     for name, b0, axis, drive in GEOMETRIES:
@@ -90,6 +95,7 @@ def main():
         cfg.solver.relax_steps = 120
         cfg.fields.B0, cfg.fields.bias_axis, cfg.fields.drive_axis = b0, axis, drive
         cfg.fields.Bt = 1e-3
+        cfg.material.Di = args.dmi * 1e-3
 
         ab, sat = transfer(cfg, A, B, drive, args.freq * 1e9)
         ba, _ = transfer(cfg, B, A, drive, args.freq * 1e9)

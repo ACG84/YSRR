@@ -31,7 +31,14 @@ from ._compat import import_magnumnp
 from .config import SolverConfig
 
 _magnumnp = import_magnumnp()
-from magnumnp import DemagField, ExchangeField, Mesh, State, constants  # noqa: E402
+from magnumnp import (  # noqa: E402
+    DemagField,
+    ExchangeField,
+    InterfaceDMIField,
+    Mesh,
+    State,
+    constants,
+)
 
 __all__ = ["LLGRollout", "RolloutResult", "estimate_max_timestep"]
 
@@ -67,19 +74,23 @@ class LLGRollout:
         state before the geometry supplies the real (possibly trainable) field.
     """
 
-    def __init__(self, mesh_cfg, solver_cfg: SolverConfig, A: float, alpha: torch.Tensor, Ms_ref: float):
+    def __init__(self, mesh_cfg, solver_cfg: SolverConfig, A: float, alpha: torch.Tensor,
+                 Ms_ref: float, Di: float = 0.0):
         self.cfg = solver_cfg
         self.mesh_cfg = mesh_cfg
 
         self.mesh = Mesh(mesh_cfg.n, mesh_cfg.d, pbc=getattr(mesh_cfg, 'pbc', (0, 0, 0)))
         self.state = State(self.mesh, scale=1e9)
-        self.state.material = {"Ms": Ms_ref, "A": A}
+        self.state.material = {"Ms": Ms_ref, "A": A, "Di": Di}
         self.state.m = self.state.Constant([0.0, 0.0, 1.0])
 
         self.register_alpha(alpha)
 
         self.exchange = ExchangeField()
         self.demag = DemagField() if solver_cfg.demag else None
+        # Interfacial DMI is the only non-reciprocal term available here, so it
+        # is what a scheme relying on forward/backward asymmetry needs.
+        self.dmi = InterfaceDMIField() if Di != 0.0 else None
 
         self.dt = float(solver_cfg.dt)
         self.gamma = float(constants.gamma)
@@ -116,6 +127,8 @@ class LLGRollout:
         h = h_ext + self.exchange.h(self.state)
         if self.demag is not None:
             h = h + self.demag.h(self.state)
+        if self.dmi is not None:
+            h = h + self.dmi.h(self.state)
         return h
 
     def torque(self, m: torch.Tensor, h_ext: torch.Tensor, alpha=None) -> torch.Tensor:

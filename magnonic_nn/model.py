@@ -93,7 +93,8 @@ class SpinWaveNetwork(nn.Module):
         self.register_buffer("alpha", alpha)
 
         self.rollout = LLGRollout(
-            cfg.mesh, cfg.solver, cfg.material.A, alpha, cfg.material.Ms
+            cfg.mesh, cfg.solver, cfg.material.A, alpha, cfg.material.Ms,
+            Di=getattr(cfg.material, "Di", 0.0),
         )
 
         # equilibrium magnetisation, recomputed whenever the design changes

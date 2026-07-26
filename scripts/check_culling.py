@@ -72,7 +72,7 @@ def main():
     P = film(u)[:, :12]
 
     print(f"{'condition':>16} {'echo decay':>11} {'spk/disk/frm':>13} "
-          f"{'<R>':>6} {'dR at spike':>12} {'verdict':>24}")
+          f"{'twin jacc':>10} {'<R>':>6} {'dR at spike':>12} {'verdict':>24}")
     # Control first: the smooth nonlinear chain with firing disabled. If THIS
     # is already non-fading, chaos precedes spiking and no spike-time
     # mechanism can cure it -- the fix would be upstream, in coupling or
@@ -88,12 +88,32 @@ def main():
                                             alpha_spread=0.5))
         for lam in args.captures
     ]
+    # Input-locked firing: deep reset, long refractory, and enough drive that
+    # only a strong current input forces a crossing within the frame. If the
+    # spike sequence is slaved to the input rather than to residual internal
+    # state, both echo twins fire at the same frames (Jaccard -> 1) and fading
+    # memory can survive the discontinuities.
+    conditions += [
+        (f"inlock cap={lam:.1f}", ThieleConfig(coupling=0.08, spike_kick=0.0,
+                                               phase_capture=lam,
+                                               drive_scale=0.14,
+                                               contraction=0.1,
+                                               refractory=5e-9,
+                                               alpha_spread=0.5))
+        for lam in (0.0, 0.5)
+    ]
     for name, cfg in conditions:
         A = run(P, cfg, args.steps_per_frame)
         B = run(P, cfg, args.steps_per_frame, init_seed=123)
         analog = [0, 1, 2, 3, 6]
         d = np.linalg.norm((A - B)[:, :, analog].reshape(len(A), -1), axis=1)
         decay = float(d[-20:].mean() / d[:20].mean().clip(1e-12))
+
+        # Are the twins' spike SEQUENCES the same events? Input-locked firing
+        # predicts yes; state-born firing predicts divergent sets.
+        sa = {(t, i) for t, i in zip(*np.nonzero(A[:, :, 5]))}
+        sb = {(t, i) for t, i in zip(*np.nonzero(B[:, :, 5]))}
+        jacc = len(sa & sb) / max(len(sa | sb), 1)
 
         R = order_parameter(A)
         spikes = A[:, :, 5].sum(axis=1)
@@ -107,8 +127,8 @@ def main():
 
         verdict = ("fading restored" if decay < 0.2 else
                    "partial" if decay < 0.7 else "still chaotic")
-        print(f"{name:>16} {decay:>11.3f} {rate:>13.3f} {R.mean():>6.3f} "
-              f"{dR_ev - dR_qu:>+12.4f} {verdict:>24}")
+        print(f"{name:>16} {decay:>11.3f} {rate:>13.3f} {jacc:>10.2f} "
+              f"{R.mean():>6.3f} {dR_ev - dR_qu:>+12.4f} {verdict:>24}")
 
     print("\necho decay: twin distance, last-20/first-20 frames (<1 fades)")
     print("dR at spike: order-parameter change through spike frames minus the")

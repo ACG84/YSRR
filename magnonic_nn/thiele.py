@@ -221,15 +221,23 @@ class ThieleDisks:
                     r = Xj.norm().clamp_min(1e-3 * self.cfg.R)
                     if self.cfg.phase_capture:
                         # Injection locking by the coherent burst: pull the
-                        # neighbour's phase toward the burst phase, radius
-                        # untouched. This is the culling step -- each spike
-                        # projects the cluster toward a common phase, raising
-                        # its order; heterogeneous inputs then rebuild the
-                        # decorrelated structure between events.
+                        # neighbour's ENVELOPE phase toward the burst's
+                        # envelope phase, radius untouched. The frame matters:
+                        # aligning lab-frame positions is undone within half a
+                        # gyration period for counter-rotating (mixed-
+                        # polarity) pairs, which is why the lab-frame version
+                        # measured no coherence gain at spikes. A common
+                        # coherent pulse pins each receiver's envelope
+                        # regardless of its rotation sense -- so the cull is
+                        # applied to the same I/Q variables the readout sees.
+                        w0t = self.omega0 * self.t
+                        s_i = -float(self.p[i])         # emitter's sense pre-flip
+                        psi_star = phi_star - s_i * w0t
                         phi = math.atan2(float(Xj[1]), float(Xj[0]))
-                        dphi = math.atan2(math.sin(phi_star - phi),
-                                          math.cos(phi_star - phi))
-                        new = phi + self.cfg.phase_capture * dphi
+                        psi = phi - float(self.p[j]) * w0t
+                        dpsi = math.atan2(math.sin(psi_star - psi),
+                                          math.cos(psi_star - psi))
+                        new = phi + self.cfg.phase_capture * dpsi
                         self.X[j] = r * torch.tensor(
                             [math.cos(new), math.sin(new)],
                             dtype=self.dtype, device=self.device)

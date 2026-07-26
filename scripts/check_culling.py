@@ -71,11 +71,24 @@ def main():
     u = rng.uniform(0.0, 1.0, args.frames)
     P = film(u)[:, :12]
 
-    print(f"{'capture':>8} {'echo decay':>11} {'spk/disk/frm':>13} "
+    print(f"{'condition':>16} {'echo decay':>11} {'spk/disk/frm':>13} "
           f"{'<R>':>6} {'dR at spike':>12} {'verdict':>24}")
-    for lam in args.captures:
-        cfg = ThieleConfig(coupling=0.08, spike_kick=0.05, phase_capture=lam,
-                           alpha_spread=0.5)
+    # Control first: the smooth nonlinear chain with firing disabled. If THIS
+    # is already non-fading, chaos precedes spiking and no spike-time
+    # mechanism can cure it -- the fix would be upstream, in coupling or
+    # stiffening.
+    conditions = [("no-spike ctrl", ThieleConfig(coupling=0.08, spike_kick=0.0,
+                                                 v_crit=float("inf"),
+                                                 drive_scale=0.06,
+                                                 alpha_spread=0.5))]
+    conditions += [
+        (f"capture={lam:.1f}", ThieleConfig(coupling=0.08, spike_kick=0.0,
+                                            phase_capture=lam,
+                                            drive_scale=0.06,
+                                            alpha_spread=0.5))
+        for lam in args.captures
+    ]
+    for name, cfg in conditions:
         A = run(P, cfg, args.steps_per_frame)
         B = run(P, cfg, args.steps_per_frame, init_seed=123)
         analog = [0, 1, 2, 3, 6]
@@ -94,7 +107,7 @@ def main():
 
         verdict = ("fading restored" if decay < 0.2 else
                    "partial" if decay < 0.7 else "still chaotic")
-        print(f"{lam:>8.1f} {decay:>11.3f} {rate:>13.3f} {R.mean():>6.3f} "
+        print(f"{name:>16} {decay:>11.3f} {rate:>13.3f} {R.mean():>6.3f} "
               f"{dR_ev - dR_qu:>+12.4f} {verdict:>24}")
 
     print("\necho decay: twin distance, last-20/first-20 frames (<1 fades)")

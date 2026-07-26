@@ -188,9 +188,17 @@ class ReservoirRunner:
     thiele_cfg: ThieleConfig
     steps_per_frame: int = 250
     include_input: bool = True
+    include_film: bool = True    # keep the baselines nested: disk conditions
+                                 # must contain the film-only feature set
+
+    SPIKE_COL = 5                # index inside the 7-feature per-disk block
 
     def features(self, u: np.ndarray, progress_every: int = 0) -> np.ndarray:
-        """(n_samples,) input series -> (n_samples, n_features) design matrix."""
+        """(n_samples,) input series -> (n_samples, n_features) design matrix.
+
+        Also stashes ``self.total_spikes`` for the run, so callers never have
+        to guess which flattened columns are the spike counts.
+        """
         P = self.film(u)                                   # (n, channels)
         disks = ThieleDisks(self.thiele_cfg)
         rows = []
@@ -202,6 +210,9 @@ class ReservoirRunner:
             if progress_every and (n + 1) % progress_every == 0:
                 print(f"  frame {n + 1}/{len(P)}", flush=True)
         F = np.stack(rows)
+        self.total_spikes = float(F[:, self.SPIKE_COL::7].sum())
+        if self.include_film:
+            F = np.concatenate([F, P], axis=1)
         if self.include_input:
             F = np.concatenate([F, u[:, None]], axis=1)
         return F

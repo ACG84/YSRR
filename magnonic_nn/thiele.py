@@ -26,11 +26,16 @@ What makes this a spiking neuron rather than a linear resonator:
   coupling, the reversal burst itself delivers a tangential kick to the
   neighbours (``spike_kick``), which is the spike-propagation path.
 
-The disks are permalloy, not YIG. That is deliberate and physical: Py-on-YIG
-hybrids are routine experimentally, and YIG's low Ms puts the gyrotropic
-frequency near 100 MHz, where the core cannot reach critical velocity inside
-the disk (``v = r omega`` tops out at ~80 m/s). Permalloy at R = 100 nm gyrates
-at ~500 MHz and crosses 320 m/s at accessible orbit radii.
+The disks are permalloy, not YIG, and 20 nm thick rather than the common
+10 nm. Both follow from one inequality: on a circular orbit the core speed is
+``v = r omega(r)``, and with the Guslienko frequency the small-orbit ceiling
+``omega0 R = (20/9) gamma mu0 Ms L / (4 pi)`` depends on **Ms L only** -- disk
+radius cancels. Firing requires that ceiling to clear ``v_crit``: YIG misses
+by an order of magnitude at any thickness worth patterning, and 10 nm Py sits
+at 313 m/s, fractionally *below* 320 -- a knife edge where firing would exist
+only at edge-adjacent orbits where the rigid-core ansatz is invalid. At
+L = 20 nm the ceiling is 626 m/s and reversal happens at r/R ~ 0.5, squarely
+where the model holds.
 
 Modelling leaps, stated plainly: the incident spin-wave power reaching a disk
 is rectified into a *linearly polarised* force at the gyrotropic frequency
@@ -59,13 +64,14 @@ MU_0 = 4.0e-7 * math.pi
 class ThieleConfig:
     """Geometry, material and dynamics of the disk array.
 
-    Defaults are a permalloy disk 200 nm across and 10 nm thick; see the
-    module docstring for why the disks are not YIG.
+    Defaults are a permalloy disk 200 nm across and 20 nm thick; see the
+    module docstring for why the disks are neither YIG nor thinner.
     """
 
     n_disks: int = 12
     R: float = 100e-9            # disk radius, m
-    L: float = 10e-9             # thickness, m
+    L: float = 20e-9             # thickness, m; see module docstring -- the
+                                 # firing ceiling omega0*R ~ Ms*L must clear v_crit
     Ms: float = 800e3            # permalloy, A/m
     f_gyro: float | None = None  # Hz; None -> Guslienko thin-disk estimate
     alpha_eff: float = 0.01      # lumped damping ratio D/|G| at small orbit
@@ -100,11 +106,11 @@ class ThieleDisks:
     time since the last reversal. The core velocity is not a state variable --
     the Thiele equation is first order, and velocity follows algebraically:
 
-        V = (D F + G p z_hat x F) / (D^2 + G^2)
+        V = (D F + Gz z_hat x F) / (D^2 + Gz^2),   Gz = -G0 p
 
     which for pure harmonic confinement gives circular gyration at
-    ``omega = k p / G`` (sense set by polarity), the analytic anchor the tests
-    check against.
+    ``omega = k p / G0`` -- counterclockwise for p = +1 -- the analytic anchor
+    the tests check against.
 
     The reversal is handled between RK4 steps: it is a discontinuity, and
     letting it inside the integrator stages would poison the derivatives.
@@ -143,13 +149,14 @@ class ThieleDisks:
         if cfg.coupling:
             mu = cfg.coupling * self.k
             for i, j in self.coupling_pairs:
-                # bond along y_hat: W = mu (x_i x_j - 2 y_i y_j)
-                fx_i = -mu * X[j, 0]
-                fy_i = 2 * mu * X[j, 1]
-                F[i, 0] += fx_i
-                F[i, 1] += fy_i
-                F[j, 0] += -mu * X[i, 0]
-                F[j, 1] += 2 * mu * X[i, 1]
+                # The displaced-vortex moment is PERPENDICULAR to the core
+                # displacement (m ~ z_hat x X), so for a bond along y_hat the
+                # dipolar double-weight term lands on the x coordinate:
+                # W = mu (y_i y_j - 2 x_i x_j), F = -dW/dX.
+                F[i, 0] += 2 * mu * X[j, 0]
+                F[i, 1] += -mu * X[j, 1]
+                F[j, 0] += 2 * mu * X[i, 0]
+                F[j, 1] += -mu * X[i, 1]
         return F
 
     def _velocity(self, X: torch.Tensor, drive: torch.Tensor, t: float) -> torch.Tensor:
@@ -157,7 +164,10 @@ class ThieleDisks:
         F = self._force(X, drive, t)
         r2 = (X * X).sum(-1) / cfg.R**2
         D = cfg.alpha_eff * self.G0 * (1.0 + cfg.beta_nl * r2)
-        Gp = self.G0 * self.p
+        # Signed z-component of the gyrovector: G = -(2 pi Ms L / gamma) p z_hat,
+        # so Gz = -G0 p. Getting this sign wrong mirror-inverts every orbit --
+        # p = +1 must gyrate counterclockwise, as established experimentally.
+        Gp = -self.G0 * self.p
         det = (D * D + Gp * Gp).unsqueeze(-1)
         zxF = torch.stack([-F[:, 1], F[:, 0]], dim=-1)
         return (D.unsqueeze(-1) * F + Gp.unsqueeze(-1) * zxF) / det

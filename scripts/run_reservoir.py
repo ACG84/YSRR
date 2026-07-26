@@ -3,15 +3,20 @@
 
 Nested comparisons, each stage having to earn its keep:
 
-    input-only      ridge on u_n alone           no memory, no nonlinearity
-    film-only       + memoryless film features   nonlinearity, still no memory
-    linear disks    + disks, spiking lobotomised gyration memory, no spikes
-    spiking         full: reversal + refractory + coupling + spike kicks
+    input-only      ridge on u_n alone            no memory, no nonlinearity
+    film-only       + memoryless film features    nonlinearity, still no memory
+    linear disks    + disks: pure damped gyrators  memory, no disk nonlinearity
+    nonlinear disks + stiffening/damping/coupling  everything except firing
+    spiking         + reversal, refractory, kicks  the one-knob contrast
 
-Scored on NARMA-10 (NMSE; needs 10-step memory and input products), Jaeger's
-linear memory capacity, and one-step Mackey-Glass. If 'spiking' does not beat
-'linear disks', the spiking added nothing on this task and the honest result
-is exactly that.
+The last pair differ ONLY in the firing mechanism (v_crit and spike_kick), so
+"did the spikes help" is a one-knob comparison rather than a five-knob
+confound. Every disk condition also carries the film features, keeping the
+ladder strictly nested. Scored on NARMA-10 (NMSE; needs 10-step memory and
+input products), Jaeger's linear memory capacity, and one-step Mackey-Glass
+(reported with its trivial baselines -- lag-1 autocorrelation is 0.99, so a
+small NMSE there is table stakes, not an achievement). If 'spiking' does not
+beat 'nonlinear disks', the honest result is that firing added nothing here.
 
     python scripts/run_reservoir.py
     python scripts/run_reservoir.py --n 2200 --steps-per-frame 200
@@ -35,13 +40,14 @@ from magnonic_nn.reservoir import (
 from magnonic_nn.thiele import ThieleConfig
 
 
-def disk_cfg(spiking: bool) -> ThieleConfig:
-    if spiking:
-        return ThieleConfig(coupling=0.08, spike_kick=0.05)
-    # Lobotomy: no reversal (infinite threshold), no coupling, no stiffening --
-    # what remains is 12 independent damped linear gyrators.
-    return ThieleConfig(v_crit=float("inf"), coupling=0.0, spike_kick=0.0,
-                        beta_nl=0.0, kappa_nl=0.0)
+DISK_ARMS = {
+    # strictly widening ladder; 'spiking' vs 'nonlinear_disks' is one knob
+    "linear_disks": ThieleConfig(v_crit=float("inf"), coupling=0.0,
+                                 spike_kick=0.0, beta_nl=0.0, kappa_nl=0.0),
+    "nonlinear_disks": ThieleConfig(v_crit=float("inf"), coupling=0.08,
+                                    spike_kick=0.0),
+    "spiking": ThieleConfig(coupling=0.08, spike_kick=0.05),
+}
 
 
 def main():
@@ -72,44 +78,44 @@ def main():
     film_feats = np.concatenate([film(u_norm), u[:, None]], axis=1)
     results["film_only"] = {"narma10": fit_eval(film_feats, y, splits)}
 
-    # -- disk reservoirs ------------------------------------------------------
-    for name, spiking in (("linear_disks", False), ("spiking", True)):
-        t0 = time.time()
-        runner = ReservoirRunner(film, disk_cfg(spiking),
-                                 steps_per_frame=args.steps_per_frame)
-        X = runner.features(u_norm, progress_every=800)
-        elapsed = time.time() - t0
+    # -- Mackey-Glass series and its trivial baselines ------------------------
+    mg = mackey_glass(args.n, seed=args.seed)
+    mg_u = (mg - mg.min()) / (mg.max() - mg.min())
+    mg_y = np.roll(mg, -1)[:-1]            # one-step prediction, wrap dropped
+    results["input_only"]["mackey_glass"] = fit_eval(mg_u[:-1, None], mg_y, splits)
+    results["film_only"]["mackey_glass"] = fit_eval(
+        np.concatenate([film(mg_u), mg_u[:, None]], axis=1)[:-1], mg_y, splits)
 
-        entry = {"narma10": fit_eval(X, y, splits), "feature_time_s": round(elapsed, 1)}
+    # -- disk reservoirs ------------------------------------------------------
+    for name, cfg in DISK_ARMS.items():
+        t0 = time.time()
+        runner = ReservoirRunner(film, cfg, steps_per_frame=args.steps_per_frame)
+        X = runner.features(u_norm, progress_every=800)
+        entry = {"narma10": fit_eval(X, y, splits),
+                 "total_spikes": runner.total_spikes}
         mc_curve, mc = memory_capacity(X, u, splits)
         entry["memory_capacity"] = round(mc, 3)
         entry["mc_curve"] = [round(float(v), 4) for v in mc_curve]
-        if spiking:
-            total_spikes = float(X[:, 5::7][:, :12].sum()) if X.shape[1] >= 84 else 0.0
-            entry["total_spikes"] = total_spikes
+
+        runner_mg = ReservoirRunner(film, cfg, steps_per_frame=args.steps_per_frame)
+        X_mg = runner_mg.features(mg_u)
+        entry["mackey_glass"] = fit_eval(X_mg[:-1], mg_y, splits)
+        entry["feature_time_s"] = round(time.time() - t0, 1)
         results[name] = entry
         print(f"{name}: NARMA-10 test NMSE {entry['narma10']['nmse_test']:.4f}, "
-              f"MC {mc:.2f}  ({elapsed:.0f} s)")
-
-    # -- Mackey-Glass, full stack only ----------------------------------------
-    mg = mackey_glass(args.n, seed=args.seed)
-    mg_u = (mg - mg.min()) / (mg.max() - mg.min())
-    mg_y = np.roll(mg, -1)                 # one-step prediction
-    for name, spiking in (("linear_disks", False), ("spiking", True)):
-        runner = ReservoirRunner(film, disk_cfg(spiking),
-                                 steps_per_frame=args.steps_per_frame)
-        X = runner.features(mg_u)
-        results[name]["mackey_glass"] = fit_eval(X[:-1], mg_y[:-1], splits)
+              f"MC {mc:.2f}, spikes {runner.total_spikes:.0f}")
 
     (outdir / "results.json").write_text(json.dumps(results, indent=2))
-    print(f"\n{'condition':<14} {'NARMA-10':>10} {'MG-1step':>10} {'MC':>7}")
+    print(f"\n{'condition':<16} {'NARMA-10':>10} {'MG-1step':>10} {'MC':>7} {'spikes':>8}")
     for name, r in results.items():
-        n10 = r["narma10"]["nmse_test"]
-        mg1 = r.get("mackey_glass", {}).get("nmse_test")
+        n10 = f"{r['narma10']['nmse_test']:.4f}"
+        mg1 = r.get("mackey_glass")
+        mg_s = "-" if mg1 is None else f"{mg1['nmse_test']:.4f}"
         mc = r.get("memory_capacity")
-        print(f"{name:<14} {n10:>10.4f} "
-              f"{mg1 if mg1 is None else f'{mg1:.4f}':>10} "
-              f"{mc if mc is None else f'{mc:.2f}':>7}")
+        mc_s = "-" if mc is None else f"{mc:.2f}"
+        sp = r.get("total_spikes")
+        sp_s = "-" if sp is None else f"{sp:.0f}"
+        print(f"{name:<16} {n10:>10} {mg_s:>10} {mc_s:>7} {sp_s:>8}")
     print(f"\nresults in {outdir}/results.json")
     return 0
 

@@ -41,8 +41,8 @@ def test_free_gyration_frequency():
 
 
 def test_gyration_sense_follows_polarity():
-    """p = +1 gyrates clockwise (omega = -k/G z); p = -1 the reverse."""
-    for p, expected_sign in ((1.0, -1.0), (-1.0, +1.0)):
+    """p = +1 gyrates counterclockwise (omega = +k p / G0 z), per experiment."""
+    for p, expected_sign in ((1.0, +1.0), (-1.0, -1.0)):
         d = single_disk(alpha_eff=0.0, kappa_nl=0.0, beta_nl=0.0, v_crit=1e9)
         d.p[0] = p
         d.X[0] = torch.tensor([0.3 * d.cfg.R, 0.0])
@@ -92,16 +92,19 @@ def test_nonlinear_damping_bounds_orbit():
 
 # ------------------------------------------------------------------- spiking
 def test_core_reversal_fires_and_resets():
-    d = single_disk(alpha_eff=0.005, drive_scale=0.6)
+    # drive_scale must stay below v_crit/(omega0 R) ~ 0.51, or the drive force
+    # alone exceeds the threshold at the origin and the disk "fires" with no
+    # stored orbit -- drive-slam switching, not the threshold neuron under test
+    d = single_disk(alpha_eff=0.005, drive_scale=0.3)
     drive = torch.tensor([1.0], dtype=torch.float64)
-    fired_total, r_before = 0.0, 0.0
+    fired_total = 0.0
     for _ in range(8000):
         r_prev = float(d.X[0].norm())
         fired = float(d.step(drive)[0])
         if fired and not fired_total:
-            r_before = r_prev
+            assert r_prev > 0.2 * d.cfg.R, "fired without an accumulated orbit"
             r_after = float(d.X[0].norm())
-            assert r_after < r_before * (d.cfg.contraction + 0.05)
+            assert r_after < r_prev * (d.cfg.contraction + 0.1)
             assert float(d.p[0]) == -1.0
         fired_total += fired
     assert fired_total >= 1.0, "hard drive never reached critical velocity"
@@ -117,7 +120,7 @@ def test_no_reversal_below_threshold():
 
 
 def test_refractory_blocks_immediate_refire():
-    d = single_disk(alpha_eff=0.005, drive_scale=0.6, refractory=5e-9)
+    d = single_disk(alpha_eff=0.005, drive_scale=0.3, refractory=5e-9)
     drive = torch.tensor([1.0], dtype=torch.float64)
     times = []
     for _ in range(12000):

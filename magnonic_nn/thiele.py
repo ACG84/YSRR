@@ -85,6 +85,15 @@ class ThieleConfig:
     refractory: float = 2e-9     # s; no re-fire inside this window
     coupling: float = 0.0        # nearest-neighbour dipolar strength, fraction of k
     spike_kick: float = 0.0      # tangential kick to neighbours per spike, fraction of R
+    phase_capture: float = 0.0   # 0..1: how far a reversal burst pulls each
+                                 # neighbour's phase toward the burst phase.
+                                 # The culling step of the annealing cycle: the
+                                 # coherent burst injection-locks the cluster,
+                                 # raising its order; radius is untouched, so
+                                 # this is a pure correlation projection
+    alpha_spread: float = 0.0    # +-fractional spread of alpha_eff across the
+                                 # row; identical disks are one filter wearing
+                                 # n masks, a spread makes a timescale bank
     drive_scale: float = 0.10    # peak drive force, fraction of k*R per unit
                                  # input. Calibrated so firing is an event, not
                                  # a carrier: at 0.15 the trial measured 0.44
@@ -130,6 +139,9 @@ class ThieleDisks:
         self.dtype, self.device = dtype, device
 
         n = cfg.n_disks
+        self.alpha = cfg.alpha_eff * (
+            1.0 + cfg.alpha_spread * torch.linspace(-1.0, 1.0, max(n, 2),
+                                                    dtype=dtype, device=device)[:n])
         self.X = torch.zeros(n, 2, dtype=dtype, device=device)
         self.p = torch.ones(n, dtype=dtype, device=device)
         self.since_switch = torch.full((n,), 1e3, dtype=dtype, device=device)
@@ -170,7 +182,7 @@ class ThieleDisks:
         cfg = self.cfg
         F = self._force(X, drive, t)
         r2 = (X * X).sum(-1) / cfg.R**2
-        D = cfg.alpha_eff * self.G0 * (1.0 + cfg.beta_nl * r2)
+        D = self.alpha * self.G0 * (1.0 + cfg.beta_nl * r2)
         # Signed z-component of the gyrovector: G = -(2 pi Ms L / gamma) p z_hat,
         # so Gz = -G0 p. Getting this sign wrong mirror-inverts every orbit --
         # p = +1 must gyrate counterclockwise, as established experimentally.
@@ -195,19 +207,38 @@ class ThieleDisks:
         fired = (speed > self.cfg.v_crit) & (self.since_switch > self.cfg.refractory)
         if fired.any():
             idx = fired.nonzero(as_tuple=True)[0]
+            # Burst phase, read BEFORE the contraction: the emitted packet is
+            # coherent with the core's gyration at the instant of reversal.
+            burst_phase = torch.atan2(self.X[idx, 1], self.X[idx, 0])
             self.p[idx] = -self.p[idx]
             self.X[idx] *= self.cfg.contraction
             self.since_switch[idx] = 0.0
-            if self.cfg.spike_kick:
-                # The reversal burst kicks the neighbours tangentially --
-                # tangential because that is the direction that pumps orbit.
-                for i in idx.tolist():
-                    for j in (i - 1, i + 1):
-                        if 0 <= j < self.cfg.n_disks:
-                            Xj = self.X[j]
-                            r = Xj.norm().clamp_min(1e-3 * self.cfg.R)
-                            tangent = torch.stack([-Xj[1], Xj[0]]) / r
-                            self.X[j] = Xj + self.cfg.spike_kick * self.cfg.R * tangent
+            for i, phi_star in zip(idx.tolist(), burst_phase.tolist()):
+                for j in (i - 1, i + 1):
+                    if not 0 <= j < self.cfg.n_disks:
+                        continue
+                    Xj = self.X[j]
+                    r = Xj.norm().clamp_min(1e-3 * self.cfg.R)
+                    if self.cfg.phase_capture:
+                        # Injection locking by the coherent burst: pull the
+                        # neighbour's phase toward the burst phase, radius
+                        # untouched. This is the culling step -- each spike
+                        # projects the cluster toward a common phase, raising
+                        # its order; heterogeneous inputs then rebuild the
+                        # decorrelated structure between events.
+                        phi = math.atan2(float(Xj[1]), float(Xj[0]))
+                        dphi = math.atan2(math.sin(phi_star - phi),
+                                          math.cos(phi_star - phi))
+                        new = phi + self.cfg.phase_capture * dphi
+                        self.X[j] = r * torch.tensor(
+                            [math.cos(new), math.sin(new)],
+                            dtype=self.dtype, device=self.device)
+                    if self.cfg.spike_kick:
+                        # Energy transfer: tangential, the direction that
+                        # pumps orbit.
+                        Xj = self.X[j]
+                        tangent = torch.stack([-Xj[1], Xj[0]]) / r
+                        self.X[j] = Xj + self.cfg.spike_kick * self.cfg.R * tangent
         self._speed = speed
         return fired.to(self.dtype)
 
@@ -215,7 +246,15 @@ class ThieleDisks:
         """Integrate one input frame under constant ``drive`` (n_disks,).
 
         Returns the per-disk feature vector, (n_disks, 7):
-        ``x/R, y/R, rms orbit/R, end speed/v_crit, polarity, spikes, end r^2/R^2``.
+        ``I/R, Q/R, rms orbit/R, end speed/v_crit, polarity, spikes, end r^2/R^2``.
+
+        I/Q are the core position demodulated into each disk's own rotating
+        frame (rotation by -p * omega0 * t) -- lock-in detection against the
+        drive clock, which is how an experiment would read the disk anyway.
+        Lab-frame sampling only works if every relevant frequency is
+        commensurate with the frame length; coupling splits the collective
+        modes away from omega0, so lab-frame features turn the stroboscopic
+        map time-varying again. Envelopes do not care.
         """
         R = self.cfg.R
         spikes = torch.zeros(self.cfg.n_disks, dtype=self.dtype, device=self.device)
@@ -224,9 +263,13 @@ class ThieleDisks:
             spikes += self.step(drive)
             r2_accum += (self.X * self.X).sum(-1) / R**2
         r2_end = (self.X * self.X).sum(-1) / R**2
+        theta = self.p * (self.omega0 * self.t)
+        c, s = torch.cos(theta), torch.sin(theta)
+        I = (c * self.X[:, 0] + s * self.X[:, 1]) / R
+        Q = (-s * self.X[:, 0] + c * self.X[:, 1]) / R
         return torch.stack([
-            self.X[:, 0] / R,
-            self.X[:, 1] / R,
+            I,
+            Q,
             (r2_accum / n_steps).sqrt(),
             self._speed / self.cfg.v_crit,
             self.p.clone(),

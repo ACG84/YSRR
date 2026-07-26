@@ -69,21 +69,45 @@ def main():
     u = rng.uniform(0.0, 1.0, args.frames)
     P = film(u)[:, :12]
 
+    # This container gets reclaimed on idle, and this sweep has now died twice
+    # mid-run, so each condition is journalled as it completes and replayed on
+    # restart. Losing a four-hour sweep to a restart is a solved problem.
+    import json
+    jpath = Path("runs/operating_point/journal.jsonl")
+    jpath.parent.mkdir(parents=True, exist_ok=True)
+    done = {}
+    if jpath.exists():
+        for line in jpath.read_text().splitlines():
+            if line.strip():
+                r = json.loads(line)
+                done[(r["drive"], r["coupling"])] = r
+
     print(f"{'drive':>7} {'coupling':>9} {'lambda':>9} {'noise/spread':>13} "
           f"{'spk/disk/frm':>13} {'verdict':>14}")
     best = None
     for g in args.couplings:
         for ds in args.drives:
-            cfg = ThieleConfig(coupling=g, spike_kick=0.0, phase_capture=0.5,
-                               drive_scale=ds, temperature=300.0,
-                               alpha_spread=0.5)
-            lam = lyapunov(P, cfg, args.steps_per_frame)
-            nf, rate = snr_and_rate(P, cfg, args.steps_per_frame)
+            if (ds, g) in done:
+                r = done[(ds, g)]
+                lam, nf, rate = r["lambda"], r["noise_spread"], r["rate"]
+                cached = "  (cached)"
+            else:
+                cfg = ThieleConfig(coupling=g, spike_kick=0.0, phase_capture=0.5,
+                                   drive_scale=ds, temperature=300.0,
+                                   alpha_spread=0.5)
+                lam = lyapunov(P, cfg, args.steps_per_frame)
+                nf, rate = snr_and_rate(P, cfg, args.steps_per_frame)
+                with jpath.open("a") as fh:
+                    fh.write(json.dumps({"drive": ds, "coupling": g,
+                                         "lambda": lam, "noise_spread": nf,
+                                         "rate": rate}) + "\n")
+                cached = ""
             ok = lam < 0 and nf < 0.5 and rate > 0.002
             if ok and (best is None or nf < best[0]):
                 best = (nf, ds, g, lam, rate)
             print(f"{ds:>7.2f} {g:>9.2f} {lam:>+9.4f} {nf:>13.3f} "
-                  f"{rate:>13.4f} {'USABLE' if ok else '':>14}")
+                  f"{rate:>13.4f} {'USABLE' if ok else '':>14}{cached}",
+                  flush=True)
 
     if best:
         nf, ds, g, lam, rate = best

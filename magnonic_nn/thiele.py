@@ -165,6 +165,7 @@ class ThieleDisks:
         # sign and twice the weight of x-x. Only the ratio matters here; the
         # magnitude is the `coupling` knob.
         self.coupling_pairs = [(i, i + 1) for i in range(n - 1)]
+        self._pair_weights = torch.tensor([2.0, -1.0], dtype=dtype, device=device)
 
     # ------------------------------------------------------------------ forces
     def _force(self, X: torch.Tensor, drive: torch.Tensor, t: float) -> torch.Tensor:
@@ -179,16 +180,18 @@ class ThieleDisks:
         F[:, 0] += cfg.drive_scale * self.k * R * drive * osc
 
         if cfg.coupling:
-            mu = cfg.coupling * self.k
-            for i, j in self.coupling_pairs:
-                # The displaced-vortex moment is PERPENDICULAR to the core
-                # displacement (m ~ z_hat x X), so for a bond along y_hat the
-                # dipolar double-weight term lands on the x coordinate:
-                # W = mu (y_i y_j - 2 x_i x_j), F = -dW/dX.
-                F[i, 0] += 2 * mu * X[j, 0]
-                F[i, 1] += -mu * X[j, 1]
-                F[j, 0] += 2 * mu * X[i, 0]
-                F[j, 1] += -mu * X[i, 1]
+            # The displaced-vortex moment is PERPENDICULAR to the core
+            # displacement (m ~ z_hat x X), so for a bond along y_hat the
+            # dipolar double-weight term lands on the x coordinate:
+            # W = mu (y_i y_j - 2 x_i x_j), F = -dW/dX.
+            #
+            # Vectorised over the chain rather than looped over pairs: the
+            # loop was 44 scalar index-assignments per force evaluation, 176
+            # per RK4 step, and measured at 84% of total runtime on a state
+            # of 24 numbers. Slicing says the same thing in four ops.
+            w = self._pair_weights * (cfg.coupling * self.k)
+            F[:-1] += w * X[1:]      # each disk from its right neighbour
+            F[1:] += w * X[:-1]      # and from its left
         return F
 
     def _velocity(self, X: torch.Tensor, drive: torch.Tensor, t: float) -> torch.Tensor:

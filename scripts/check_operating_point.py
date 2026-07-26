@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Find the corner where stability, SNR and spiking coexist.
+
+The Lyapunov probe left a squeeze. Strong drive gives spike chatter and
+positive lambda; weak drive leaves thermal noise larger than the signal
+(noise/spread ~1.3 at drive 0.06). Neither drive nor coupling had been swept,
+and they push lambda in opposite directions, so the operating point -- if
+there is one -- lives in the 2D corner where all three conditions hold at
+once:
+
+    lambda < 0        contractive analog dynamics (fading memory possible)
+    noise/spread << 1 features carry signal, not thermal jitter
+    rate > 0          the disks actually fire
+
+Capture is on throughout at 0.5, since it was measured contractive
+(+0.0285 -> -0.0446) and there is no reason to spend the sweep re-deriving
+that.
+
+    python scripts/check_operating_point.py
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import numpy as np
+import torch
+
+from check_lyapunov import lyapunov
+from magnonic_nn.reservoir import FilmResponse
+from magnonic_nn.thiele import ThieleConfig, ThieleDisks
+
+
+def snr_and_rate(P, cfg, steps):
+    """Thermal divergence / feature spread, and spikes per disk per frame."""
+    outs = []
+    for seed in (0, 7):
+        d = ThieleDisks(cfg, noise_seed=seed)
+        drive = torch.zeros(cfg.n_disks, dtype=torch.float64)
+        f = [d.run_frame(drive.copy_(torch.from_numpy(P[n])), steps).numpy()
+             for n in range(len(P))]
+        outs.append(np.stack(f))
+    A, B = outs
+    cols = [0, 1, 2, 3, 6]
+    flatA = A[:, :, cols].reshape(len(A), -1)
+    diff = np.linalg.norm((A - B)[:, :, cols].reshape(len(A), -1), axis=1)
+    spread = np.linalg.norm(flatA - flatA.mean(0), axis=1)
+    return (float(diff[-20:].mean() / max(spread[-20:].mean(), 1e-12)),
+            float(A[:, :, 5].mean()))
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--response", default="runs/film_response/response.pt")
+    p.add_argument("--frames", type=int, default=55)
+    p.add_argument("--steps-per-frame", type=int, default=300)
+    p.add_argument("--drives", type=float, nargs="+", default=[0.06, 0.12, 0.20])
+    p.add_argument("--couplings", type=float, nargs="+", default=[0.02, 0.08])
+    args = p.parse_args()
+
+    film = FilmResponse.load(args.response)
+    rng = np.random.default_rng(42)
+    u = rng.uniform(0.0, 1.0, args.frames)
+    P = film(u)[:, :12]
+
+    print(f"{'drive':>7} {'coupling':>9} {'lambda':>9} {'noise/spread':>13} "
+          f"{'spk/disk/frm':>13} {'verdict':>14}")
+    best = None
+    for g in args.couplings:
+        for ds in args.drives:
+            cfg = ThieleConfig(coupling=g, spike_kick=0.0, phase_capture=0.5,
+                               drive_scale=ds, temperature=300.0,
+                               alpha_spread=0.5)
+            lam = lyapunov(P, cfg, args.steps_per_frame)
+            nf, rate = snr_and_rate(P, cfg, args.steps_per_frame)
+            ok = lam < 0 and nf < 0.5 and rate > 0.002
+            if ok and (best is None or nf < best[0]):
+                best = (nf, ds, g, lam, rate)
+            print(f"{ds:>7.2f} {g:>9.2f} {lam:>+9.4f} {nf:>13.3f} "
+                  f"{rate:>13.4f} {'USABLE' if ok else '':>14}")
+
+    if best:
+        nf, ds, g, lam, rate = best
+        print(f"\nbest corner: drive {ds}, coupling {g} -- lambda {lam:+.4f}, "
+              f"noise/spread {nf:.3f}, {rate:.4f} spk/disk/frame")
+    else:
+        print("\nNo corner satisfies all three. The squeeze is real: at this")
+        print("temperature the drive that lifts signal above thermal also")
+        print("drives lambda positive. Next levers are lower T, stiffer")
+        print("confinement (thicker disks raise k without raising noise), or")
+        print("accepting rate-coded features averaged over many frames.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

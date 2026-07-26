@@ -34,8 +34,8 @@ from magnonic_nn.reservoir import FilmResponse
 from magnonic_nn.thiele import ThieleConfig, ThieleDisks
 
 
-def run(P, cfg, steps, init_seed=None):
-    disks = ThieleDisks(cfg)
+def run(P, cfg, steps, init_seed=None, noise_seed=0):
+    disks = ThieleDisks(cfg, noise_seed=noise_seed)
     if init_seed is not None:
         g = torch.Generator().manual_seed(init_seed)
         disks.X = 0.2 * cfg.R * torch.randn(cfg.n_disks, 2, generator=g,
@@ -102,12 +102,29 @@ def main():
                                                alpha_spread=0.5))
         for lam in (0.0, 0.5)
     ]
+    # Thermal arms: same sparse operating point, 300 K. The FDT noise smears
+    # the threshold into a probability; the echo test then measures excess
+    # divergence over the NOISE FLOOR (two runs differing only in noise seed),
+    # since twins can never converge microscopically once noise exists.
+    conditions += [
+        (f"T=300 cap={lam:.1f}", ThieleConfig(coupling=0.08, spike_kick=0.0,
+                                              phase_capture=lam,
+                                              drive_scale=0.06,
+                                              temperature=300.0,
+                                              alpha_spread=0.5))
+        for lam in (0.0, 0.5)
+    ]
     for name, cfg in conditions:
         A = run(P, cfg, args.steps_per_frame)
         B = run(P, cfg, args.steps_per_frame, init_seed=123)
         analog = [0, 1, 2, 3, 6]
         d = np.linalg.norm((A - B)[:, :, analog].reshape(len(A), -1), axis=1)
         decay = float(d[-20:].mean() / d[:20].mean().clip(1e-12))
+        if cfg.temperature > 0:
+            # excess over the noise floor is the fair fading measure
+            A2 = run(P, cfg, args.steps_per_frame, noise_seed=7)
+            dn = np.linalg.norm((A - A2)[:, :, analog].reshape(len(A), -1), axis=1)
+            decay = float((d[-20:].mean()) / dn[-20:].mean().clip(1e-12))
 
         # Are the twins' spike SEQUENCES the same events? Input-locked firing
         # predicts yes; state-born firing predicts divergent sets.

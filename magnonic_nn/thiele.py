@@ -94,6 +94,15 @@ class ThieleConfig:
     alpha_spread: float = 0.0    # +-fractional spread of alpha_eff across the
                                  # row; identical disks are one filter wearing
                                  # n masks, a spread makes a timescale bank
+    temperature: float = 0.0     # K. Langevin noise on the core with variance
+                                 # fixed by fluctuation-dissipation from the
+                                 # damping already present -- no free knobs.
+                                 # At 300 K the thermal orbit is ~1.5% of R and
+                                 # velocity jitter ~3% of v_crit: features stay
+                                 # informative, but the firing threshold smears
+                                 # from a deterministic cliff into a
+                                 # probability -- the continuous control
+                                 # parameter an edge-of-chaos system needs
     drive_scale: float = 0.10    # peak drive force, fraction of k*R per unit
                                  # input. Calibrated so firing is an event, not
                                  # a carrier: at 0.15 the trial measured 0.44
@@ -132,7 +141,11 @@ class ThieleDisks:
     letting it inside the integrator stages would poison the derivatives.
     """
 
-    def __init__(self, cfg: ThieleConfig, dtype=torch.float64, device="cpu"):
+    K_B = 1.380649e-23
+
+    def __init__(self, cfg: ThieleConfig, dtype=torch.float64, device="cpu",
+                 noise_seed: int = 0):
+        self.noise_gen = torch.Generator(device=device).manual_seed(noise_seed)
         self.cfg = cfg
         d = cfg.derived()
         self.G0, self.k, self.omega0, self.dt = d["G"], d["k"], d["omega0"], d["dt"]
@@ -200,6 +213,19 @@ class ThieleDisks:
         k3 = self._velocity(X + 0.5 * dt * k2, drive, t + 0.5 * dt)
         k4 = self._velocity(X + dt * k3, drive, t + dt)
         self.X = X + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+        if self.cfg.temperature > 0:
+            # Euler-Maruyama noise increment after the deterministic RK4 step
+            # (RK4 inside the stages would not converge for an SDE). The
+            # mobility is a scaled rotation, so the displacement noise is
+            # isotropic: sigma^2 = 2 D k_B T dt / (D^2 + G^2), FDT with the
+            # same D(r) the deterministic dynamics use.
+            r2 = (self.X * self.X).sum(-1) / self.cfg.R**2
+            D = self.alpha * self.G0 * (1.0 + self.cfg.beta_nl * r2)
+            sigma = (2 * D * self.K_B * self.cfg.temperature * dt
+                     / (D * D + self.G0**2)).sqrt()
+            self.X = self.X + sigma.unsqueeze(-1) * torch.randn(
+                self.X.shape, generator=self.noise_gen, dtype=self.dtype,
+                device=self.device)
         self.t = t + dt
         self.since_switch += dt
 

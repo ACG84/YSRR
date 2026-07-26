@@ -29,7 +29,13 @@ Quick start::
                         metric_fns=task.metric_fns)
 """
 
-from ._compat import get_device, import_magnumnp, set_device, set_precision
+from ._compat import (
+    compile_enabled,
+    get_device,
+    import_magnumnp,
+    set_device,
+    set_precision,
+)
 from .config import (
     PRESETS,
     FieldConfig,
@@ -101,7 +107,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     # setup
-    "set_precision", "set_device", "get_device", "import_magnumnp",
+    "set_precision", "set_device", "get_device", "import_magnumnp", "compile_enabled",
     # config
     "SimConfig", "MeshConfig", "MaterialConfig", "FieldConfig", "SolverConfig",
     "get_preset", "PRESETS",

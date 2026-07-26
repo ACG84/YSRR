@@ -50,7 +50,10 @@ def measure() -> dict:
     mnn.set_precision("float32")
     mnn.set_device("cuda")
 
-    out = {"compile": mnn.compile_enabled(), "torch": torch.__version__, "runs": []}
+    # Read the env var rather than mnn.compile_enabled(): a checkout on the VM
+    # may predate that symbol being exported from the package.
+    out = {"compile": os.environ.get("MAGNONIC_NN_COMPILE") == "1",
+           "torch": torch.__version__, "runs": []}
     for nx, steps in CONFIGS:
         cfg = mnn.get_preset("focus")
         cfg.mesh.nx = cfg.mesh.ny = nx

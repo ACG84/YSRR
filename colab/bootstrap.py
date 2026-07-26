@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Bring up magnonic-nn on a Colab GPU, and prove the GPU path actually works.
 
-Paste the one-liner from ``colab/README.md`` into a Colab cell; it fetches and
-runs this.
+Driven headlessly by ``colab run``, which uploads this file and forwards the
+arguments below (mind its 30 s default ``--timeout``); or pasted into a cell.
+See ``colab/README.md``.
 
 The order matters. The CUDA path in this package has never been executed -- it
 was written and tested entirely on CPU -- so this verifies before it benchmarks

@@ -1,6 +1,23 @@
 # Running on a Colab GPU
 
-Paste this into one Colab cell, with **Runtime → Change runtime type → GPU** set:
+Colab has a headless CLI (`google-colab-cli`, June 2026), so this does not need
+a browser tab. From a machine that is already authorised:
+
+```bash
+colab run --gpu T4 --keep -s ysrr --timeout 21600 \
+    colab/bootstrap.py --stage all --task vowels-full
+colab download -s ysrr YSRR/runs/vowels_full_gpu/checkpoint.pt runs/vowels_full_gpu/
+colab stop -s ysrr
+```
+
+`run` is the one that forwards arguments (`exec` only takes `-f FILE`, no
+argv), it uploads the local script itself so the repo need not be pushed
+first, and `--stage all` chains install → verify → benchmark → train. Watch
+the `--timeout`: it defaults to **30 s**, which silently truncates anything
+real. Without `--keep` the VM is torn down when the script exits, taking the
+checkpoints with it.
+
+The equivalent in a notebook cell, with **Runtime → Change runtime type → GPU**:
 
 ```python
 !git clone -q --branch claude/magnonic-neural-network-sim-16r541 https://github.com/ACG84/YSRR.git
@@ -8,12 +25,29 @@ Paste this into one Colab cell, with **Runtime → Change runtime type → GPU**
 !cd YSRR && python colab/bootstrap.py --stage verify
 ```
 
-Then, once that is green:
+## Installing and authorising the CLI
 
-```python
-!cd YSRR && python colab/bootstrap.py --stage benchmark
-!cd YSRR && python colab/bootstrap.py --stage train --task vowels-full
+The CLI needs Python ≥ 3.12 and this container's system Python is 3.11, so
+install it with its own interpreter rather than into the environment:
+
+```bash
+uv tool install --python 3.12 google-colab-cli
 ```
+
+Authorisation is a copy-paste OAuth flow — not a localhost redirect, and not
+the OOB flow Google blocked in 2022 — so it works from a container as long as
+something can carry one string in each direction. `colab_cli` reads the code
+from a TTY, which a non-interactive session does not have; `auth_relay.py`
+splits the same flow in two so the code can be relayed by hand:
+
+```bash
+python colab/auth_relay.py url                # open in a browser, approve
+python colab/auth_relay.py exchange <CODE>    # writes ~/.config/colab-cli/token.json
+```
+
+The scopes are the CLI's own and include `cloud-platform` and `drive.file`,
+which is broad for what is being asked. The token lands in a container that is
+reclaimed on idle; revoke at https://myaccount.google.com/permissions.
 
 ## Verify before you trust anything
 
@@ -50,17 +84,16 @@ bound — and a large one as size grows. That is the shape of the magnum.np
 benchmark in the NeuralMag paper, and it is why the interesting configurations
 are the big ones.
 
-## What I can and cannot do from here
+## What has to happen by hand
 
-I **cannot drive Colab from this session**. Colab has no headless CLI: a runtime
-has to be started from a browser, and there is no API to submit a job to it.
-What is here is everything up to that point — clone, install, verify, benchmark,
-train — as a single cell you run.
+One step, once: approving the OAuth URL and pasting the code back. Everything
+after that — starting a runtime, uploading, installing, running the suite,
+training, pulling checkpoints down, stopping the VM — is scriptable, and the
+refresh token persists for as long as the container does.
 
-If you want something genuinely unattended, the alternatives are a plain SSH box
-with a GPU, or `runpod`/`vast.ai`-style rentals, both of which do have CLIs I
-could drive end to end. Colab Pro's background execution keeps a run alive after
-you close the tab, which covers most of the gap.
+Colab reclaims idle runtimes, so an unattended run still wants either Drive
+(below) or a `colab download` on a timer. A plain SSH GPU box or a
+`runpod`/`vast.ai` rental avoids that, at the cost of not being free.
 
 ## Checkpoints come back
 

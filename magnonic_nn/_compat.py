@@ -7,11 +7,19 @@
 3. decorates ``ExchangeField.h`` and ``LinearFieldTerm.E`` with ``torch.compile``
 
 The ``torch.compile`` decorators are applied while the module body executes, so
-the only way to opt out is to patch ``torch.compile`` *before* the import. On
-CPU the inductor backend costs more in compile time than it returns for the
-mesh sizes used here, and it interacts poorly with ``torch.utils.checkpoint``
-re-entrancy, so compilation is off by default. Set
-``MAGNONIC_NN_COMPILE=1`` to leave ``torch.compile`` in place.
+the only way to opt out is to patch ``torch.compile`` *before* the import.
+
+Whether that is worth doing depends on the device, so the default follows it.
+On CPU the inductor backend costs more in compile time than it returns at these
+mesh sizes. On a T4 it is worth 1.4x -- 49.9 -> 35.8 ms/step at 64x64 and
+51.2 -> 37.7 at 100x100, measured by ``colab/profile_step.py`` -- with backward
+gaining more than forward, since checkpointing gives it more dispatch to
+amortise. Compilation was originally off everywhere partly because it
+interacted poorly with ``torch.utils.checkpoint`` re-entrancy; that does not
+reproduce on CUDA with torch 2.11, where the full suite passes (107 tests) with
+compilation left in place and checkpointing enabled.
+
+``MAGNONIC_NN_COMPILE=0`` or ``=1`` overrides the default either way.
 
 Every module in this package imports magnum.np through :func:`import_magnumnp`
 (or simply imports this module first) so the patch is always in effect.
@@ -36,8 +44,19 @@ _ORIGINAL_COMPILE = torch.compile
 
 
 def compile_enabled() -> bool:
-    """Whether ``torch.compile`` is left active inside magnum.np."""
-    return os.environ.get("MAGNONIC_NN_COMPILE", "0") == "1"
+    """Whether ``torch.compile`` is left active inside magnum.np.
+
+    Defaults to on for CUDA and off for CPU; see the module docstring for the
+    measurements behind that. Decided at import time, before any
+    :func:`set_device` call, so it asks what hardware exists rather than what
+    is currently selected -- running on CPU with a GPU present pays inductor's
+    compile time for nothing, which is the cost of getting this wrong in the
+    cheap direction.
+    """
+    override = os.environ.get("MAGNONIC_NN_COMPILE")
+    if override is not None:
+        return override == "1"
+    return torch.cuda.is_available()
 
 
 def _identity_compile(model=None, **_kwargs):

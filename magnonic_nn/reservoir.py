@@ -186,7 +186,14 @@ class ReservoirRunner:
 
     film: FilmResponse
     thiele_cfg: ThieleConfig
-    steps_per_frame: int = 250
+    # An INTEGER number of gyration periods per frame is load-bearing: at
+    # dt = T/100, 300 steps = 3.0 periods keeps the drive phase identical at
+    # every frame boundary. At 2.5 periods the phase advances by pi per frame,
+    # the stroboscopic map becomes period-2 time-varying, and a time-invariant
+    # linear readout loses the memory trace (measured: MC 0.67 vs a delay
+    # line's 8.0, with end-state features alternating sign under constant
+    # input).
+    steps_per_frame: int = 300
     include_input: bool = True
     include_film: bool = True    # keep the baselines nested: disk conditions
                                  # must contain the film-only feature set

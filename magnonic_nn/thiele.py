@@ -74,7 +74,10 @@ class ThieleConfig:
                                  # firing ceiling omega0*R ~ Ms*L must clear v_crit
     Ms: float = 800e3            # permalloy, A/m
     f_gyro: float | None = None  # Hz; None -> Guslienko thin-disk estimate
-    alpha_eff: float = 0.01      # lumped damping ratio D/|G| at small orbit
+    alpha_eff: float = 0.005     # lumped damping ratio D/|G| at small orbit;
+                                 # sets the memory horizon 1/(alpha_eff*omega0)
+                                 # ~ 32 ns ~ 10 frames, matched to timescale,
+                                 # not tuned on any task score
     beta_nl: float = 0.5         # damping stiffening: D(r) = D0 (1 + beta_nl r^2/R^2)
     kappa_nl: float = 0.3        # potential stiffening: F = -k X (1 + kappa_nl r^2/R^2)
     v_crit: float = 320.0        # core reversal speed, m/s (Py, Guslienko)
@@ -82,7 +85,11 @@ class ThieleConfig:
     refractory: float = 2e-9     # s; no re-fire inside this window
     coupling: float = 0.0        # nearest-neighbour dipolar strength, fraction of k
     spike_kick: float = 0.0      # tangential kick to neighbours per spike, fraction of R
-    drive_scale: float = 0.15    # peak drive force, fraction of k*R per unit input
+    drive_scale: float = 0.10    # peak drive force, fraction of k*R per unit
+                                 # input. Calibrated so firing is an event, not
+                                 # a carrier: at 0.15 the trial measured 0.44
+                                 # spikes/disk/frame -- chatter that scrambles
+                                 # the phase memory it is supposed to punctuate
     dt: float | None = None      # s; None -> gyration period / 100
 
     def derived(self) -> dict:

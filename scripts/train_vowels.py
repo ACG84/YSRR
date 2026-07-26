@@ -33,6 +33,13 @@ from _common import base_parser, report_physics, setup
 
 def main():
     p = base_parser(__doc__, default_preset="vowels")
+    p.add_argument("--classes", default="ae,ei,iy",
+                   help="comma-separated vowels, or 'all' for the full "
+                        f"{len(mnn.FORMANTS)}-vowel inventory. Available: "
+                        f"{','.join(mnn.FORMANTS)}. Each class gets its own "
+                        "detector, so the mesh must be wide enough to place "
+                        "them a half-wavelength apart -- 12 needs nx=80 with "
+                        "--probe-radius 1")
     p.add_argument("--n-per-class", type=int, default=16)
     p.add_argument("--n-train-per-class", type=int, default=4,
                    help="paper protocol: 4 training tokens per vowel, rest held out")
@@ -48,8 +55,15 @@ def main():
     print(f"vowel classification -> {outdir}")
     report_physics(cfg)
 
+    classes = (tuple(mnn.FORMANTS) if args.classes == "all"
+               else tuple(c.strip() for c in args.classes.split(",") if c.strip()))
+    unknown = [c for c in classes if c not in mnn.FORMANTS]
+    if unknown:
+        p.error(f"unknown vowel(s) {unknown}; available: {','.join(mnn.FORMANTS)}")
+
     task = mnn.build_vowels(
         cfg,
+        classes=classes,
         n_per_class=args.n_per_class,
         n_train_per_class=args.n_train_per_class,
         jitter=args.jitter,

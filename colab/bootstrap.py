@@ -136,16 +136,19 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", default="verify",
-                   choices=["install", "verify", "benchmark", "train", "all"])
+                   choices=["install", "verify", "benchmark", "check", "train", "all"],
+                   help="'check' is install+verify+benchmark: everything that "
+                        "establishes the GPU path is sound, without spending an "
+                        "hour of accelerator time to find out it isn't")
     p.add_argument("--task", default="vowels-full", choices=sorted(TASKS))
     args = p.parse_args()
 
-    if args.stage in ("install", "all"):
+    if args.stage in ("install", "check", "all"):
         stage_install()
-    if args.stage in ("verify", "all"):
+    if args.stage in ("verify", "check", "all"):
         if stage_verify():
             return 1
-    if args.stage in ("benchmark", "all"):
+    if args.stage in ("benchmark", "check", "all"):
         stage_benchmark()
     if args.stage in ("train", "all"):
         stage_train(args.task)

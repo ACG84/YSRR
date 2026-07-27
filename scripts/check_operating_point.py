@@ -114,11 +114,17 @@ def main():
         print(f"\nbest corner: drive {ds}, coupling {g} -- lambda {lam:+.4f}, "
               f"noise/spread {nf:.3f}, {rate:.4f} spk/disk/frame")
     else:
-        print("\nNo corner satisfies all three. The squeeze is real: at this")
-        print("temperature the drive that lifts signal above thermal also")
-        print("drives lambda positive. Next levers are lower T, stiffer")
-        print("confinement (thicker disks raise k without raising noise), or")
-        print("accepting rate-coded features averaged over many frames.")
+        print("\nNo corner satisfies all three -- but not for the reason this")
+        print("script was written to expect. Lambda is negative everywhere and")
+        print("grows MORE negative with drive (nonlinear damping scales with")
+        print("r^2, so hard driving is stabilising); there is no stability-")
+        print("versus-drive tradeoff. Only noise/spread fails, and it barely")
+        print("moves across either knob. Contractive analog dynamics cannot")
+        print("produce a macroscopic noise floor, so the floor is spike-")
+        print("SEQUENCE divergence between noise realisations -- individual")
+        print("spike times are irrecoverable once the threshold is stochastic.")
+        print("The information has to live in rates, not timings: see")
+        print("scripts/check_rate_coding.py.")
     return 0
 
 

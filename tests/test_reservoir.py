@@ -199,3 +199,59 @@ def test_features_deterministic():
     a = ReservoirRunner(fr, cfg, steps_per_frame=40).features(u)
     b = ReservoirRunner(fr, cfg, steps_per_frame=40).features(u)
     assert np.array_equal(a, b)
+
+
+# ------------------------------------------------------- waveguide coupling
+def test_port_budget_is_enforced():
+    """Ports share one emission budget; over-allocating is a physics error."""
+    with pytest.raises(ValueError, match="more power than"):
+        ThieleDisks(ThieleConfig(port_neighbour=0.6, port_readout=0.3,
+                                 port_return=0.3))
+
+
+def test_waveguide_coupling_is_causal():
+    """A neighbour cannot respond before the propagation delay has elapsed."""
+    tau = 3e-9
+    cfg = ThieleConfig(n_disks=2, coupling=0.0, wg_coupling=0.15, wg_delay=tau,
+                       v_crit=float("inf"), alpha_eff=0.01, drive_scale=0.3)
+    d = ThieleDisks(cfg)
+    drive = torch.tensor([1.0, 0.0], dtype=torch.float64)
+    first = None
+    for _ in range(int(8e-9 / d.dt)):
+        d.step(drive)
+        if first is None and float(d.X[1].norm()) / cfg.R > 1e-4:
+            first = d.t
+    assert first is not None, "neighbour never responded"
+    assert first >= tau * 0.98, f"response at {first:.2e} precedes delay {tau:.2e}"
+
+
+def test_delay_line_holds_state_through_a_reset():
+    """The point of the guide: a spike wipes the disk, not the delay line."""
+    tau = 4e-9
+    cfg = ThieleConfig(n_disks=2, coupling=0.0, wg_coupling=0.2, wg_delay=tau,
+                       alpha_eff=0.005, drive_scale=0.3)
+    d = ThieleDisks(cfg)
+    drive = torch.tensor([1.0, 0.0], dtype=torch.float64)
+    # drive for longer than tau, or the guide is still empty and the test
+    # would be asserting on a delay line that has not yet been filled
+    for _ in range(int(2.5 * tau / d.dt)):
+        d.step(drive)
+    # wipe both disks by hand, as a reversal would
+    d.X.zero_()
+    history_energy = float(d.history.norm())
+    assert history_energy > 0, "delay line empty before the reset"
+    # with the disks at rest, the only force can come from the guide
+    d.step(torch.zeros(2, dtype=torch.float64))
+    assert float(d.X.norm()) > 0, "guide did not re-excite the wiped disks"
+
+
+def test_port_taps_scale_with_their_fraction():
+    cfg = ThieleConfig(n_disks=3, coupling=0.0, port_neighbour=0.5,
+                       port_readout=0.25, port_return=0.25,
+                       wg_return_delay=2e-9, wg_coupling=0.1, wg_delay=2e-9,
+                       v_crit=float("inf"))
+    d = ThieleDisks(cfg)
+    d.X[:] = torch.tensor([[0.4 * cfg.R, 0.0]] * 3, dtype=torch.float64)
+    taps = d.port_taps()
+    assert set(taps) == {"readout", "return"}
+    assert abs(float(taps["readout"][0, 0]) - 0.25 * 0.4) < 1e-12

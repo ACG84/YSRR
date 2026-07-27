@@ -83,6 +83,47 @@ class ThieleConfig:
     v_crit: float = 320.0        # core reversal speed, m/s (Py, Guslienko)
     contraction: float = 0.3     # orbit radius retained after a reversal
     refractory: float = 2e-9     # s; no re-fire inside this window
+    # Waveguide-mediated coupling. Encasing each disk in a magnonic guide
+    # replaces the near-field dipolar term -- which the 250 nm probe pitch
+    # forces on us at a 50 nm edge gap -- with a coupling whose strength AND
+    # delay are set by guide geometry. The delay is the point: the disks
+    # cannot hold memory because firing resets them inside their own damping
+    # horizon, but a delay line holds history OUTSIDE the disk, where a reset
+    # cannot reach it. This is the Appeltant delay-reservoir architecture: a
+    # nonlinear node plus a delay loop is a reservoir.
+    #
+    # Near FMR the group velocity is low (~100 m/s at a few mT bias), so a
+    # 30 ns delay -- the whole 10-frame memory requirement -- is ~3 um of
+    # on-chip guide.
+    # Each guide is multi-port, and the ports share ONE emission budget: what
+    # leaks to the neighbours cannot also be tapped for the decoder or sent
+    # back down the return path. That constraint is the honest part of the
+    # architecture -- routing power to the readout costs recruitment strength.
+    #
+    #   port_neighbour  leaks to the adjacent disks (recruitment)
+    #   port_readout    taps to film2, the decoder
+    #   port_return     the adjoint/backprop channel
+    #
+    # The return path carries its own delay, deliberately NOT equal to the
+    # forward one. In a biased film the forward and backward group velocities
+    # differ, so an adjoint signal arrives on a different schedule than the
+    # forward one it must be compared against -- with a separate port that
+    # asymmetry becomes a designed delay rather than an uncontrolled error.
+    wg_coupling: float = 0.0     # delayed neighbour coupling, fraction of k
+    wg_delay: float = 0.0        # s, neighbour propagation delay
+    wg_feedback: float = 0.0     # delayed self-feedback, fraction of k
+    wg_feedback_delay: float = 0.0   # s, round-trip delay of the self-loop
+    port_neighbour: float = 1.0
+    port_readout: float = 0.0
+    port_return: float = 0.0
+    wg_return_delay: float = 0.0     # s; asymmetric by design, see above
+
+    def check_ports(self) -> None:
+        total = self.port_neighbour + self.port_readout + self.port_return
+        if total > 1.0 + 1e-9:
+            raise ValueError(
+                f"port fractions sum to {total:.3f} > 1: the guide would emit "
+                "more power than the disk delivers to it")
     coupling: float = 0.0        # nearest-neighbour dipolar strength, fraction of k
     spike_kick: float = 0.0      # tangential kick to neighbours per spike, fraction of R
     phase_capture: float = 0.0   # 0..1: how far a reversal burst pulls each
@@ -167,6 +208,20 @@ class ThieleDisks:
         self.coupling_pairs = [(i, i + 1) for i in range(n - 1)]
         self._pair_weights = torch.tensor([2.0, -1.0], dtype=dtype, device=device)
 
+        # Circular history buffer for the delayed (waveguide) terms. Sized to
+        # the longest delay in use; the buffer starts at the origin, which is
+        # the physically right initial condition -- an empty guide.
+        cfg.check_ports()
+        self.d_nb = int(round(cfg.wg_delay / self.dt)) if cfg.wg_coupling else 0
+        self.d_fb = (int(round(cfg.wg_feedback_delay / self.dt))
+                     if cfg.wg_feedback else 0)
+        self.d_ret = (int(round(cfg.wg_return_delay / self.dt))
+                      if cfg.port_return else 0)
+        self._hist_len = max(self.d_nb, self.d_fb, self.d_ret) + 1
+        self.history = (torch.zeros(self._hist_len, n, 2, dtype=dtype, device=device)
+                        if self._hist_len > 1 else None)
+        self._hp = 0                      # write cursor
+
     # ------------------------------------------------------------------ forces
     def _force(self, X: torch.Tensor, drive: torch.Tensor, t: float) -> torch.Tensor:
         """Total in-plane force on each core at positions ``X`` (n, 2)."""
@@ -192,7 +247,35 @@ class ThieleDisks:
             w = self._pair_weights * (cfg.coupling * self.k)
             F[:-1] += w * X[1:]      # each disk from its right neighbour
             F[1:] += w * X[:-1]      # and from its left
+
+        if self.history is not None:
+            # Delayed terms are held constant across the RK4 stages: they are
+            # history, not a function of the stage state, and tau >> dt.
+            if cfg.wg_coupling:
+                Xd = self.history[(self._hp - self.d_nb) % self._hist_len]
+                g = cfg.wg_coupling * self.k * cfg.port_neighbour
+                F[:-1] += g * Xd[1:]
+                F[1:] += g * Xd[:-1]
+            if cfg.wg_feedback:
+                Xf = self.history[(self._hp - self.d_fb) % self._hist_len]
+                F += cfg.wg_feedback * self.k * Xf
         return F
+
+    def port_taps(self) -> dict:
+        """What each port is carrying right now, in units of R.
+
+        The readout tap is what film2 sees; the return tap is what an adjoint
+        scheme would receive. Both are delayed copies of the disk state,
+        scaled by their port fraction -- power the disk no longer has.
+        """
+        cfg, R = self.cfg, self.cfg.R
+        out = {}
+        if cfg.port_readout:
+            out["readout"] = cfg.port_readout * self.X / R
+        if cfg.port_return and self.history is not None:
+            Xr = self.history[(self._hp - self.d_ret) % self._hist_len]
+            out["return"] = cfg.port_return * Xr / R
+        return out
 
     def _velocity(self, X: torch.Tensor, drive: torch.Tensor, t: float) -> torch.Tensor:
         cfg = self.cfg
@@ -229,6 +312,12 @@ class ThieleDisks:
             self.X = self.X + sigma.unsqueeze(-1) * torch.randn(
                 self.X.shape, generator=self.noise_gen, dtype=self.dtype,
                 device=self.device)
+        if self.history is not None:
+            # Advance the guide: what leaves the disk now arrives at the far
+            # port tau later. Written after the state update, before the spike
+            # test, so a reversal cannot retroactively edit what already left.
+            self._hp = (self._hp + 1) % self._hist_len
+            self.history[self._hp] = self.X
         self.t = t + dt
         self.since_switch += dt
 

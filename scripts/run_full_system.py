@@ -100,11 +100,22 @@ def main():
     # -- stage 2: the spiking reservoir, twice -------------------------------
     # Operating point from the sweep: contractive (lambda -0.35), firing, and
     # the least noise-dominated corner available at coupling 0.08.
-    res_cfg = ThieleConfig(coupling=0.08, spike_kick=0.0, phase_capture=0.5,
-                           drive_scale=0.12, temperature=300.0, alpha_spread=0.5)
+    # Waveguide-encased: near-field dipolar coupling drops (the guides
+    # separate the disks), and the coupling returns with a delay set by guide
+    # length. tau is chosen as ~3 frames so the delay line spans the memory
+    # NARMA-10 needs -- the disks themselves cannot hold it, since firing
+    # resets them inside their own damping horizon (measured lag-1
+    # autocorrelation -0.006 without guides).
+    frame_s = args.steps_per_frame * (ThieleConfig().derived()["dt"])
+    res_cfg = ThieleConfig(coupling=0.01, spike_kick=0.0, phase_capture=0.5,
+                           drive_scale=0.12, temperature=300.0, alpha_spread=0.5,
+                           wg_coupling=0.10, wg_delay=3 * frame_s,
+                           wg_feedback=0.06, wg_feedback_delay=7 * frame_s,
+                           port_neighbour=0.6, port_readout=0.3, port_return=0.1,
+                           wg_return_delay=4 * frame_s)
     print("stage 2: reservoir (two noise realisations)", flush=True)
-    A = disk_features(P, res_cfg, args.steps_per_frame, 0, "A", outdir)
-    B = disk_features(P, res_cfg, args.steps_per_frame, 7, "B", outdir)
+    A = disk_features(P, res_cfg, args.steps_per_frame, 0, "Awg", outdir)
+    B = disk_features(P, res_cfg, args.steps_per_frame, 7, "Bwg", outdir)
 
     # -- stage 3: train film2, Noise2Noise -----------------------------------
     dc = DenoiserConfig(nx=20, steps_per_frame=40, n_out=6)
@@ -151,6 +162,12 @@ def main():
         torch.save(Z, zc)
 
     raw = A[:, :, COLS].reshape(len(A), -1).numpy()
+    zc_ = (raw - raw.mean(0)) / raw.std(0).clip(1e-12)
+    ac1 = float(np.mean([np.corrcoef(zc_[:-1, i], zc_[1:, i])[0, 1]
+                         for i in range(zc_.shape[1])
+                         if np.isfinite(np.corrcoef(zc_[:-1, i], zc_[1:, i])[0, 1])]))
+    print(f"\nreservoir lag-1 autocorrelation: {ac1:+.3f}  "
+          f"(was -0.006 without waveguides; NARMA-10 needs memory)", flush=True)
     splits = tuple(args.splits)
     # match the boxcar window to film2's own memory: propagation across the
     # mesh at the group velocity, expressed in frames

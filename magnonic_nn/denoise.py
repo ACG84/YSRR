@@ -116,6 +116,16 @@ class PhysicalDenoiser(torch.nn.Module):
                                     r=cfg.probe_radius, margin=margin)
         self.film = SpinWaveNetwork(sim_cfg, sources, probes)
         self.decoder = torch.nn.Linear(cfg.n_out, n_disks * n_features)
+        # Readout gain. Probe intensities come out at ~1e6 while the
+        # reconstruction target is unit-variance, so an unnormalised encoder
+        # leaves the optimiser twelve orders of magnitude of pure rescaling to
+        # traverse before it can learn anything -- which is exactly what the
+        # first training run spent all eight epochs doing. Calibrated once
+        # from the first batch and then frozen; physically it is the gain of
+        # the amplifier any real readout would need anyway.
+        self.register_buffer("gain", torch.ones(cfg.n_out))
+        self.register_buffer("offset", torch.zeros(cfg.n_out))
+        self.register_buffer("calibrated", torch.zeros(1))
 
     def encode(self, features: torch.Tensor) -> torch.Tensor:
         """Reservoir features -> ``(n_frames, n_out)`` bottleneck."""
@@ -124,7 +134,14 @@ class PhysicalDenoiser(torch.nn.Module):
         result = self.film.run(signal, record_traces=True)
         traces = result.traces                       # (T, n_out)
         n_frames = features.shape[0]
-        return traces.reshape(n_frames, self.cfg.steps_per_frame, -1).mean(dim=1)
+        z = traces.reshape(n_frames, self.cfg.steps_per_frame, -1).mean(dim=1)
+
+        if self.calibrated.item() == 0:
+            with torch.no_grad():
+                self.offset.copy_(z.mean(0))
+                self.gain.copy_(z.std(0).clamp_min(1e-30).reciprocal())
+                self.calibrated.fill_(1)
+        return (z - self.offset) * self.gain
 
     def forward(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         z = self.encode(features)

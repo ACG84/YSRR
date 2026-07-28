@@ -264,3 +264,124 @@ class PortedVortexDisk(VortexDisk):
         dm = (m - self.m0)[:, :, 0, 2]
         w = self._tap_masks
         return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)
+
+
+@dataclass
+class CoupledArrayConfig(VortexConfig):
+    """Two ported vortex disks joined by a shared waveguide.
+
+    The open risk after the single-disk results: every measurement so far is
+    one disk in isolation, and the Thiele array failed precisely when disks
+    were coupled -- strong coupling near a threshold produced chaos rather
+    than computation. A guide that carries signal from A to B also carries it
+    back, so the coupled geometry has to be checked for stability before any
+    task result from it means anything.
+
+    Geometry: disks at +-separation/2 along x, joined by a guide of
+    ``link_width``, each with one outward port for readout. Absorbing tapers
+    sit only at the OUTWARD ends -- the link between the disks is deliberately
+    lossless, since attenuating it would hide the very instability this is
+    built to look for.
+    """
+
+    separation: float = 500e-9     # centre to centre
+    link_width: float = 40e-9
+    out_length: float = 120e-9     # outward readout guides
+    absorb_frac: float = 0.4
+    absorb_alpha: float = 0.5
+
+    @property
+    def grid(self) -> tuple[int, int]:
+        half_x = self.separation / 2 + self.radius + self.out_length
+        nx = 2 * (int(np.ceil(half_x / self.dx)) + self.margin_cells)
+        ny = 2 * (int(np.ceil(self.radius / self.dx)) + self.margin_cells)
+        return nx, ny
+
+    def centres(self):
+        return [(-self.separation / 2, 0.0), (self.separation / 2, 0.0)]
+
+
+def coupled_mask(cfg: CoupledArrayConfig, device="cpu", dtype=torch.float64):
+    """Two disks, the link between them, and one outward port each."""
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+
+    mask = torch.zeros_like(X, dtype=torch.bool)
+    for cx, cy in cfg.centres():
+        mask = mask | (((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius**2)
+    # link along x between the two disks
+    mask = mask | ((X.abs() <= cfg.separation / 2) & (Y.abs() <= cfg.link_width / 2))
+    # outward readout guides
+    outer = cfg.separation / 2 + cfg.radius + cfg.out_length
+    mask = mask | ((X.abs() >= cfg.separation / 2) & (X.abs() <= outer)
+                   & (Y.abs() <= cfg.link_width / 2))
+    return mask.to(dtype).reshape(nx, ny, 1, 1)
+
+
+def coupled_alpha(cfg: CoupledArrayConfig, device="cpu", dtype=torch.float64):
+    """Damping ramped only at the OUTWARD ends; the link stays lossless."""
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, _ = torch.meshgrid(x, y, indexing="ij")
+
+    outer = cfg.separation / 2 + cfg.radius + cfg.out_length
+    start = outer - cfg.absorb_frac * cfg.out_length
+    ramp = ((X.abs() - start) / (outer - start)).clamp(0.0, 1.0) ** 2
+    return (cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp).reshape(nx, ny, 1, 1)
+
+
+class CoupledDiskArray:
+    """Two guide-coupled vortex disks, driven and read at either end."""
+
+    def __init__(self, cfg: CoupledArrayConfig, timesteps: int, device="cpu",
+                 dtype=torch.float64):
+        self.cfg = cfg
+        nx, ny = cfg.grid
+        mesh = MeshConfig(nx=nx, ny=ny, nz=1, dx=cfg.dx, dy=cfg.dx, dz=cfg.thickness)
+        solver = SolverConfig(dt=cfg.dt, timesteps=timesteps, checkpoint=False,
+                              renormalize=True, demag=True)
+
+        self.mask = coupled_mask(cfg, device, dtype)
+        alpha = coupled_alpha(cfg, device, dtype) * self.mask
+        self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
+        self.rollout.set_Ms(cfg.Ms * self.mask)
+        self.h_zero = torch.zeros(nx, ny, 1, 3, device=device, dtype=dtype)
+        self.m0 = None
+
+        x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+        X, Y = torch.meshgrid(x, y, indexing="ij")
+        self.disk_masks = torch.stack([
+            (((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius**2).to(dtype)
+            for cx, cy in cfg.centres()])
+
+    def relax(self, steps: int = 900, alpha_relax: float = 0.5):
+        cfg = self.cfg
+        nx, ny = cfg.grid
+        x = (torch.arange(nx, dtype=self.h_zero.dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, dtype=self.h_zero.dtype) - (ny - 1) / 2) * cfg.dx
+        X, Y = torch.meshgrid(x, y, indexing="ij")
+
+        m = torch.zeros(nx, ny, 1, 3, dtype=self.h_zero.dtype)
+        m[:, :, 0, 2] = 1.0                       # guides start out of plane
+        for k, (cx, cy) in enumerate(cfg.centres()):
+            dX, dY = X - cx, Y - cy
+            r = torch.sqrt(dX**2 + dY**2).clamp_min(1e-18)
+            mz = cfg.polarity * torch.exp(-(r / cfg.core_width) ** 2)
+            ip = torch.sqrt((1 - mz**2).clamp_min(0.0))
+            sel = self.disk_masks[k] > 0
+            m[:, :, 0, 0] = torch.where(sel, -cfg.chirality * ip * dY / r, m[:, :, 0, 0])
+            m[:, :, 0, 1] = torch.where(sel, cfg.chirality * ip * dX / r, m[:, :, 0, 1])
+            m[:, :, 0, 2] = torch.where(sel, mz, m[:, :, 0, 2])
+        m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12) * self.mask
+        self.m0 = self.rollout.relax(m, self.h_zero, steps, alpha_relax)
+        return self.m0
+
+    def disk_energy(self, m: torch.Tensor) -> torch.Tensor:
+        """Deviation energy inside each disk: (2,)."""
+        dm = ((m - self.m0) ** 2).sum(-1)[:, :, 0]
+        w = self.disk_masks
+        return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)

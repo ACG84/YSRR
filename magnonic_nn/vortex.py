@@ -285,8 +285,13 @@ class CoupledArrayConfig(VortexConfig):
     """
 
     separation: float = 500e-9     # centre to centre
-    link_width: float = 40e-9
-    out_length: float = 120e-9     # outward readout guides
+    link_width: float = 40e-9      # the APERTURE between disks; 0 disconnects
+                                   # them entirely, which is the differential
+                                   # control for how much the link actually
+                                   # carries versus the dipolar field
+    out_width: float = 40e-9       # readout guides, held fixed while the
+                                   # aperture is swept
+    out_length: float = 120e-9
     absorb_frac: float = 0.4
     absorb_alpha: float = 0.5
 
@@ -311,12 +316,14 @@ def coupled_mask(cfg: CoupledArrayConfig, device="cpu", dtype=torch.float64):
     mask = torch.zeros_like(X, dtype=torch.bool)
     for cx, cy in cfg.centres():
         mask = mask | (((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius**2)
-    # link along x between the two disks
-    mask = mask | ((X.abs() <= cfg.separation / 2) & (Y.abs() <= cfg.link_width / 2))
-    # outward readout guides
+    # link along x between the two disks -- omitted entirely at zero aperture
+    if cfg.link_width > 0:
+        mask = mask | ((X.abs() <= cfg.separation / 2)
+                       & (Y.abs() <= cfg.link_width / 2))
+    # outward readout guides, independent of the aperture
     outer = cfg.separation / 2 + cfg.radius + cfg.out_length
     mask = mask | ((X.abs() >= cfg.separation / 2) & (X.abs() <= outer)
-                   & (Y.abs() <= cfg.link_width / 2))
+                   & (Y.abs() <= cfg.out_width / 2))
     return mask.to(dtype).reshape(nx, ny, 1, 1)
 
 

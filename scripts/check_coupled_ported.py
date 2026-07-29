@@ -19,6 +19,29 @@ questions as before, now answerable:
    control: whatever B still receives is dipolar, and the difference is what
    the guide actually carries.
 
+MEASURED (700 nm separation, 30 mT, 8 GHz):
+
+    no link   lambda -0.413/ns   B/A 0.00005   1440 guide cells
+    linked    lambda +0.422/ns   B/A 0.00209   1600 guide cells
+
+Adding the link flips lambda by +0.835/ns, which refines the aperture rule:
+only ABSORBING aperture buys stability. Every outward guide ends in a damping
+taper and is a drain; the link ends in another active disk and is a feedback
+loop, so its 160 extra cells contribute area without loss. A budget met on
+paper is still unstable if part of it feeds back.
+
+The budget did most of the work regardless -- lambda fell from +5.5 with one
+stub per disk to +0.42 here -- and the link demonstrably transports: B/A rises
+42x over the dipolar-only control, the first evidence in this project that a
+guide carries anything between disks.
+
+Fixes, in increasing order of interest: damp the link (attenuates the coupling
+it exists to provide); lengthen it (round-trip loss grows with length, costing
+area and delay); or make it NON-RECIPROCAL, so energy flows A->B but not back
+and the loop is broken without touching the forward path. The last is the DMI
+asymmetry already measured in check_reciprocity.py, where Di = 0.05 mJ/m^2
+breaks the in-plane transfer cosine to 0.57.
+
     python scripts/check_coupled_ported.py
 """
 from __future__ import annotations

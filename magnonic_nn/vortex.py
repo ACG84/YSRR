@@ -37,7 +37,8 @@ from .config import MU_0, MeshConfig, SolverConfig
 from .solver import LLGRollout
 
 __all__ = ["VortexConfig", "VortexDisk", "vortex_state", "disk_mask",
-           "PortedVortexConfig", "PortedVortexDisk", "ported_mask", "port_alpha"]
+           "PortedVortexConfig", "PortedVortexDisk", "ported_mask", "port_alpha",
+           "CoupledPortedConfig", "CoupledPortedArray", "coupled_ported_mask"]
 
 
 @dataclass
@@ -389,6 +390,132 @@ class CoupledDiskArray:
 
     def disk_energy(self, m: torch.Tensor) -> torch.Tensor:
         """Deviation energy inside each disk: (2,)."""
+        dm = ((m - self.m0) ** 2).sum(-1)[:, :, 0]
+        w = self.disk_masks
+        return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)
+
+
+@dataclass
+class CoupledPortedConfig(PortedVortexConfig):
+    """Two disks, each with a FULL port complement, joined through one port.
+
+    The previous coupled build gave each disk a single outward stub and was
+    violently unstable -- lambda +5.5/ns, independent of separation, because
+    the instability was never about separation. A driven vortex needs enough
+    open aperture to shed the energy pumped into it: measured at 30 mT, one
+    port gives +6.494/ns, two give +4.506, six give -0.668.
+
+    So here each disk keeps its six ports and the link is one of them, joined
+    tip to tip. The stability budget is met per disk, and the coupling
+    question becomes answerable for the first time.
+    """
+
+    separation: float = 700e-9     # centre to centre
+    link_width: float = 40e-9
+
+    @property
+    def grid(self) -> tuple[int, int]:
+        reach_x = self.separation / 2 + self.radius + self.guide_length
+        reach_y = self.radius + self.guide_length
+        return (2 * (int(np.ceil(reach_x / self.dx)) + self.margin_cells),
+                2 * (int(np.ceil(reach_y / self.dx)) + self.margin_cells))
+
+    def centres(self):
+        return [(-self.separation / 2, 0.0), (self.separation / 2, 0.0)]
+
+
+def _radial_guides(X, Y, cx, cy, cfg):
+    """Disk at (cx, cy) plus its radial guides."""
+    dX, dY = X - cx, Y - cy
+    m = (dX**2 + dY**2) <= cfg.radius**2
+    for th in cfg.port_angles():
+        u = dX * math.cos(th) + dY * math.sin(th)
+        v = -dX * math.sin(th) + dY * math.cos(th)
+        m = m | ((u >= 0) & (u <= cfg.radius + cfg.guide_length)
+                 & (v.abs() <= cfg.guide_width / 2))
+    return m
+
+
+def coupled_ported_mask(cfg: CoupledPortedConfig, device="cpu", dtype=torch.float64):
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+    m = torch.zeros_like(X, dtype=torch.bool)
+    for cx, cy in cfg.centres():
+        m = m | _radial_guides(X, Y, cx, cy, cfg)
+    # bridge whatever gap remains between the facing guide tips
+    m = m | ((X.abs() <= cfg.separation / 2) & (Y.abs() <= cfg.link_width / 2))
+    return m.to(dtype).reshape(nx, ny, 1, 1)
+
+
+def coupled_ported_alpha(cfg: CoupledPortedConfig, device="cpu", dtype=torch.float64):
+    """Absorb at the OUTWARD guide ends; the link corridor stays lossless."""
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+
+    outer = cfg.radius + cfg.guide_length
+    start = outer - cfg.absorb_frac * cfg.guide_length
+    ramp = torch.ones_like(X)
+    for cx, cy in cfg.centres():
+        r = torch.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
+        ramp = torch.minimum(ramp, ((r - start) / (outer - start)).clamp(0.0, 1.0) ** 2)
+    # never absorb inside the link, or the coupling is quietly attenuated away
+    link = (X.abs() <= cfg.separation / 2) & (Y.abs() <= cfg.link_width / 2)
+    ramp = torch.where(link, torch.zeros_like(ramp), ramp)
+    return (cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp).reshape(nx, ny, 1, 1)
+
+
+class CoupledPortedArray:
+    """Two fully-ported vortex disks joined through one port each."""
+
+    def __init__(self, cfg: CoupledPortedConfig, timesteps: int, device="cpu",
+                 dtype=torch.float64):
+        self.cfg = cfg
+        nx, ny = cfg.grid
+        mesh = MeshConfig(nx=nx, ny=ny, nz=1, dx=cfg.dx, dy=cfg.dx, dz=cfg.thickness)
+        solver = SolverConfig(dt=cfg.dt, timesteps=timesteps, checkpoint=False,
+                              renormalize=True, demag=True)
+        self.mask = coupled_ported_mask(cfg, device, dtype)
+        alpha = coupled_ported_alpha(cfg, device, dtype) * self.mask
+        self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
+        self.rollout.set_Ms(cfg.Ms * self.mask)
+        self.h_zero = torch.zeros(nx, ny, 1, 3, device=device, dtype=dtype)
+        self.m0 = None
+
+        x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+        X, Y = torch.meshgrid(x, y, indexing="ij")
+        self.disk_masks = torch.stack([
+            (((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius**2).to(dtype)
+            for cx, cy in cfg.centres()])
+        self.guide_cells_per_disk = int(
+            (self.mask[:, :, 0, 0].sum() - self.disk_masks.sum()) / 2)
+
+    def relax(self, steps: int = 900, alpha_relax: float = 0.5):
+        cfg = self.cfg
+        nx, ny = cfg.grid
+        x = (torch.arange(nx, dtype=self.h_zero.dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, dtype=self.h_zero.dtype) - (ny - 1) / 2) * cfg.dx
+        X, Y = torch.meshgrid(x, y, indexing="ij")
+        m = torch.zeros(nx, ny, 1, 3, dtype=self.h_zero.dtype)
+        m[:, :, 0, 2] = 1.0
+        for k, (cx, cy) in enumerate(cfg.centres()):
+            dX, dY = X - cx, Y - cy
+            r = torch.sqrt(dX**2 + dY**2).clamp_min(1e-18)
+            mz = cfg.polarity * torch.exp(-(r / cfg.core_width) ** 2)
+            ip = torch.sqrt((1 - mz**2).clamp_min(0.0))
+            sel = self.disk_masks[k] > 0
+            m[:, :, 0, 0] = torch.where(sel, -cfg.chirality * ip * dY / r, m[:, :, 0, 0])
+            m[:, :, 0, 1] = torch.where(sel, cfg.chirality * ip * dX / r, m[:, :, 0, 1])
+            m[:, :, 0, 2] = torch.where(sel, mz, m[:, :, 0, 2])
+        m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12) * self.mask
+        self.m0 = self.rollout.relax(m, self.h_zero, steps, alpha_relax)
+        return self.m0
+
+    def disk_energy(self, m: torch.Tensor) -> torch.Tensor:
         dm = ((m - self.m0) ** 2).sum(-1)[:, :, 0]
         w = self.disk_masks
         return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)

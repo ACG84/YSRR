@@ -40,7 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
-from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
+from magnonic_nn.vortex import (PortedVortexConfig, PortedVortexDisk,
+                                VortexConfig, VortexDisk)
 
 
 def pulse_sequence(n_steps, dt, order, f_a, f_b, pulse_steps, amp, ramp=0.15):
@@ -75,10 +76,11 @@ def run(disk, signal, dtype, record_every=2):
             return unit * (s0 + theta * (s1 - s0))
 
         m = disk.rollout.rk4_step(m, disk.h_zero, h_drive)
-        ports.append(disk.port_signals(m).double().clone())
+        if disk.port_signals is not None:
+            ports.append(disk.port_signals(m).double().clone())
         if k % record_every == 0:
             snaps.append(((m - disk.m0) * disk.disk_only)[:, :, 0, 2].double().clone())
-    return torch.stack(snaps), torch.stack(ports)
+    return torch.stack(snaps), (torch.stack(ports) if ports else None)
 
 
 def interior_spectra(mz, disk_only, dt_rec, n_modes=4, fmax=40.0):
@@ -141,6 +143,11 @@ def main():
     p.add_argument("--low-amp-mT", type=float, default=1.0)
     p.add_argument("--relax-steps", type=int, default=900)
     p.add_argument("--n-modes", type=int, default=4)
+    p.add_argument("--geometry", default="ported",
+                   choices=["ported", "bare", "ported-noabsorb"],
+                   help="bare is the control: run_modal_disk's own geometry, so\n"
+                        "a disagreement with its 23.4x is a methods difference\n"
+                        "in THIS script rather than a fact about the guides")
     p.add_argument("--outdir", default="runs/readout_cmp")
     args = p.parse_args()
 
@@ -148,10 +155,21 @@ def main():
     dtype = torch.float32
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
 
-    cfg = PortedVortexConfig()
+    if args.geometry == "bare":
+        cfg = VortexConfig()
+    elif args.geometry == "ported-noabsorb":
+        cfg = PortedVortexConfig(absorb_frac=0.0)
+    else:
+        cfg = PortedVortexConfig()
     pulse_steps = int(args.pulse_ns * 1e-9 / cfg.dt)
     n_steps = 2 * pulse_steps + int(args.read_ns * 1e-9 / cfg.dt)
-    disk = PortedVortexDisk(cfg, timesteps=n_steps, dtype=dtype)
+    if args.geometry == "bare":
+        disk = VortexDisk(cfg, timesteps=n_steps, dtype=dtype)
+        disk.disk_only = disk.mask               # no guides: the disk is all of it
+        disk.port_signals = None
+    else:
+        disk = PortedVortexDisk(cfg, timesteps=n_steps, dtype=dtype)
+    has_ports = disk.port_signals is not None
     t0 = time.time(); disk.relax(steps=args.relax_steps)
     print(f"relaxed {time.time()-t0:.0f}s, core mz "
           f"{float(disk.m0[:, :, 0, 2].max()):+.3f}\n"
@@ -169,18 +187,19 @@ def main():
             mz, ps = run(disk, sig, dtype, rec)
             ins[order] = interior_spectra(mz, disk.disk_only, cfg.dt * rec,
                                           args.n_modes)
-            prt[order] = port_spectra(ps, cfg.dt, args.n_modes)
+            prt[order] = (port_spectra(ps, cfg.dt, args.n_modes)
+                          if ps is not None else None)
             del mz, ps
             print(f"  {label} {order}: {time.time()-t0:.0f}s", flush=True)
 
         results[label] = {
             "amp_mT": amp_mT,
             "interior": rel_diff(ins["AB"], ins["BA"]),
-            "ports": rel_diff(prt["AB"], prt["BA"]),
+            "ports": (rel_diff(prt["AB"], prt["BA"]) if has_ports else float("nan")),
             "interior_per_n": [rel_diff(ins["AB"][k], ins["BA"][k])
                                for k in range(args.n_modes)],
-            "ports_per_n": [rel_diff(prt["AB"][k], prt["BA"][k])
-                            for k in range(args.n_modes)],
+            "ports_per_n": ([rel_diff(prt["AB"][k], prt["BA"][k])
+                             for k in range(args.n_modes)] if has_ports else []),
         }
         print(f"{label} ({amp_mT} mT): interior {results[label]['interior']:.5f}   "
               f"ports {results[label]['ports']:.5f}", flush=True)

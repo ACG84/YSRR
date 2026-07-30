@@ -81,6 +81,11 @@ def main():
     p.add_argument("--steps", type=int, default=900)
     p.add_argument("--relax-steps", type=int, default=800)
     p.add_argument("--orders", type=int, nargs="+", default=[0, 1, 2])
+    p.add_argument("--guide-width-nm", type=float, default=None,
+                   help="wider ports subtend more perimeter, which is what\n"
+                        "degrades angular selectivity -- so a width chosen\n"
+                        "for propagation has to be re-checked here")
+    p.add_argument("--guide-length-nm", type=float, default=None)
     p.add_argument("--outdir", default="runs/ports")
     args = p.parse_args()
 
@@ -90,11 +95,20 @@ def main():
     for prec in ("float64", "float32"):
         mnn.set_precision(prec); mnn.set_device("cpu")
         dtype = torch.float64 if prec == "float64" else torch.float32
-        cfg = PortedVortexConfig()
+        over = {}
+        if args.guide_width_nm is not None:
+            over["guide_width"] = args.guide_width_nm * 1e-9
+        if args.guide_length_nm is not None:
+            over["guide_length"] = args.guide_length_nm * 1e-9
+        cfg = PortedVortexConfig(**over)
         disk = PortedVortexDisk(cfg, timesteps=args.steps, dtype=dtype)
         t0 = time.time(); disk.relax(steps=args.relax_steps); relax_s = time.time() - t0
         core = float(disk.m0[:, :, 0, 2].max())
-        print(f"\n=== {prec}: relaxed {relax_s:.0f}s, core mz {core:+.3f}", flush=True)
+        arc = cfg.guide_width / cfg.radius * 180 / math.pi
+        print(f"\n=== {prec}: relaxed {relax_s:.0f}s, core mz {core:+.3f}\n"
+              f"    {cfg.n_ports} ports x {cfg.guide_width*1e9:.0f} nm = "
+              f"{arc:.0f} deg each, {cfg.n_ports*arc:.0f} of 360 deg",
+              flush=True)
 
         per_order = {}
         for n_order in args.orders:

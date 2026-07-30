@@ -56,9 +56,21 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     IS the reservoir's memory, and resetting between samples would leave a
     stateless nonlinearity with nothing to compute over.
     """
+    # Resume from a partial run. A 50-minute rollout was lost to a stray
+    # signal with nothing on disk, because only the COMPLETED feature set was
+    # cached. Checkpointing every ckpt_every frames caps that loss, and the
+    # reservoir state is deterministic given the input prefix, so replaying the
+    # first j frames reproduces the state exactly -- the cost of resuming is
+    # bounded by the checkpoint interval, not the run length.
+    done = []
     if cache is not None and cache.exists():
-        print(f"[cached] {cache.name}", flush=True)
-        return torch.load(cache, weights_only=False)
+        prev = torch.load(cache, weights_only=False)
+        if len(prev) >= len(u):
+            print(f"[cached] {cache.name}", flush=True)
+            return prev
+        done = [r.tolist() for r in prev]
+        print(f"[resume] {cache.name} has {len(done)}/{len(u)} frames; "
+              f"replaying to rebuild reservoir state", flush=True)
 
     cfg = disk.cfg
     n = cfg.n_cells
@@ -93,6 +105,9 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         feats.append(row)
         if (j + 1) % 100 == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
+            if cache is not None and j + 1 > len(done):
+                torch.save(torch.tensor(np.array(feats), dtype=torch.float64),
+                           cache)
 
     F = torch.tensor(np.array(feats), dtype=torch.float64)
     if cache is not None:

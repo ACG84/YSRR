@@ -121,6 +121,21 @@ TASKS = {
         "python scripts/train_focus.py --preset paper --epochs 30 --lr 0.05 "
         "--outdir runs/focus_paper --device cuda"
     ),
+    # CPU on purpose. The GPU path was measured at 1.0-1.5x on this workload --
+    # it is dispatch-bound, thousands of tiny kernel launches per RK4 step on a
+    # mesh far too small to saturate any device, and float32 already bought the
+    # real 40x. What a Colab VM provides here is a SECOND MACHINE, so the
+    # coupled array runs in parallel with the single-disk work rather than
+    # contending for the same four cores. Pick a high-vCPU instance; a standard
+    # 2-vCPU runtime is slower than the local box, GPU or not.
+    "narma-coupled": (
+        "python scripts/run_narma_coupled.py --outdir runs/narma_coupled "
+        "--device cpu"
+    ),
+    "narma-coupled-nolink": (
+        "python scripts/run_narma_coupled.py --no-link "
+        "--outdir runs/narma_coupled --device cpu"
+    ),
 }
 
 

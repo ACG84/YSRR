@@ -87,6 +87,12 @@ def main():
                         "that is still drifting; None disables")
     p.add_argument("--eps", type=float, default=1e-5)
     p.add_argument("--separation", type=float, default=700.0)
+    p.add_argument("--link-width", type=float, default=80.0,
+                   help="nm. Was 40, which is evanescent at 20 nm\n"
+                        "thickness below ~14 GHz -- so the link was\n"
+                        "below its own cutoff and the transfer it\n"
+                        "measured was stray field, as the 17500 m/s\n"
+                        "first arrival showed. 80 matches the ports.")
     p.add_argument("--outdir", default="runs/coupled_ported")
     args = p.parse_args()
 
@@ -96,7 +102,7 @@ def main():
     amp = args.amp_mT * 1e-3 / MU_0
     results = {}
 
-    for label, link_nm in (("linked", 40.0), ("no-link", 0.0)):
+    for label, link_nm in (("linked", args.link_width), ("no-link", 0.0)):
         cfg = CoupledPortedConfig(separation=args.separation * 1e-9,
                                   link_width=link_nm * 1e-9)
         arr = CoupledPortedArray(cfg, timesteps=args.steps, dtype=dtype)

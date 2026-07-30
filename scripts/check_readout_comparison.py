@@ -31,6 +31,14 @@ Same drive, same timing as run_modal_disk (2 ns pulses, 4 ns read), same
 high-against-low honesty check. The readout is then the only variable, and the
 comparison is finally an answer rather than an artefact.
 
+The first version of this script scored BOTH readouts at ~1.0x, including the
+interior, where run_modal_disk gets 23.4x on the same geometry. A bare-disk
+control cleared the device and a sixteen-way bisection found the cause: a Hann
+window I had carried over from the ring-down measurement. Windowing an order
+comparison weights the two pulse slots unequally and fabricates an AB/BA
+difference in any system whatsoever. It is gone, and the ratio is measured on
+the raw transform.
+
     python scripts/check_readout_comparison.py
 """
 from __future__ import annotations
@@ -92,7 +100,13 @@ def interior_spectra(mz, disk_only, dt_rec, n_modes=4, fmax=40.0):
     phi = torch.atan2(Y, X)
     inside = disk_only[:, :, 0, 0] > 0
     n_in = int(inside.sum())
-    win = torch.hann_window(T, periodic=False, dtype=torch.float64)
+    # NO window. A Hann window over the whole record weights the two pulse
+    # slots unequally -- w ~ 0.15 at 1 ns against ~0.6 at 3 ns over 8 ns -- so
+    # AB has f_A attenuated and f_B emphasised while BA has the reverse. That
+    # manufactures an AB/BA difference in ANY system, linear or not: it drove
+    # the low-power baseline from 0.0119 to 0.3977 and collapsed the measured
+    # ratio from 23.4x to 1.4x. Leakage control is right for a single-impulse
+    # ring-down (check_disk_modes) and fatal for an order comparison.
     half = T // 2
     f = np.fft.fftfreq(T, d=dt_rec)[1:half] / 1e9
     keep = (f > 1.0) & (f <= fmax)
@@ -101,7 +115,7 @@ def interior_spectra(mz, disk_only, dt_rec, n_modes=4, fmax=40.0):
     for n in range(n_modes):
         basis = torch.exp(-1j * n * phi) * inside
         amp = (mz.to(torch.complex128) * basis).sum(dim=(1, 2)) / n_in
-        S = np.abs(np.fft.fft((amp * win).numpy()))
+        S = np.abs(np.fft.fft(amp.numpy()))
         pos, neg = S[1:half], S[T - 1:T - half:-1]
         v = pos + (neg if n > 0 else 0.0)
         out.append(v[keep])
@@ -114,8 +128,7 @@ def port_spectra(sig, dt, n_modes=4, fmax=40.0):
     x = x - x.mean(axis=0, keepdims=True)
     A = np.fft.fft(x, axis=1)                       # azimuthal modes from ports
     T, n_ports = A.shape
-    win = np.hanning(T)[:, None]
-    S = np.abs(np.fft.fft(A * win, axis=0))
+    S = np.abs(np.fft.fft(A, axis=0))       # unwindowed: see interior_spectra
     half = T // 2
     f = np.fft.fftfreq(T, d=dt)[1:half] / 1e9
     keep = (f > 1.0) & (f <= fmax)

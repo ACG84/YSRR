@@ -163,7 +163,20 @@ class PortedVortexConfig(VortexConfig):
     """
 
     n_ports: int = 6
-    guide_width: float = 40e-9     # supports the low-n modes; wider admits more
+    # 80 nm, not 40. At the disk's own 20 nm thickness a 40 nm guide is
+    # evanescent below ~14 GHz (Q = decay/wavelength runs 10.0 at 14 GHz but
+    # is unmeasurable at 10); 80 nm brings the cutoff down to 11 GHz with
+    # Q = 8.0, and the AB/BA discrimination driven at 11.7/13.7 GHz scores 15.0
+    # in the >=11 GHz passband against 1.2 for the old 6/9 GHz drive. Six of
+    # these subtend 46 degrees each, 275 of 360 -- they fit, and measured mode
+    # selectivity is slightly BETTER than at 40 nm (|n| concentration
+    # 0.700/0.829/0.864 against 0.549/0.855/0.795), so the arc-averaging
+    # penalty the width was originally chosen to avoid does not bite here.
+    guide_width: float = 80e-9
+    # Short on purpose. The port is a near-field tap, not a transport link: it
+    # only has to sample the edge so the cross-port DFT can do the
+    # decomposition, and over 150 nm even an evanescent mode delivers ~30%.
+    # Transport between disks is a separate problem with a separate budget.
     guide_length: float = 150e-9
     absorb_frac: float = 0.35      # fraction of guide length used as an
                                    # absorbing taper, so the far end does not

@@ -59,18 +59,29 @@ def decay_length_nm(freq, width_nm, thickness_nm, length_nm=900.0, steps=1600,
     src[margin:margin + 3, :, 0, 2] = mask[margin:margin + 3, :, 0, 0]
     amp = amp_mT * 1e-3 / MU_0
 
+    # Lock-in detect at the drive frequency, giving the COMPLEX amplitude per
+    # x. Phase is what settles propagation; decay length alone cannot. Below
+    # cutoff the guide does not carry a wave, it responds weakly and almost
+    # uniformly, and a flat profile fits as INFINITE decay length -- which is
+    # exactly what 6 GHz returned while transmission said 0.01. Phase advance
+    # is amplitude-independent, so a weak uniform response cannot fake it.
     mm = m0.clone()
-    acc = torch.zeros(nx, dtype=dtype)
+    accI = torch.zeros(nx, dtype=torch.float64)
+    accQ = torch.zeros(nx, dtype=torch.float64)
     n_acc = 0
     for k in range(steps):
         t0 = k * 1e-12
         def h(theta, t0=t0):
             return src * (amp * math.sin(2 * math.pi * freq * (t0 + theta * 1e-12)))
         mm = roll.rk4_step(mm, h0, h)
-        if k > steps // 2:                      # steady state only
-            acc += ((mm - m0)[:, :, 0, 2] ** 2).sum(dim=1)
+        if k > steps // 2:
+            prof = (mm - m0)[:, :, 0, 2].double().sum(dim=1)
+            ph = 2 * math.pi * freq * (k * 1e-12)
+            accI += prof * math.cos(ph)
+            accQ += prof * math.sin(ph)
             n_acc += 1
-    rms = (acc / max(n_acc, 1)).sqrt()
+    A = (accI + 1j * accQ) / max(n_acc, 1)
+    rms = A.abs().to(dtype)
 
     # fit over the guide interior, clear of the source and the far end
     lo = margin + int(80e-9 / dx)
@@ -79,9 +90,13 @@ def decay_length_nm(freq, width_nm, thickness_nm, length_nm=900.0, steps=1600,
     ys = rms[lo:hi].double().clamp_min(1e-30).log().numpy()
     good = np.isfinite(ys) & (ys > ys.max() - 25)     # ignore the numerical floor
     if good.sum() < 8:
-        return float("nan"), float(rms.max())
+        return float("nan"), float(rms.max()), float("nan")
     slope = np.polyfit(xs[good], ys[good], 1)[0]
-    return (float("inf") if slope >= 0 else -1.0 / slope), float(rms.max())
+    decay = float("inf") if slope >= 0 else -1.0 / slope
+    phase = np.unwrap(np.angle(A[lo:hi].numpy()))
+    kfit = np.polyfit(xs[good], phase[good], 1)[0]           # radians per nm
+    lam = abs(2 * math.pi / kfit) if abs(kfit) > 1e-6 else float("inf")
+    return decay, float(rms.max()), lam
 
 
 def main():
@@ -102,10 +117,12 @@ def main():
         for line in jpath.read_text().splitlines():
             if line.strip():
                 r = json.loads(line)
-                done[(r["w"], r["t"], r["ghz"])] = r["decay_nm"]
+                done[(r["w"], r["t"], r["ghz"])] = (
+                    r["decay_nm"], r.get("wavelength_nm", float("nan")))
 
-    print("1/e decay length in nm along a 900 nm guide "
-          "(> ~450 means it crosses; < ~50 is evanescent)\n")
+    print("Wavelength in nm from the phase slope along a 900 nm guide.\n"
+          "A finite wavelength means the mode PROPAGATES. '--' means flat\n"
+          "phase: the guide responds without carrying a wave.\n")
     print(f"{'w x t':>10}   " + "  ".join(f"{f:>7.0f}" for f in args.freqs))
     for t in args.thicknesses:
         for w in args.widths:
@@ -114,18 +131,21 @@ def main():
                 key = (w, t, f)
                 if key in done:
                     cells.append(done[key]); continue
-                d, _ = decay_length_nm(f * 1e9, w, t, steps=args.steps)
+                d, amp_max, lam = decay_length_nm(f * 1e9, w, t, steps=args.steps)
                 with jpath.open("a") as fh:
-                    fh.write(json.dumps({"w": w, "t": t, "ghz": f,
-                                         "decay_nm": d}) + "\n")
-                cells.append(d)
-            txt = "  ".join("    inf" if math.isinf(c) else
-                            ("    nan" if math.isnan(c) else f"{c:>7.0f}")
-                            for c in cells)
+                    fh.write(json.dumps({"w": w, "t": t, "ghz": f, "decay_nm": d,
+                                         "amp": amp_max,
+                                         "wavelength_nm": lam}) + "\n")
+                cells.append((d, lam))
+            txt = "  ".join("      --" if (math.isnan(l) or math.isinf(l))
+                            else f"{l:>7.0f}" for _, l in cells)
             print(f"{w:>4.0f} x {t:<3.0f}   {txt}", flush=True)
 
     rows = [json.loads(l) for l in jpath.read_text().splitlines() if l.strip()]
-    prop = [r for r in rows if (math.isinf(r["decay_nm"]) or r["decay_nm"] > 450)]
+    prop = [r for r in rows
+            if math.isfinite(r.get("wavelength_nm", float("nan")))
+            and r["wavelength_nm"] < 3000
+            and (math.isinf(r["decay_nm"]) or r["decay_nm"] > 300)]
     print()
     if prop:
         low = min(r["ghz"] for r in prop)

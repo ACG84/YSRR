@@ -73,7 +73,18 @@ def ring_down(disk, signal, spot_frac=0.65, spot_cells=3, record_every=2):
 
 
 def azimuthal_spectra(mz, mask, dt_rec, n_modes=8):
-    """(T, nx, ny) m_z -> (n_modes, n_freq) power, plus the frequency axis."""
+    """(T, nx, ny) m_z -> {signed n: power spectrum}, plus a positive freq axis.
+
+    The projection onto exp(-i n phi) is complex, and that is not a detail to
+    be dropped by taking the real part: a vortex breaks time-reversal symmetry,
+    so the mode rotating with the gyration (+n) and the one rotating against it
+    (-n) sit at *different* frequencies. A real-input FFT cannot represent the
+    difference and would report their average as though it were one mode.
+
+    So the sign of the time-frequency carries the sense of rotation: positive f
+    of A_n is mode +n, negative f of A_n is mode -n. Both are returned on a
+    common positive frequency axis.
+    """
     T, nx, ny = mz.shape
     idx = torch.arange(nx, dtype=torch.float64) - (nx - 1) / 2
     X, Y = torch.meshgrid(idx, torch.arange(ny, dtype=torch.float64)
@@ -87,13 +98,17 @@ def azimuthal_spectra(mz, mask, dt_rec, n_modes=8):
     # is the difference between resolving n and inventing it.
     win = torch.hann_window(T, periodic=False, dtype=torch.float64)
 
-    out = []
+    half = T // 2
+    out = {}
     for n in range(n_modes):
         basis = torch.exp(-1j * n * phi) * inside
         amp = (mz.to(torch.complex128) * basis).sum(dim=(1, 2)) / n_in
-        out.append(torch.fft.rfft(amp * win).abs() ** 2)
-    freqs = torch.fft.rfftfreq(T, d=dt_rec)
-    return torch.stack(out), freqs
+        spec = np.abs(np.fft.fft((amp * win).numpy())) ** 2
+        out[n] = spec[1:half]                       # +f  -> mode +n
+        if n > 0:                                   # A_0 is real; no -0
+            out[-n] = spec[T - 1:T - half:-1]       # -f  -> mode -n
+    f_ax = np.fft.fftfreq(T, d=dt_rec)[1:half]
+    return out, f_ax
 
 
 def main():
@@ -134,7 +149,7 @@ def main():
 
     P, freqs = azimuthal_spectra(mz.double(), disk.mask.double(),
                                  cfg.dt * record_every, args.n_modes)
-    f_ghz = (freqs / 1e9).numpy()
+    f_ghz = freqs / 1e9
     lo, hi = args.band
     # Ignore the DC shoulder: a pulse deposits a static offset, and its skirt
     # would otherwise be read as a mode at 0 GHz in every channel.
@@ -142,13 +157,18 @@ def main():
     in_band = keep & (f_ghz >= lo) & (f_ghz <= hi)
 
     torch.save({"power": P, "freqs": freqs}, outdir / "spectra.pt")
+    # Share of the disk's total ring-down power, so a mode that is merely the
+    # loudest version of nothing does not read as a usable channel.
+    grand = sum(float(p[keep].sum()) for p in P.values()) or 1.0
     rows = []
-    print(f"\n{'n':>3} {'peak GHz':>9} {'power in':>9} {'band':>7}   top peaks (GHz)")
-    print(f"{'':>3} {'':>9} {f'{lo:g}-{hi:g}G':>9} {'frac':>7}")
-    for n in range(args.n_modes):
-        pk = P[n].numpy()
+    print(f"\n{'n':>4} {'peak GHz':>9} {'in-band':>8} {'share of':>9}   "
+          f"top peaks (GHz)")
+    print(f"{'':>4} {'':>9} {'frac':>8} {'total':>9}")
+    for n in sorted(P, key=lambda k: (abs(k), -k)):
+        pk = P[n]
         tot = pk[keep].sum()
         frac = float(pk[in_band].sum() / tot) if tot > 0 else 0.0
+        share = float(tot / grand)
         peak = float(f_ghz[keep][pk[keep].argmax()]) if tot > 0 else float("nan")
         # local maxima, strongest first, for the mode's fine structure
         w = np.where(keep)[0]
@@ -156,18 +176,22 @@ def main():
         loc.sort(key=lambda i: -pk[i])
         tops = " ".join(f"{f_ghz[i]:.1f}" for i in loc[:4])
         rows.append({"n": n, "peak_ghz": peak, "in_band_fraction": frac,
+                     "power_share": share,
                      "top_peaks_ghz": [float(f_ghz[i]) for i in loc[:4]]})
-        print(f"{n:>3} {peak:>9.2f} {'':>9} {frac:>7.3f}   {tops}")
+        print(f"{n:>+4d} {peak:>9.2f} {frac:>8.3f} {share:>9.3f}   {tops}")
 
-    good = [r for r in rows if r["in_band_fraction"] >= 0.20]
+    # A mode qualifies only if it is both in band and carries real power --
+    # 20% of a channel holding 0.1% of the ring-down is not a channel.
+    good = [r for r in rows
+            if r["in_band_fraction"] >= 0.20 and r["power_share"] >= 0.02]
     (outdir / "modes.json").write_text(json.dumps(
         {"band_ghz": [lo, hi], "modes": rows}, indent=2))
 
     print()
     if good:
-        ns = ", ".join(f"n={r['n']}" for r in good)
-        print(f"Modes with >=20% of their power inside the {lo:g}-{hi:g} GHz guide")
-        print(f"band: {ns}.")
+        ns = ", ".join(f"n={r['n']:+d} ({r['peak_ghz']:.1f} GHz)" for r in good)
+        print(f"Modes carrying >=2% of the ring-down with >=20% of it inside the")
+        print(f"{lo:g}-{hi:g} GHz guide band: {ns}.")
         print("Those are the modes a ported readout could actually see, so the")
         print("AB/BA re-measurement should drive two frequencies inside the band")
         print("that both land on populated modes.")

@@ -76,7 +76,8 @@ def guide_length_sweep(lengths, amp_mT, freq, steps, dtype):
 
 
 # ------------------------------------------------------------------ option 2
-def strip_geometry(offset_nm, length_nm, width_nm=40.0, dx=5e-9, margin=6):
+def strip_geometry(offset_nm, length_nm, width_nm=40.0, dx=5e-9, margin=6,
+                   thickness_nm=20.0):
     """A guide of fixed path length, straight or S-bent by ``offset_nm``."""
     nx = int(round(length_nm * 1e-9 / dx)) + 2 * margin
     span = abs(offset_nm) * 1e-9 + width_nm * 1e-9
@@ -93,11 +94,15 @@ def strip_geometry(offset_nm, length_nm, width_nm=40.0, dx=5e-9, margin=6):
 
 
 @torch.no_grad()
-def bend_transmission(offset_nm, length_nm, freq, steps, dtype, amp_mT=5.0):
+def bend_transmission(offset_nm, length_nm, freq, steps, dtype, amp_mT=5.0,
+                      thickness_nm=20.0, width_nm=40.0):
     """Power at the far end of the guide, relative to the near end."""
-    mask, (nx, ny), centre = strip_geometry(offset_nm, length_nm)
+    mask, (nx, ny), centre = strip_geometry(offset_nm, length_nm,
+                                            width_nm=width_nm,
+                                            thickness_nm=thickness_nm)
     mask = mask.to(dtype); dx = 5e-9
-    mesh = MeshConfig(nx=nx, ny=ny, nz=1, dx=dx, dy=dx, dz=20e-9)
+    mesh = MeshConfig(nx=nx, ny=ny, nz=1, dx=dx, dy=dx,
+                      dz=thickness_nm * 1e-9)
     solver = SolverConfig(dt=1e-12, timesteps=steps, checkpoint=False,
                           renormalize=True, demag=True)
     alpha = torch.full((nx, ny, 1, 1), 0.008, dtype=dtype)

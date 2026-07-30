@@ -81,7 +81,10 @@ def main():
     p.add_argument("--freq", type=float, default=8.0)
     p.add_argument("--amp-mT", type=float, default=30.0)
     p.add_argument("--steps", type=int, default=2000)
-    p.add_argument("--relax-steps", type=int, default=900)
+    p.add_argument("--relax-steps", type=int, default=1800)
+    p.add_argument("--require-tol", type=float, default=1e-3,
+                   help="fail rather than report lambda from a state\n"
+                        "that is still drifting; None disables")
     p.add_argument("--eps", type=float, default=1e-5)
     p.add_argument("--separation", type=float, default=700.0)
     p.add_argument("--outdir", default="runs/coupled_ported")
@@ -97,7 +100,12 @@ def main():
         cfg = CoupledPortedConfig(separation=args.separation * 1e-9,
                                   link_width=link_nm * 1e-9)
         arr = CoupledPortedArray(cfg, timesteps=args.steps, dtype=dtype)
-        t0 = time.time(); arr.relax(steps=args.relax_steps)
+        # Hard convergence guard. Five earlier instability diagnoses in this
+        # project were unconverged relaxation at 900 steps rather than real
+        # dynamics, and lambda is exactly the quantity that confounds with it:
+        # a ground state still drifting looks like a diverging trajectory.
+        t0 = time.time()
+        arr.relax(steps=args.relax_steps, require_tol=args.require_tol)
         cores = [float((arr.m0[:, :, 0, 2] * arr.disk_masks[k]).max()) for k in (0, 1)]
 
         e, s1 = drive(arr, args.freq * 1e9, args.steps, amp, dtype)

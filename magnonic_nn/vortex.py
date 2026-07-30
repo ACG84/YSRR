@@ -408,7 +408,39 @@ class CoupledPortedConfig(PortedVortexConfig):
     So here each disk keeps its six ports and the link is one of them, joined
     tip to tip. The stability budget is met per disk, and the coupling
     question becomes answerable for the first time.
+
+    CHIRALITY MATTERS, and not the way it first appears. With both disks at
+    the same chirality the link nucleates a Bloch-type 180 degree domain wall
+    at its midpoint -- measured directly along the centreline: mx runs +1.00
+    across the left half, reverses through zero, runs -1.00 across the right,
+    with mz peaking at +0.80 at the crossing. Each vortex drives the strip's
+    magnetisation in the same ROTATIONAL sense, which means one pushes it
+    toward +x and the other toward -x; the strip cannot satisfy both.
+
+    The wall is real but it is NOT what destabilised the earlier runs. With
+    1800 relaxation steps instead of 900, the same walled configuration
+    measures lambda -0.171/ns where it previously measured +0.422: the
+    instability was unconverged relaxation, the state still settling when the
+    drive began, read as exponential divergence. ``relax()`` warns only below
+    |dm| = 0.02, which is ample for probe readouts and far too loose for a
+    Lyapunov measurement. Every lambda from a coupled run at 900 steps --
+    the separation, aperture and link-loss sweeps -- is suspect for that
+    reason.
+
+    Set ``chirality_b = -chirality`` to remove it anyway: opposite chirality
+    makes both disks drive the strip the same way in the lab frame, so it
+    magnetises uniformly. Measured at 30 mT with 1800 relax steps:
+
+        same chirality      wall, mz peak 0.98   lambda -0.171   B/A 0.00275
+        opposite chirality  no wall, mz 0.00     lambda -0.292   B/A 0.00380
+
+    Better on both axes -- more stable and 38% better coupled -- so it is the
+    configuration to build, even though the wall was not the instability.
     """
+
+    chirality_b: int | None = None   # chirality of the second disk; None
+                                     # copies the first, which nucleates the
+                                     # wall described above
 
     separation: float = 700e-9     # centre to centre
     link_width: float = 40e-9
@@ -513,18 +545,46 @@ class CoupledPortedArray:
         X, Y = torch.meshgrid(x, y, indexing="ij")
         m = torch.zeros(nx, ny, 1, 3, dtype=self.h_zero.dtype)
         m[:, :, 0, 2] = 1.0
+        chir = [cfg.chirality,
+                cfg.chirality if cfg.chirality_b is None else cfg.chirality_b]
         for k, (cx, cy) in enumerate(cfg.centres()):
             dX, dY = X - cx, Y - cy
             r = torch.sqrt(dX**2 + dY**2).clamp_min(1e-18)
             mz = cfg.polarity * torch.exp(-(r / cfg.core_width) ** 2)
             ip = torch.sqrt((1 - mz**2).clamp_min(0.0))
             sel = self.disk_masks[k] > 0
-            m[:, :, 0, 0] = torch.where(sel, -cfg.chirality * ip * dY / r, m[:, :, 0, 0])
-            m[:, :, 0, 1] = torch.where(sel, cfg.chirality * ip * dX / r, m[:, :, 0, 1])
+            c = chir[k]
+            m[:, :, 0, 0] = torch.where(sel, -c * ip * dY / r, m[:, :, 0, 0])
+            m[:, :, 0, 1] = torch.where(sel, c * ip * dX / r, m[:, :, 0, 1])
             m[:, :, 0, 2] = torch.where(sel, mz, m[:, :, 0, 2])
         m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12) * self.mask
         self.m0 = self.rollout.relax(m, self.h_zero, steps, alpha_relax)
         return self.m0
+
+    def link_wall(self) -> dict:
+        """Is there a domain wall in the link? Measured, not assumed.
+
+        Scans the link centreline strictly between the disk edges and reports
+        the mx reversal and the peak out-of-plane component -- the two
+        signatures of a Bloch wall.
+        """
+        cfg = self.cfg
+        nx, ny = cfg.grid
+        x = (torch.arange(nx, dtype=self.m0.dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, dtype=self.m0.dtype) - (ny - 1) / 2) * cfg.dx
+        X, Y = torch.meshgrid(x, y, indexing="ij")
+        gap = cfg.separation / 2 - cfg.radius
+        row = ((X.abs() < gap) & (Y.abs() < cfg.dx)
+               & (self.mask[:, :, 0, 0] > 0))
+        if row.sum() < 4:
+            return {"has_link": False}
+        order = X[row].argsort()
+        mx = self.m0[:, :, 0, 0][row][order]
+        mz = self.m0[:, :, 0, 2][row][order]
+        reverses = bool((mx[:3].mean() * mx[-3:].mean()) < -0.25)
+        return {"has_link": True, "reverses": reverses,
+                "mx_left": float(mx[:3].mean()), "mx_right": float(mx[-3:].mean()),
+                "mz_peak": float(mz.abs().max())}
 
     def disk_energy(self, m: torch.Tensor) -> torch.Tensor:
         dm = ((m - self.m0) ** 2).sum(-1)[:, :, 0]

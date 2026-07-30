@@ -78,11 +78,15 @@ def rel_diff(a, b):
 
 def port_spectra(sig, dt, fmax_ghz=40.0):
     """(T, n_ports) -> (n_ports, n_freq) magnitude, windowed, DC removed."""
+    # Unwindowed, deliberately. A Hann window over the record weights the two
+    # pulse slots unequally, so AB has one tone attenuated and BA the other,
+    # which fabricates an order difference in any system at all -- it drove the
+    # low-power baseline of this very comparison from ~0.001 to 0.43 and made
+    # the ports look dead when they are not (measured 24.9x once removed).
     T = sig.shape[0]
-    win = np.hanning(T)[:, None]
     x = sig.numpy()
     x = x - x.mean(axis=0, keepdims=True)
-    S = np.abs(np.fft.rfft(x * win, axis=0))
+    S = np.abs(np.fft.rfft(x, axis=0))
     f = np.fft.rfftfreq(T, d=dt) / 1e9
     keep = (f > 1.0) & (f <= fmax_ghz)
     return S[keep].T, f[keep]

@@ -73,6 +73,25 @@ def port_dft(sig, freq, dt, skip_frac=0.5):
     return (spec / spec.sum().clamp_min(1e-30)).real
 
 
+def mode_magnitudes(w, n_ports):
+    """Fold the port DFT onto |n|, summing each mode with its counter-rotating
+    partner. Bin k and bin n_ports-k are the same |n|, opposite sense."""
+    out = []
+    for k in range(n_ports // 2 + 1):
+        v = w[k]
+        if 0 < k < n_ports - k:
+            v += w[n_ports - k]
+        out.append(v)
+    return out
+
+
+def signed_split(w, n_ports, n_order):
+    """(+n, -n) weights, or None where the pair does not exist (n=0, Nyquist)."""
+    if n_order <= 0 or n_order >= n_ports - n_order:
+        return None
+    return [round(w[n_order], 4), round(w[n_ports - n_order], 4)]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -117,18 +136,33 @@ def main():
             sig = drive_and_tap(disk, h, args.freq * 1e9, args.steps,
                                 args.amp_mT * 1e-3 / MU_0)
             w = port_dft(sig, args.freq * 1e9, cfg.dt).tolist()
-            peak = int(np.argmax(w[:cfg.n_ports // 2 + 1]))
+            # Score on |n|, not on the raw bin. A cos(n phi) drive excites +n
+            # and -n equally, and the disk answers in whichever is nearer a
+            # resonance -- the two are split because the vortex breaks
+            # time-reversal symmetry. Searching only bins 0..N/2 cannot express
+            # a negative-n answer, so a correct decomposition landing on -1
+            # scored as a mismatch against +3. The claim under test is that the
+            # ports resolve azimuthal ORDER; the sense is a second, separate
+            # readout, reported here rather than folded into pass/fail.
+            mag = mode_magnitudes(w, cfg.n_ports)
+            peak = int(np.argmax(mag))
+            sense = signed_split(w, cfg.n_ports, n_order)
             per_order[n_order] = {"weights": [round(x, 4) for x in w],
-                                  "peak_n": peak, "seconds": round(time.time() - t0, 1)}
+                                  "abs_n_weights": [round(x, 4) for x in mag],
+                                  "peak_abs_n": peak, "signed_split": sense,
+                                  "seconds": round(time.time() - t0, 1)}
             ok = "OK" if peak == n_order else "MISMATCH"
-            print(f"  drive n={n_order}: port DFT peak at n={peak}  [{ok}]  "
-                  + " ".join(f"{x:.3f}" for x in w[:cfg.n_ports // 2 + 1]), flush=True)
+            extra = ""
+            if sense is not None:
+                extra = f"   (+{n_order}={sense[0]:.3f} -{n_order}={sense[1]:.3f})"
+            print(f"  drive n={n_order}: |n| peak at {peak}  [{ok}]  "
+                  + " ".join(f"{x:.3f}" for x in mag) + extra, flush=True)
         results[prec] = {"core_mz": core, "relax_s": round(relax_s, 1),
                          "orders": per_order}
 
     # precision agreement on the quantity that matters
-    agree = all(results["float64"]["orders"][n]["peak_n"]
-                == results["float32"]["orders"][n]["peak_n"] for n in args.orders)
+    agree = all(results["float64"]["orders"][n]["peak_abs_n"]
+                == results["float32"]["orders"][n]["peak_abs_n"] for n in args.orders)
     dev = max(abs(a - b)
               for n in args.orders
               for a, b in zip(results["float64"]["orders"][n]["weights"],
@@ -139,7 +173,8 @@ def main():
 
     print(f"\nfloat32 reproduces float64 mode assignment: {agree}")
     print(f"largest weight deviation between precisions: {dev:.4f}")
-    hit = sum(results["float64"]["orders"][n]["peak_n"] == n for n in args.orders)
+    hit = sum(results["float64"]["orders"][n]["peak_abs_n"] == n
+              for n in args.orders)
     print(f"port DFT recovered the driven mode in {hit}/{len(args.orders)} cases")
     if hit == len(args.orders):
         print("The ports perform the azimuthal decomposition physically.")

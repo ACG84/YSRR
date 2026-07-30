@@ -61,8 +61,12 @@ def run_reservoir(arr, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         return torch.load(cache, weights_only=False)
 
     cfg = arr.cfg
+    # The array exposes disk_masks (one per disk, shape (n_disks, nx, ny)),
+    # not the single disk_only a lone PortedVortexDisk carries. Drive the disk
+    # bodies and not the guides: a drive applied to the guides would inject
+    # directly into the readout and the ports would be measuring the input.
     unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
-    unit[:, :, :, 0] = arr.disk_only[:, :, :, 0]
+    unit[:, :, 0, 0] = arr.disk_masks.sum(dim=0).clamp(max=1.0).to(dtype)
 
     m = arr.m0.clone()
     n_ports_total = arr.port_signals(m).shape[0]

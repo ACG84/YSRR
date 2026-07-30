@@ -123,10 +123,14 @@ def main():
     p.add_argument("--amp-mT", type=float, default=30.0)
     p.add_argument("--low-amp-mT", type=float, default=1.0)
     p.add_argument("--relax-steps", type=int, default=600)
+    p.add_argument("--precision", default="float64",
+                   choices=["float32", "float64"],
+                   help="float32 was validated against float64 to 0.0000 in\n"
+                        "verify_ports.py, and is ~2x cheaper")
     p.add_argument("--outdir", default="runs/modal_disk")
     args = p.parse_args()
 
-    mnn.set_precision("float64")
+    mnn.set_precision(args.precision)
     mnn.set_device("cpu")
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)

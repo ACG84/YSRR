@@ -537,7 +537,18 @@ class CoupledPortedArray:
         self.guide_cells_per_disk = int(
             (self.mask[:, :, 0, 0].sum() - self.disk_masks.sum()) / 2)
 
-    def relax(self, steps: int = 900, alpha_relax: float = 0.5):
+    def relax(self, steps: int = 1800, alpha_relax: float = 0.5,
+              require_tol: float | None = None):
+        """Relax to the ground state.
+
+        Default raised from 900 to 1800. At 900 the state was still settling,
+        and that residual drift read as exponential divergence in the Lyapunov
+        estimator -- the actual cause of an instability I attributed to four
+        other mechanisms first. Pass ``require_tol`` (e.g. 1e-4) to make drift
+        a hard failure: ``LLGRollout.relax`` warns only below |dm| = 0.02,
+        which is ample for probe readouts and far too loose for a stability
+        measurement.
+        """
         cfg = self.cfg
         nx, ny = cfg.grid
         x = (torch.arange(nx, dtype=self.h_zero.dtype) - (nx - 1) / 2) * cfg.dx
@@ -559,6 +570,14 @@ class CoupledPortedArray:
             m[:, :, 0, 2] = torch.where(sel, mz, m[:, :, 0, 2])
         m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12) * self.mask
         self.m0 = self.rollout.relax(m, self.h_zero, steps, alpha_relax)
+        if require_tol is not None:
+            probe = self.rollout.relax(self.m0.clone(), self.h_zero, 20, alpha_relax)
+            drift = float((probe - self.m0).norm() / max(float(self.m0.norm()), 1e-30))
+            if drift > require_tol:
+                raise RuntimeError(
+                    f"relaxation still drifting: {drift:.2e} > {require_tol:.0e} "
+                    f"after {steps} steps. A stability measurement on this state "
+                    f"would report the drift as divergence.")
         return self.m0
 
     def link_wall(self) -> dict:

@@ -412,6 +412,12 @@ class CoupledPortedConfig(PortedVortexConfig):
 
     separation: float = 700e-9     # centre to centre
     link_width: float = 40e-9
+    link_alpha: float | None = None   # damping inside the link corridor.
+                                      # None keeps the base alpha, i.e. a
+                                      # lossless feedback path -- which is
+                                      # what measured lambda +0.422/ns. Raising
+                                      # it terminates the loop, at the cost of
+                                      # attenuating the coupling it provides.
 
     @property
     def grid(self) -> tuple[int, int]:
@@ -462,10 +468,15 @@ def coupled_ported_alpha(cfg: CoupledPortedConfig, device="cpu", dtype=torch.flo
     for cx, cy in cfg.centres():
         r = torch.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
         ramp = torch.minimum(ramp, ((r - start) / (outer - start)).clamp(0.0, 1.0) ** 2)
-    # never absorb inside the link, or the coupling is quietly attenuated away
+    # The link is handled separately: the outward tapers must not spill into it
+    # (that would attenuate the coupling under test), but the link may carry a
+    # deliberate loss of its own to terminate the feedback loop.
     link = (X.abs() <= cfg.separation / 2) & (Y.abs() <= cfg.link_width / 2)
     ramp = torch.where(link, torch.zeros_like(ramp), ramp)
-    return (cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp).reshape(nx, ny, 1, 1)
+    alpha = cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp
+    if cfg.link_alpha is not None:
+        alpha = torch.where(link, torch.full_like(alpha, cfg.link_alpha), alpha)
+    return alpha.reshape(nx, ny, 1, 1)
 
 
 class CoupledPortedArray:

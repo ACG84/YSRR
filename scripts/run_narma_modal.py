@@ -49,7 +49,7 @@ from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
 
 @torch.no_grad()
 def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
-                  cache=None, tones=()):
+                  cache=None, tones=(), drive="uniform"):
     """Drive frame by frame with no reset; return (n_frames, n_features).
 
     The magnetisation is carried across frames deliberately -- that continuity
@@ -75,7 +75,17 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     cfg = disk.cfg
     n = cfg.n_cells
     unit = torch.zeros(n, n, 1, 3, dtype=dtype)
-    unit[:, :, :, 0] = disk.disk_only[:, :, :, 0]
+    if drive == "uniform":
+        unit[:, :, :, 0] = disk.disk_only[:, :, :, 0]
+    else:
+        # Single-port injection. A uniform in-plane field couples almost
+        # entirely to n = +-1 by symmetry -- 77.9% of the amplitude, measured on
+        # exactly these features -- so five of the six readout channels were
+        # near-empty and the extra features bought nothing. One port at angle
+        # theta_0 has azimuthal content exp(-i n theta_0), FLAT in n, so it
+        # excites the whole basis the six ports decompose.
+        t0m = disk._tap_masks.to(dtype)[0]
+        unit[:, :, 0, 2] = t0m / t0m.sum().clamp_min(1e-30)
 
     m = disk.m0.clone()
     feats, t0 = [], time.time()
@@ -162,6 +172,9 @@ def main():
                         "~0.6 ns. Lowering it keeps energy in the disk and lets\n"
                         "guide-end reflections return some -- both lengthen\n"
                         "memory, at the cost of a less clean readout.")
+    p.add_argument("--drive", default="uniform", choices=["uniform", "port"],
+                   help="'port' injects through one guide, which is flat in "
+                        "azimuthal order; 'uniform' puts 77.9%% into n=+-1")
     p.add_argument("--relax-steps", type=int, default=900)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--outdir", default="runs/narma_modal")
@@ -186,7 +199,8 @@ def main():
     F = run_reservoir(disk, u, args.steps_per_frame, args.carrier_ghz * 1e9,
                       args.amp_lo_mT, args.amp_hi_mT, dtype,
                       cache=outdir / "features_multitone.pt",
-                      tones=[t * 1e9 for t in args.tones_ghz])
+                      tones=[t * 1e9 for t in args.tones_ghz],
+                      drive=args.drive)
     X = F.numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
 

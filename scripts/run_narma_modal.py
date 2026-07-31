@@ -154,6 +154,14 @@ def main():
                         "the second harmonic of the carrier (24.0).")
     p.add_argument("--amp-lo-mT", type=float, default=10.0)
     p.add_argument("--amp-hi-mT", type=float, default=30.0)
+    p.add_argument("--absorb-frac", type=float, default=None,
+                   help="fraction of each guide used as absorbing taper.\n"
+                        "The default 0.35 is why memory capacity is 2.6: six\n"
+                        "tapers are engineered DRAINS, and they cut the\n"
+                        "effective decay from the 1.66 ns bulk damping time to\n"
+                        "~0.6 ns. Lowering it keeps energy in the disk and lets\n"
+                        "guide-end reflections return some -- both lengthen\n"
+                        "memory, at the cost of a less clean readout.")
     p.add_argument("--relax-steps", type=int, default=900)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--outdir", default="runs/narma_modal")
@@ -164,7 +172,8 @@ def main():
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
 
     u, y = narma10(args.frames, seed=args.seed)
-    cfg = PortedVortexConfig()
+    cfg = (PortedVortexConfig() if args.absorb_frac is None
+           else PortedVortexConfig(absorb_frac=args.absorb_frac))
     disk = PortedVortexDisk(cfg, timesteps=args.steps_per_frame + 4, dtype=dtype)
     t0 = time.time(); disk.relax(steps=args.relax_steps)
     tau_ns = 1.0 / (cfg.alpha * 2 * math.pi * args.carrier_ghz * 1e9) * 1e9

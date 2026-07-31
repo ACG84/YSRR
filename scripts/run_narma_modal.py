@@ -49,7 +49,7 @@ from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
 
 @torch.no_grad()
 def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
-                  cache=None):
+                  cache=None, tones=()):
     """Drive frame by frame with no reset; return (n_frames, n_features).
 
     The magnetisation is carried across frames deliberately -- that continuity
@@ -80,10 +80,19 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     m = disk.m0.clone()
     feats, t0 = [], time.time()
     w = 2 * math.pi * carrier
+    # Lock in at several frequencies, not just the drive. Three-magnon
+    # scattering is the entire nonlinear mechanism here -- it is what produces
+    # the 23.4x AB/BA discrimination -- and it moves energy AWAY from the
+    # carrier, into harmonics and sum/difference tones and the disk's own mode
+    # ladder at 9.4-13.7 GHz. A lock-in at the carrier alone measures the
+    # linear response and discards the nonlinear products, which is exactly the
+    # signature the first run showed: good memory, no advantage over a linear
+    # tap-delay.
+    ws = [2 * math.pi * f for f in (carrier, *tones)]
     for j, un in enumerate(u):
         amp = (amp_lo + (amp_hi - amp_lo) * float(un)) * 1e-3 / MU_0
-        accI = torch.zeros(cfg.n_ports, dtype=torch.float64)
-        accQ = torch.zeros(cfg.n_ports, dtype=torch.float64)
+        accI = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64)
+        accQ = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64)
         for k in range(steps_per_frame):
             tk = (j * steps_per_frame + k) * cfg.dt
 
@@ -92,16 +101,19 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
 
             m = disk.rollout.rk4_step(m, disk.h_zero, h_drive)
             p = disk.port_signals(m).double()
-            accI += p * math.cos(w * tk)
-            accQ += p * math.sin(w * tk)
-        # lock-in complex amplitude per port, then the cross-port DFT the
-        # guides implement; |n| <= 3 is all six ports can resolve
-        A = ((accI + 1j * accQ) / steps_per_frame).numpy()
-        M = np.fft.fft(A)
+            for i, wi in enumerate(ws):
+                accI[i] += p * math.cos(wi * tk)
+                accQ[i] += p * math.sin(wi * tk)
+        # per tone: lock-in amplitude per port, then the cross-port DFT the
+        # guides implement. Modes are kept SIGNED (+n and -n separately)
+        # rather than folded onto |n|: the vortex splits them -- n = +-1 sit
+        # 1.9 GHz apart -- so folding discards a real, measured channel.
         row = []
-        for q in range(cfg.n_ports // 2 + 1):
-            v = M[q] + (M[cfg.n_ports - q] if 0 < q < cfg.n_ports - q else 0.0)
-            row += [v.real, v.imag, abs(v)]
+        for i in range(len(ws)):
+            A = ((accI[i] + 1j * accQ[i]) / steps_per_frame).numpy()
+            M = np.fft.fft(A)
+            for q in range(cfg.n_ports):
+                row += [M[q].real, M[q].imag]
         feats.append(row)
         if (j + 1) % 100 == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
@@ -134,6 +146,12 @@ def main():
                         "score comes back nan, including input-only.")
     p.add_argument("--steps-per-frame", type=int, default=200)
     p.add_argument("--carrier-ghz", type=float, default=12.0)
+    p.add_argument("--tones-ghz", type=float, nargs="*",
+                   default=[9.9, 10.3, 13.7, 24.0],
+                   help="extra lock-in frequencies. Defaults are where the\n"
+                        "scattering products actually land: the strongest modes\n"
+                        "n=+-2 and +-3 (9.9, 10.3), the n=+-7 rung (13.7), and\n"
+                        "the second harmonic of the carrier (24.0).")
     p.add_argument("--amp-lo-mT", type=float, default=10.0)
     p.add_argument("--amp-hi-mT", type=float, default=30.0)
     p.add_argument("--relax-steps", type=int, default=900)
@@ -158,7 +176,8 @@ def main():
 
     F = run_reservoir(disk, u, args.steps_per_frame, args.carrier_ghz * 1e9,
                       args.amp_lo_mT, args.amp_hi_mT, dtype,
-                      cache=outdir / "features.pt")
+                      cache=outdir / "features_multitone.pt",
+                      tones=[t * 1e9 for t in args.tones_ghz])
     X = F.numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
 

@@ -125,7 +125,7 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             for q in range(cfg.n_ports):
                 row += [M[q].real, M[q].imag]
         feats.append(row)
-        if (j + 1) % 100 == 0:
+        if (j + 1) % 25 == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
             if cache is not None and j + 1 > len(done):
                 torch.save(torch.tensor(np.array(feats), dtype=torch.float64),

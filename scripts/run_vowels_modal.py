@@ -63,15 +63,32 @@ def run_tokens(disk, tokens, steps_per_frame, frames_per_token, amp_mT,
 
     cfg = disk.cfg
     n = cfg.n_cells
-    unit = torch.zeros(n, n, 1, 3, dtype=dtype)
-    unit[:, :, :, 0] = disk.disk_only[:, :, :, 0]
     amp = amp_mT * 1e-3 / MU_0
+    # Drive THROUGH THE PORTS rather than uniformly. A uniform in-plane field
+    # couples almost entirely to n = +-1 by symmetry -- measured at 77.9% of the
+    # amplitude on the NARMA features -- so every token excited the same single
+    # mode and the six-port decomposition had nothing to separate (Fisher ratio
+    # 0.037). The guides are reciprocal: injecting a_k at port k makes the
+    # excitation's azimuthal content the DFT of {a_k}, which addresses
+    # n = 0..+-3 directly. This is what the routing film was always for.
+    taps = disk._tap_masks.to(dtype)                     # (n_ports, nx, ny)
+    port_drive = torch.zeros(cfg.n_ports, n, n, 1, 3, dtype=dtype)
+    for k in range(cfg.n_ports):
+        port_drive[k, :, :, 0, 2] = taps[k] / taps[k].sum().clamp_min(1e-30)
     ws_read = [2 * math.pi * f for f in tones_read]
 
     m = disk.m0.clone()
     feats, t0 = [], time.time()
     for ti, freqs in enumerate(tokens):
         w_tok = [2 * math.pi * f for f in freqs]
+        # each formant addresses a different azimuthal order: formant j is
+        # injected with the phase pattern exp(i (j+1) theta_k) across ports, so
+        # the three formants land on n = 1, 2, 3 instead of all on n = 1
+        angles = torch.tensor(cfg.port_angles(), dtype=torch.float64)
+        pattern = torch.stack([torch.cos((j + 1) * angles)
+                               for j in range(len(w_tok))])       # (3, n_ports)
+        unit_t = torch.einsum("jp,pxyzc->jxyzc",
+                              pattern.to(dtype), port_drive)      # (3, nx,ny,1,3)
         rows = []
         for fr in range(frames_per_token):
             accI = torch.zeros(len(ws_read), cfg.n_ports, dtype=torch.float64)
@@ -81,8 +98,10 @@ def run_tokens(disk, tokens, steps_per_frame, frames_per_token, amp_mT,
 
                 def h_drive(theta, tk=tk):
                     t = tk + theta * cfg.dt
-                    s = sum(math.sin(w * t) for w in w_tok) / len(w_tok)
-                    return unit * (amp * s)
+                    out = torch.zeros_like(unit_t[0])
+                    for j, w in enumerate(w_tok):
+                        out = out + unit_t[j] * math.sin(w * t)
+                    return out * (amp / len(w_tok))
 
                 m = disk.rollout.rk4_step(m, disk.h_zero, h_drive)
                 p = disk.port_signals(m).double()
@@ -114,18 +133,35 @@ def run_tokens(disk, tokens, steps_per_frame, frames_per_token, amp_mT,
     return F
 
 
-def ridge_classify(Xtr, ytr, Xte, yte, n_cls, lams=(1e-6, 1e-4, 1e-2, 1.0, 100.0)):
-    """One-vs-rest ridge; returns the best test accuracy over lambda by train fit."""
-    Ttr = -np.ones((len(ytr), n_cls)); Ttr[np.arange(len(ytr)), ytr] = 1.0
-    best_acc, best_lam = 0.0, None
-    A = np.hstack([Xtr, np.ones((len(Xtr), 1))])
-    B = np.hstack([Xte, np.ones((len(Xte), 1))])
+def ridge_classify(Xtr, ytr, Xte, yte, n_cls, lams=(1e-6, 1e-4, 1e-2, 1.0, 100.0),
+                   val_frac=0.25, seed=0):
+    """One-vs-rest ridge, lambda chosen on a VALIDATION split of the training set.
+
+    The first version picked lambda by test accuracy, which is test-set leakage
+    and inflates whatever it reports. It did not rescue the negative results it
+    was used on, but it has to be gone before any positive one is believed.
+    """
+    rng = np.random.default_rng(seed)
+    idx = rng.permutation(len(Xtr))
+    n_val = max(int(len(idx) * val_frac), n_cls)
+    va, tr = idx[:n_val], idx[n_val:]
+
+    def fit(X, y, lam):
+        T = -np.ones((len(y), n_cls)); T[np.arange(len(y)), y] = 1.0
+        A = np.hstack([X, np.ones((len(X), 1))])
+        return np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T @ T)
+
+    def acc(W, X, y):
+        B = np.hstack([X, np.ones((len(X), 1))])
+        return float((np.argmax(B @ W, axis=1) == y).mean())
+
+    best_lam, best_va = None, -1.0
     for lam in lams:
-        W = np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T @ Ttr)
-        acc = float((np.argmax(B @ W, axis=1) == yte).mean())
-        if acc > best_acc:
-            best_acc, best_lam = acc, lam
-    return best_acc, best_lam
+        a = acc(fit(Xtr[tr], ytr[tr], lam), Xtr[va], ytr[va])
+        if a > best_va:
+            best_va, best_lam = a, lam
+    W = fit(Xtr, ytr, best_lam)          # refit on all training data
+    return acc(W, Xte, yte), best_lam
 
 
 def main():

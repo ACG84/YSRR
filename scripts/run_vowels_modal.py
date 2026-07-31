@@ -139,8 +139,17 @@ def main():
     p.add_argument("--band", type=float, nargs=2, default=[9.4, 13.7],
                    help="GHz; the disk's MEASURED mode ladder")
     p.add_argument("--tones-read", type=float, nargs="*",
-                   default=[9.9, 11.7, 13.7])
-    p.add_argument("--steps-per-frame", type=int, default=200)
+                   default=[9.6, 10.4, 11.2, 12.0, 12.8, 13.6],
+                   help="six bins across the band rather than three, so the "
+                        "readout samples the spectrum instead of three points "
+                        "of it")
+    p.add_argument("--steps-per-frame", type=int, default=1000,
+                   help="Sets the READOUT's frequency resolution, 1/T. At the\n"
+                        "old 200 steps that was 5 GHz, and the whole token\n"
+                        "encoding spans 4.3 GHz -- the entire task fitted inside\n"
+                        "one resolution element and every lock-in measured the\n"
+                        "same blur. 1000 steps gives 1 GHz; two settled frames\n"
+                        "integrate to 0.5 GHz, enough to separate the classes.")
     p.add_argument("--frames-per-token", type=int, default=4)
     p.add_argument("--amp-mT", type=float, default=30.0)
     p.add_argument("--relax-steps", type=int, default=900)

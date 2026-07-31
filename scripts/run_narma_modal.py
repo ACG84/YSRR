@@ -127,7 +127,11 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--frames", type=int, default=1200)
-    p.add_argument("--splits", type=int, nargs=3, default=(150, 750, 300))
+    p.add_argument("--splits", type=int, nargs=3, default=(150, 650, 150),
+                   help="(washout, train, val). TEST is the REMAINDER, so\n"
+                        "these must sum to less than --frames: summing to\n"
+                        "exactly it leaves an empty test slice and every\n"
+                        "score comes back nan, including input-only.")
     p.add_argument("--steps-per-frame", type=int, default=200)
     p.add_argument("--carrier-ghz", type=float, default=12.0)
     p.add_argument("--amp-lo-mT", type=float, default=10.0)

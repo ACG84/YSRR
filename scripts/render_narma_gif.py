@@ -161,8 +161,7 @@ def main():
     ax1.add_patch(Circle((0, 0), cfg.radius * 1e9, fill=False, ec=INK, lw=1.3,
                          ls=(0, (5, 3))))
     ax1.set_aspect("equal"); ax1.set_xlabel("nm", fontsize=9, color=INK2)
-    ax1.set_title("the reservoir — δm_z at the end of each input frame",
-                  fontsize=10.5, color=INK, loc="left", pad=7)
+    ax1.set_title("δm_z", fontsize=10.5, color=INK, loc="left", pad=7)
     ax1.tick_params(colors=MUTED, labelsize=8)
     for s in ax1.spines.values():
         s.set_color(GRID)
@@ -174,9 +173,7 @@ def main():
     ln_p, = ax2.plot([], [], color=BLUE, lw=1.8)
     ln_u, = ax2.plot([], [], color=MUTED, lw=1.2)
     ax2.set_ylim(min(y[s0:].min(), 0) - 0.05, max(y[s0:].max(), u.max()) + 0.10)
-    ax2.set_ylabel("value", fontsize=9, color=INK2)
-    ax2.set_title("prediction (blue) against truth (black), input in grey — "
-                  "readout never fitted here", fontsize=10.5, color=INK,
+    ax2.set_title("prediction vs truth", fontsize=10.5, color=INK,
                   loc="left", pad=7)
     ax2.grid(color=GRID, lw=0.8); ax2.set_axisbelow(True)
     ax2.tick_params(colors=MUTED, labelsize=8)
@@ -190,8 +187,8 @@ def main():
     ax3.set_xticks(range(nb))
     ax3.set_xticklabels([f"{i}" for i in range(nb)], fontsize=7.5, color=MUTED)
     ax3.set_xlabel("port modal feature", fontsize=9, color=INK2)
-    ax3.set_title("what the six ports deliver this frame", fontsize=10.5,
-                  color=INK, loc="left", pad=7)
+    ax3.set_title("port features", fontsize=10.5, color=INK,
+                  loc="left", pad=7)
     ax3.grid(color=GRID, lw=0.8, axis="y"); ax3.set_axisbelow(True)
     ax3.tick_params(colors=MUTED, labelsize=8)
     for s in ax3.spines.values():
@@ -214,11 +211,8 @@ def main():
             b.set_height(v)
             b.set_color(BLUE if v >= 0 else ORANGE)
         err = abs(pred[j] - y[j])
-        title.set_text(f"NARMA-10 in the ported disk   ·   frame {j}   ·   "
-                       f"u = {u[j]:.3f}")
-        sub.set_text(f"target {y[j]:.3f}   prediction {pred[j]:.3f}   "
-                     f"|error| {err:.3f}      memory capacity 2.6 of the 10 "
-                     f"lags this task needs")
+        title.set_text(f"NARMA-10   ·   frame {j}   ·   u = {u[j]:.3f}")
+        sub.set_text(f"target {y[j]:.3f}   ·   prediction {pred[j]:.3f}")
         return [im, ln_y, ln_p, ln_u, title, sub, *bars]
 
     anim = animation.FuncAnimation(fig, update, frames=len(idx), blit=False)

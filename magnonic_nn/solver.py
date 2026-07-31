@@ -95,7 +95,57 @@ class LLGRollout:
         self.dt = float(solver_cfg.dt)
         self.gamma = float(constants.gamma)
 
+        # Thermal (Langevin) field. Off by default -- every deterministic
+        # measurement in this project depends on it being off, and a stochastic
+        # term would quietly invalidate the AB/BA ratios and the Lyapunov
+        # exponents. Enabled only where a device at finite temperature is the
+        # thing being modelled, notably any denoising claim: Noise2Noise needs
+        # two INDEPENDENT noisy realisations of the same input, and a
+        # deterministic rollout gives byte-identical features twice over, so
+        # there would be nothing to denoise.
+        self.temperature = 0.0
+        self._noise_gen = None
+
     # ------------------------------------------------------------------ setup
+
+    def set_temperature(self, T_kelvin: float, seed: int | None = None):
+        """Turn on the fluctuation-dissipation thermal field.
+
+        Fluctuation-dissipation fixes the amplitude given the damping already
+        in the model -- it is not a free knob:
+
+            sigma = sqrt(2 alpha k_B T / (gamma mu0 Ms V dt))
+
+        with V the cell volume. Applied as an Euler-Maruyama increment AFTER
+        the deterministic RK4 step: RK4 is a smooth-path integrator and feeding
+        white noise through its four sub-stages would scale the variance by the
+        Butcher weights rather than by dt.
+        """
+        self.temperature = float(T_kelvin)
+        self._noise_gen = None if seed is None else (
+            torch.Generator(device="cpu").manual_seed(int(seed)))
+
+    def _thermal_field(self, m: torch.Tensor) -> torch.Tensor:
+        k_B, mu0 = 1.380649e-23, 4e-7 * math.pi
+        dx, dy, dz = self.mesh_cfg.d
+        V = dx * dy * dz
+        # Ms is a FIELD, not a scalar: set_Ms patterns the geometry, and cells
+        # outside the magnet carry Ms = 0. Since sigma ~ 1/sqrt(Ms), those cells
+        # would take an infinite kick -- so the noise is masked to where there
+        # is material, which is also physically right (no moments, no
+        # fluctuation).
+        Ms = self.state.material["Ms"]
+        Ms = Ms if torch.is_tensor(Ms) else torch.as_tensor(Ms, dtype=m.dtype)
+        Ms = Ms.to(m.dtype).reshape(*Ms.shape[:3], -1)[..., :1] \
+            if Ms.dim() >= 3 else Ms.reshape(1, 1, 1, 1)
+        live = Ms > 0
+        a = self.alpha if torch.is_tensor(self.alpha) else torch.as_tensor(
+            self.alpha, dtype=m.dtype)
+        a = a.to(m.dtype)
+        denom = (self.gamma * mu0 * Ms.clamp_min(1e-30) * V * self.dt)
+        sigma = torch.sqrt(2.0 * k_B * self.temperature * a / denom) * live
+        eta = torch.randn(m.shape, dtype=m.dtype, generator=self._noise_gen)
+        return sigma * eta
 
     def register_alpha(self, alpha: torch.Tensor):
         """Install the (possibly spatially varying) damping field."""
@@ -165,6 +215,12 @@ class LLGRollout:
         k3 = self.torque(m + 0.5 * dt * k2, field_at(0.5), alpha)
         k4 = self.torque(m + dt * k3, field_at(1.0), alpha)
         m_next = m + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+        if self.temperature > 0.0:
+            # Euler-Maruyama increment, outside the RK4 stages (see
+            # set_temperature for why it cannot go inside them).
+            h_th = self._thermal_field(m_next)
+            m_next = m_next + self.dt * self.torque(m_next, h_th, alpha)
 
         if self.cfg.renormalize:
             m_next = m_next / m_next.norm(dim=-1, keepdim=True).clamp_min(1e-12)

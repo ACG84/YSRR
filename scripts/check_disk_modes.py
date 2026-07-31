@@ -123,6 +123,10 @@ def main():
                    help="guide passband in GHz")
     p.add_argument("--fmax", type=float, default=40.0, help="GHz, for reporting")
     p.add_argument("--precision", default="float32", choices=["float32", "float64"])
+    p.add_argument("--material", default="permalloy",
+                   choices=["permalloy", "yig", "yig-film"])
+    p.add_argument("--radius-nm", type=float, default=None)
+    p.add_argument("--dx-nm", type=float, default=None)
     p.add_argument("--outdir", default="runs/disk_modes")
     args = p.parse_args()
 
@@ -130,7 +134,16 @@ def main():
     mnn.set_device("cpu")
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
 
-    cfg = VortexConfig()
+    MATS = {"permalloy": dict(Ms=800e3, A=1.3e-11, alpha=0.008),
+            "yig": dict(Ms=140e3, A=3.6e-12, alpha=1e-4),
+            "yig-film": dict(Ms=140e3, A=3.6e-12, alpha=1e-3)}
+    mat = MATS[args.material]
+    over = dict(mat)
+    if args.radius_nm is not None:
+        over["radius"] = args.radius_nm * 1e-9
+    if args.dx_nm is not None:
+        over["dx"] = args.dx_nm * 1e-9
+    cfg = VortexConfig(**over)
     n_steps = int(args.ns * 1e-9 / cfg.dt)
     print(f"mesh {cfg.n_cells}x{cfg.n_cells}, {n_steps} steps = {args.ns:g} ns, "
           f"df = {1e-9 / (args.ns * 1e-9) / 1e0:.3f} GHz resolution", flush=True)

@@ -41,14 +41,24 @@ import magnonic_nn as mnn
 from magnonic_nn.config import MU_0, MeshConfig, SolverConfig
 from magnonic_nn.solver import LLGRollout
 
-ALPHA_BULK = 0.008
 ALPHA_ABS = 0.5
+
+# Material sets the band as much as geometry does: the strip cutoff goes as Ms,
+# so YIG at 140 kA/m puts it ~5.7x below permalloy's. Hardcoding permalloy is
+# how the guides came to be characterised at a thickness the device never had.
+MATERIALS = {
+    "permalloy": dict(Ms=800e3, A=1.3e-11, alpha=0.008),
+    "yig": dict(Ms=140e3, A=3.6e-12, alpha=1e-4),
+    "yig-film": dict(Ms=140e3, A=3.6e-12, alpha=1e-3),
+}
+ALPHA_BULK = MATERIALS["permalloy"]["alpha"]
 
 
 @torch.no_grad()
 def guide_response(freq, width_nm, thickness_nm, length_nm=1400.0,
                    absorber_nm=300.0, steps=2000, amp_mT=3.0, dx=5e-9,
-                   margin=6, min_cycles=1.5, dtype=torch.float32):
+                   margin=6, min_cycles=1.5, dtype=torch.float32,
+                   material="permalloy"):
     """Drive one end of a terminated guide; fit decay length and wavelength.
 
     Returns ``(decay_nm, wavelength_nm, amp, cycles_in_window)``. ``amp`` is
@@ -71,16 +81,18 @@ def guide_response(freq, width_nm, thickness_nm, length_nm=1400.0,
 
     # Terminate the far end. Quadratic grading rather than a step, so the
     # absorber itself does not reflect what it is there to absorb.
+    mat = MATERIALS[material]
+    a_bulk = mat["alpha"]
     n_abs = int(round(absorber_nm * 1e-9 / dx))
-    alpha = torch.full((nx, ny, 1, 1), ALPHA_BULK, dtype=dtype)
+    alpha = torch.full((nx, ny, 1, 1), a_bulk, dtype=dtype)
     if n_abs > 0:
         ramp = torch.linspace(0.0, 1.0, n_abs, dtype=dtype) ** 2
         a0 = nx - margin - n_abs
         alpha[a0:nx - margin, :, 0, 0] = (
-            ALPHA_BULK + ramp[:, None] * (ALPHA_ABS - ALPHA_BULK))
+            a_bulk + ramp[:, None] * (ALPHA_ABS - a_bulk))
 
-    roll = LLGRollout(mesh, solver, A=1.3e-11, alpha=alpha, Ms_ref=800e3)
-    roll.set_Ms(800e3 * mask)
+    roll = LLGRollout(mesh, solver, A=mat["A"], alpha=alpha, Ms_ref=mat["Ms"])
+    roll.set_Ms(mat["Ms"] * mask)
     h0 = torch.zeros(nx, ny, 1, 3, dtype=dtype)
 
     m = torch.zeros(nx, ny, 1, 3, dtype=dtype)
@@ -166,6 +178,7 @@ def main():
     p.add_argument("--settle-tol", type=float, default=0.10,
                    help="max profile drift between the last two quarters")
     p.add_argument("--steps", type=int, default=4000)
+    p.add_argument("--material", default="permalloy", choices=sorted(MATERIALS))
     p.add_argument("--outdir", default="runs/guide_decay_term")
     args = p.parse_args()
 

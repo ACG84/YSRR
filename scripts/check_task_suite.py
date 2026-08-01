@@ -43,8 +43,9 @@ def load_features(path):
     Checkpoints now carry {"feats", "m"} so a restart can reload the reservoir
     state instead of replaying; older files are a bare tensor.
     """
-    obj = torch.load(path, weights_only=False)
-    return obj["feats"] if isinstance(obj, dict) else obj
+    obj = torch.load(path, weights_only=False, map_location="cpu")
+    t = obj["feats"] if isinstance(obj, dict) else obj
+    return t.cpu()          # a run on CUDA saves device tensors
 
 
 def narma(n_order, length, seed=0):

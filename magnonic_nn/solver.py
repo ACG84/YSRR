@@ -84,6 +84,8 @@ class LLGRollout:
         self.state.material = {"Ms": Ms_ref, "A": A, "Di": Di}
         self.state.m = self.state.Constant([0.0, 0.0, 1.0])
 
+        # gamma before register_alpha: that now precomputes gamma' eagerly
+        self.gamma = float(constants.gamma)
         self.register_alpha(alpha)
 
         self.exchange = ExchangeField()
@@ -93,7 +95,6 @@ class LLGRollout:
         self.dmi = InterfaceDMIField() if Di != 0.0 else None
 
         self.dt = float(solver_cfg.dt)
-        self.gamma = float(constants.gamma)
 
         # Thermal (Langevin) field. Off by default -- every deterministic
         # measurement in this project depends on it being off, and a stochastic
@@ -148,16 +149,29 @@ class LLGRollout:
         return sigma * eta
 
     def register_alpha(self, alpha: torch.Tensor):
-        """Install the (possibly spatially varying) damping field."""
+        """Install the (possibly spatially varying) damping field.
+
+        gamma' is computed EAGERLY here rather than lazily on first use. The
+        lazy version allocated it inside the stepper, so under CUDA graph
+        capture the graph took ownership of the cached tensor and every replay
+        read memory that had since been overwritten -- the failure was reported
+        against `self.gamma / (1.0 + alpha**2)` deep in torque(). Precomputing
+        makes it a stable input the graph can close over.
+        """
         self.alpha = alpha
-        self._gamma_prime = None  # invalidate cache
+        self._gamma_prime = (
+            (alpha, self.gamma / (1.0 + alpha**2))
+            if isinstance(alpha, torch.Tensor) else None)
 
     def _gp(self, alpha):
-        """``gamma / (1 + alpha^2)``, cached for the spatially varying case."""
+        """``gamma / (1 + alpha^2)`` for the spatially varying case."""
         if isinstance(alpha, torch.Tensor):
-            if self._gamma_prime is None or self._gamma_prime[0] is not alpha:
-                self._gamma_prime = (alpha, self.gamma / (1.0 + alpha**2))
-            return self._gamma_prime[1]
+            cached = self._gamma_prime
+            if cached is not None and cached[0] is alpha:
+                return cached[1]
+            # a caller-supplied alpha (relaxation uses its own); compute it
+            # without caching, since caching here is what broke graph replay
+            return self.gamma / (1.0 + alpha**2)
         return self.gamma / (1.0 + alpha**2)
 
     def set_Ms(self, Ms: torch.Tensor):

@@ -119,8 +119,9 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         if j < start:
             continue                       # state was restored, not replayed
         amp = (amp_lo + (amp_hi - amp_lo) * float(un)) * 1e-3 / MU_0
-        accI = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64)
-        accQ = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64)
+        dev = m.device
+        accI = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64, device=dev)
+        accQ = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64, device=dev)
         for k in range(steps_per_frame):
             tk = (j * steps_per_frame + k) * cfg.dt
             # h at theta = 0, 1/2, 1/2, 1. The two half-step fields are the
@@ -144,7 +145,7 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         # 1.9 GHz apart -- so folding discards a real, measured channel.
         row = []
         for i in range(len(ws)):
-            A = ((accI[i] + 1j * accQ[i]) / steps_per_frame).numpy()
+            A = ((accI[i] + 1j * accQ[i]) / steps_per_frame).cpu().numpy()
             M = np.fft.fft(A)
             for q in range(cfg.n_ports):
                 row += [M[q].real, M[q].imag]
@@ -201,11 +202,16 @@ def main():
                    help="'port' injects through one guide, which is flat in "
                         "azimuthal order; 'uniform' puts 77.9%% into n=+-1")
     p.add_argument("--relax-steps", type=int, default=900)
+    p.add_argument("--device", default="cpu",
+                   help="'cuda' takes the graph-captured step: 0.63 ms against\n"
+                        "16.26 on CPU, so a 400-frame point is ~50 s instead of\n"
+                        "~18 min -- which also puts a run inside the window\n"
+                        "between this container's reboots.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--outdir", default="runs/narma_modal")
     args = p.parse_args()
 
-    mnn.set_precision("float32"); mnn.set_device("cpu")
+    mnn.set_precision("float32"); mnn.set_device(args.device)
     dtype = torch.float32
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
 

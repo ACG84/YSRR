@@ -155,11 +155,12 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             if cache is not None:
                 torch.save({"feats": torch.tensor(np.array(feats),
                                                   dtype=torch.float64),
-                            "m": m.detach().cpu()}, cache)
+                            "m": m.detach().cpu()}, cache)   # host: a CUDA
+                            # checkpoint would only reload on a CUDA machine
 
     F = torch.tensor(np.array(feats), dtype=torch.float64)
     if cache is not None:
-        torch.save({"feats": F, "m": m.detach().cpu()}, cache)
+        torch.save({"feats": F.cpu(), "m": m.detach().cpu()}, cache)
     return F
 
 
@@ -232,7 +233,7 @@ def main():
                       cache=outdir / "features_multitone.pt",
                       tones=[t * 1e9 for t in args.tones_ghz],
                       drive=args.drive)
-    X = F.numpy()
+    X = F.cpu().numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
 
     # how much of the past actually survives, measured rather than assumed

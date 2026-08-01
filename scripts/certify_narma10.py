@@ -162,6 +162,51 @@ def best_lag_count(u, y, splits) -> int:
     return best[1]
 
 
+def memory_function(F, u, splits, max_lag=14):
+    """r^2 of reconstructing u[n-k] from the device state, and Jaeger's MC.
+
+    Answers the question the NMSE numbers cannot: is the device losing NARMA-10
+    because it has too little memory, or because it has enough and is wasting
+    it? Those want opposite fixes -- lower damping in the first case, a better
+    readout in the second -- so it is worth measuring rather than assuming.
+    """
+    n_wash, n_train, n_val = splits
+    tr = slice(n_wash, n_wash + n_train)
+    te = slice(n_wash + n_train + n_val, len(u))
+    va = slice(n_wash + n_train, n_wash + n_train + n_val)
+    te = slice(n_wash + n_train + n_val, len(u))
+    Z = standardise(F, tr)
+    uc = u - u.mean()
+    r2 = []
+    for k in range(max_lag + 1):
+        t = np.zeros_like(uc)
+        t[k:] = uc[:len(uc) - k] if k else uc
+        best, w = None, None
+        for lam in LAMS:
+            ww = ridge_fit(Z[tr], t[tr], lam)
+            e = float(np.mean((t[va] - ridge_predict(Z[va], ww)) ** 2))
+            if best is None or e < best:
+                best, w = e, ww
+        p = ridge_predict(Z[te], w)
+        c = np.corrcoef(t[te], p)[0, 1] if p.std() > 1e-12 else 0.0
+        r2.append(float(max(c, 0.0) ** 2) if np.isfinite(c) else 0.0)
+    horizon = next((k for k in range(1, max_lag + 1) if r2[k] < 0.5), max_lag + 1)
+    return r2, float(sum(r2[1:])), horizon
+
+
+def equivalent_depth(u, y, splits, target_nmse, max_depth=40):
+    """The shallowest linear filter that matches the device's test NMSE.
+
+    Reads the device onto the one axis NARMA-10 cares about. A device whose
+    memory horizon is 8 lags but which performs like an 11-lag filter is being
+    helped by its nonlinearity, by exactly that margin.
+    """
+    for k in range(1, max_depth + 1):
+        if score(lags(u, k), y, splits) <= target_nmse:
+            return k
+    return max_depth + 1
+
+
 def paired(per_seed, a, b, ks):
     """Paired t-interval on NMSE(a) - NMSE(b). Negative favours a."""
     d = np.array([per_seed[k][a] - per_seed[k][b] for k in ks])
@@ -340,6 +385,31 @@ def main():
                   "(tier 3 fails), so on this\ntask the ports are not "
                   "contributing computation a linear readout lacks.")
 
+    # ---- why: memory held, against memory needed ------------------------
+    mem = {}
+    for k in ks:
+        u, y = draw(k, n, args.run_frames)
+        r2, mc, hor = memory_function(found[k][:n], u, splits)
+        eq = equivalent_depth(u, y, splits, per_seed[k]["device"])
+        mem[k] = {"r2": r2, "mc": mc, "horizon": hor, "equivalent_depth": eq}
+    mc_m = float(np.mean([mem[k]["mc"] for k in ks]))
+    hor_m = float(np.mean([mem[k]["horizon"] for k in ks]))
+    eq_m = float(np.mean([mem[k]["equivalent_depth"] for k in ks]))
+    print(f"\nmemory   Jaeger MC {mc_m:.2f}   r^2 drops below 0.5 at lag "
+          f"{hor_m:.1f}   performs like a {eq_m:.1f}-lag linear filter")
+    print(f"  mean r^2 by lag  " + " ".join(
+        f"{np.mean([mem[k]['r2'][j] for k in ks]):.2f}" for j in range(9)))
+    if eq_m > hor_m + 0.5:
+        print(f"  The device performs like a deeper filter than it remembers "
+              f"({eq_m:.1f} vs {hor_m:.1f}\n  lags), so the nonlinearity is "
+              f"contributing. It still cannot reach the 11-lag cliff where\n"
+              f"  u[n-10] enters, which is what the task's product term needs.")
+    else:
+        print(f"  The device performs like a {eq_m:.1f}-lag filter and "
+              f"remembers {hor_m:.1f} lags, so it is\n  extracting no more than "
+              f"its memory alone would give. The nonlinearity is not\n  reaching "
+              f"the readout in usable form.")
+
     print(f"\ncalibration   device NRMSE "
           f"{np.mean([np.sqrt(per_seed[k]['device']) for k in ks]):.3f}   "
           f"best linear NRMSE {np.sqrt(lin):.3f}   "
@@ -392,6 +462,7 @@ def main():
         "tiers": {name: {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv)
                          for kk, vv in st.items()}
                   for name, st in (("tier1", t1), ("tier2", t2), ("tier3", t3))},
+        "memory": {str(k): v for k, v in mem.items()},
         "family_exploratory": {str(o): {"tier2": v["tier2"], "tier3": v["tier3"],
                                         "per_seed": {str(k): pv for k, pv
                                                      in v["per_seed"].items()}}

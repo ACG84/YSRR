@@ -149,9 +149,37 @@ result.
 ## Calibration
 
 NARMA-10 is usually reported as NRMSE = sqrt(NMSE). The linear reference
-measured above is NRMSE 0.41. Published echo-state networks with a few hundred
+measured above is NRMSE 0.38. Published echo-state networks with a few hundred
 nodes reach roughly NRMSE 0.2. An NMSE of 0.63 is NRMSE 0.79 — worse than linear
-regression on the input. The binding constraint is memory: the device holds
-about three steps of usable history against a task whose linear structure alone
-needs twenty. Certification does not change that, and a Tier 3 pass would not
-either; it would only establish that the nonlinearity is real and additive.
+regression on the input.
+
+## How much memory the device actually has
+
+An earlier draft of this document asserted the device holds "about three steps
+of usable history". That is wrong, and it matters, because it points at the
+wrong fix. Measured directly on the port-drive features — reconstructing
+`u[n-k]` from the device state, same splits, same protocol:
+
+| lag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| r² | 0.996 | 0.935 | 0.986 | 0.980 | 0.961 | 0.889 | 0.843 | 0.852 | 0.343 |
+
+Jaeger MC 8.17, with r² falling below 0.5 at lag 8. The physical prediction is
+`1 / (2 pi alpha N_cycles)` = 8.29 frames at alpha = 0.008 and 2.40 carrier
+cycles per frame. **The measured memory matches the ring-down almost exactly**;
+nothing is being lost between the magnetisation and the ports.
+
+The "three steps" figure belongs to the earlier uniform-drive, carrier-only
+lock-in configuration, whose capacity was 2.6. It is not a property of the
+device being certified here.
+
+This changes the diagnosis. A linear filter with eight lags scores 0.72 and the
+device scores 0.63, so *matched on memory depth the device wins* — the
+nonlinearity is doing work. What it cannot do is reach lag 10, and NARMA-10's
+product term needs exactly `u[n-10]`. The device sits one lag short of the cliff.
+
+So the certification's `equivalent_depth` diagnostic is the useful number: the
+depth of the shallowest linear filter that matches the device's NMSE. A device
+that remembers 8 lags but performs like an 11-lag filter is being helped by its
+nonlinearity by that margin; one that performs like an 8-lag filter is not
+extracting anything its memory did not already give.

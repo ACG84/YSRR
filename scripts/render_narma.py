@@ -29,6 +29,16 @@ INK, INK2, MUTED, SURFACE = "#0b0b0b", "#52514e", "#8a8880", "#fcfcfb"
 GRID = "#e4e2dd"
 
 
+def load_features(path):
+    """Accept both checkpoint formats.
+
+    Checkpoints now carry {"feats", "m"} so a restart can reload the reservoir
+    state instead of replaying; older files are a bare tensor.
+    """
+    obj = torch.load(path, weights_only=False)
+    return obj["feats"] if isinstance(obj, dict) else obj
+
+
 def lag_matrix(u, n_lags):
     out = np.zeros((len(u), n_lags))
     for k in range(n_lags):
@@ -95,7 +105,7 @@ def main():
         if not cands:
             print(f"no features in {indir}"); return 2
         fpath = cands[0]
-    F = torch.load(fpath, weights_only=False).numpy()
+    F = load_features(fpath).numpy()
     n = len(F)
     u, y = narma10(args.frames, seed=0)
     u, y = u[:n], y[:n]

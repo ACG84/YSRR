@@ -114,7 +114,8 @@ def main():
     outdir = Path(args.out).parent; outdir.mkdir(parents=True, exist_ok=True)
 
     # readout weights from the completed run -- never fitted on this window
-    Fc = torch.load(args.trained_on, weights_only=False).numpy()
+    _obj = torch.load(args.trained_on, weights_only=False)
+    Fc = (_obj["feats"] if isinstance(_obj, dict) else _obj).numpy()
     uc, yc = narma10(len(Fc), seed=0)
     mu, sd = Fc.mean(0), Fc.std(0).clip(1e-12)
     Xc = (Fc - mu) / sd

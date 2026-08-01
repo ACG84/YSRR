@@ -37,6 +37,16 @@ import numpy as np, torch
 from magnonic_nn.reservoir import ridge_fit, ridge_predict, nmse
 
 
+def load_features(path):
+    """Accept both checkpoint formats.
+
+    Checkpoints now carry {"feats", "m"} so a restart can reload the reservoir
+    state instead of replaying; older files are a bare tensor.
+    """
+    obj = torch.load(path, weights_only=False)
+    return obj["feats"] if isinstance(obj, dict) else obj
+
+
 def narma(n_order, length, seed=0):
     """NARMA-n. Memory requirement is n, so the family sweeps exactly the axis
     this device is short on."""
@@ -91,7 +101,7 @@ def main():
     p.add_argument("--out", default=None)
     args = p.parse_args()
 
-    F = torch.load(args.features, weights_only=False).numpy()
+    F = load_features(args.features).numpy()
     n = len(F)
     X = (F - F.mean(0)) / F.std(0).clip(1e-12)
     splits = tuple(args.splits)

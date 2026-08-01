@@ -44,7 +44,7 @@ impressive:
     python scripts/run_narma_modal.py --frames 1400 --steps-per-frame 250
 """
 from __future__ import annotations
-import argparse, json, math, sys, time
+import argparse, json, math, os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
@@ -52,6 +52,42 @@ import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.reservoir import fit_eval, narma10
 from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
+
+
+# How often to checkpoint, in frames. This is not a tuning knob, it is a bet on
+# how long the process gets to live. A checkpoint every 25 frames is ~137 s of
+# compute, and a restart spends another ~90-120 s on imports, the demag kernel
+# and the relax before it reaches frame one -- so the first save after a restart
+# lands about four minutes in. When this container was rebooting hourly that was
+# free. When it started killing runs every three to eight minutes, every cycle
+# died before its first save and the sweep banked ZERO frames across 24 minutes
+# while looking perfectly healthy: six live processes, all busy, all discarding
+# their work. Five frames is ~27 s, which fits inside the short end of the
+# observed kill window.
+CKPT_EVERY = int(os.environ.get("CKPT_EVERY", "5"))
+
+
+def save_ckpt(cache, feats, m):
+    """Write the checkpoint atomically, or not at all.
+
+    torch.save straight onto the live path is a torn-write waiting to happen:
+    the kills land at arbitrary points, and one that arrives mid-write leaves a
+    truncated file that torch.load cannot read -- which does not cost the last
+    interval, it costs the ENTIRE run, because the next resume finds no usable
+    checkpoint and starts from frame 0. Saving 5x more often multiplies that
+    exposure by five, so the interval change above is only safe together with
+    this. Write to a temp file, fsync, then os.replace, which is atomic on POSIX:
+    a reader sees either the previous checkpoint or the new one, never a
+    half-written one.
+    """
+    if cache is None:
+        return
+    tmp = cache.with_suffix(cache.suffix + ".tmp")
+    with open(tmp, "wb") as fh:
+        torch.save({"feats": feats, "m": m.detach().cpu()}, fh)  # host: a CUDA
+        fh.flush()               # checkpoint would only reload on a CUDA machine
+        os.fsync(fh.fileno())    # else the rename can beat the data to disk
+    os.replace(tmp, cache)
 
 
 @torch.no_grad()
@@ -72,8 +108,18 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     # any run longer than the reboot period from EVER finishing, since each
     # attempt restarted from nothing.
     done, m_resume = [], None
+    prev = None
     if cache is not None and cache.exists():
-        prev = torch.load(cache, weights_only=False)
+        try:
+            prev = torch.load(cache, weights_only=False)
+        except Exception as e:
+            # A checkpoint written before saves became atomic can be torn. Losing
+            # the run's history is bad; refusing to start is worse, because the
+            # supervisor would relaunch into the same exception forever and the
+            # seed would never advance again.
+            print(f"[resume] {cache.name} unreadable ({type(e).__name__}: {e}); "
+                  "starting this seed from frame 0", flush=True)
+    if prev is not None:
         if isinstance(prev, dict):
             feats_prev, m_resume = prev["feats"], prev.get("m")
         else:
@@ -156,17 +202,13 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             for q in range(cfg.n_ports):
                 row += [M[q].real, M[q].imag]
         feats.append(row)
-        if (j + 1) % 25 == 0:
+        if (j + 1) % CKPT_EVERY == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
-            if cache is not None:
-                torch.save({"feats": torch.tensor(np.array(feats),
-                                                  dtype=torch.float64),
-                            "m": m.detach().cpu()}, cache)   # host: a CUDA
-                            # checkpoint would only reload on a CUDA machine
+            save_ckpt(cache, torch.tensor(np.array(feats), dtype=torch.float64),
+                      m)
 
     F = torch.tensor(np.array(feats), dtype=torch.float64)
-    if cache is not None:
-        torch.save({"feats": F.cpu(), "m": m.detach().cpu()}, cache)
+    save_ckpt(cache, F.cpu(), m)
     return F
 
 

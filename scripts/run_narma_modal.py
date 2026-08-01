@@ -26,11 +26,18 @@ Scored against baselines that make the result falsifiable rather than
 impressive:
 
     input only        u_n alone; anything above this is memory
-    linear 10-lag     u_n ... u_n-9 through the same ridge readout. This is the
-                      one that matters: it has ALL the memory the task needs and
-                      no nonlinearity, so beating it is the only evidence that
-                      the disk's nonlinear mixing is doing work. A reservoir
-                      that ties with it is an expensive delay line.
+    linear 10-lag     u_n ... u_n-9 through the same ridge readout. Reported for
+                      continuity with this project's earlier numbers ONLY. It
+                      looks like the matched baseline -- NARMA-10's memory
+                      requirement is ten -- but it is not one: the 0.3*y[t] term
+                      feeds every past y forward, so u's influence on y reaches
+                      well past ten steps and a ten-lag window truncates
+                      predictability that is genuinely linear.
+    linear best       the same filter at the depth validation prefers. Measured
+                      on the target alone, ten lags gives 0.71 and twenty gives
+                      0.17 -- a factor of four. THIS is the baseline that
+                      decides anything; beating 10-lag and losing to this means
+                      the disk is an expensive delay line.
     ports             the physical modal readout
 
     python scripts/run_narma_modal.py
@@ -242,37 +249,53 @@ def main():
     print(f"\nreservoir lag-1 autocorrelation: {ac1:+.3f}", flush=True)
 
     splits = tuple(args.splits)
+    # the linear filter's depth is chosen on VALIDATION, so it is the best one
+    # the data supports rather than the one the task's name suggests
+    cand = {k: fit_eval(lag_matrix(u, k), y, splits) for k in (10, 20, 40)}
+    best_k = min(cand, key=lambda k: cand[k]["nmse_val"])
     results = {
         "input_only": fit_eval(u[:, None], y, splits),
-        "linear_10lag": fit_eval(lag_matrix(u, 10), y, splits),
+        "linear_10lag": cand[10],
+        "linear_best": cand[best_k],
+        "best_lags": best_k,
         "ports_modal": fit_eval(X, y, splits),
     }
     results["lag1_autocorrelation"] = ac1
     (outdir / "results.json").write_text(json.dumps(results, indent=2))
 
-    dims = {"input_only": 1, "linear_10lag": 10, "ports_modal": X.shape[1]}
+    dims = {"input_only": 1, "linear_10lag": 10, "linear_best": best_k,
+            "ports_modal": X.shape[1]}
     print(f"\n{'readout':<16} {'dim':>5} {'NARMA-10 test NMSE':>20}")
-    for name in ("input_only", "linear_10lag", "ports_modal"):
+    for name in ("input_only", "linear_10lag", "linear_best", "ports_modal"):
         print(f"{name:<16} {dims[name]:>5} {results[name]['nmse_test']:>20.4f}")
 
-    lin = results["linear_10lag"]["nmse_test"]
+    lin10 = results["linear_10lag"]["nmse_test"]
+    lin = results["linear_best"]["nmse_test"]
     res = results["ports_modal"]["nmse_test"]
     print()
     if res < lin * 0.9:
-        print(f"The ported disk beats a linear readout with the same memory "
-              f"({res:.3f} vs {lin:.3f}).")
-        print("That margin is the nonlinear mixing doing work -- the part a")
-        print("delay line cannot supply.")
+        print(f"The ported disk beats the best linear filter on the same input "
+              f"({res:.3f} vs {lin:.3f}\nat {best_k} lags). That margin is the "
+              f"nonlinear mixing doing work -- the part a delay\nline cannot "
+              f"supply at any length.")
+    elif res < lin10 * 0.9:
+        print(f"Beats the 10-lag baseline ({res:.3f} vs {lin10:.3f}) but loses "
+              f"to the same filter at\n{best_k} lags ({lin:.3f}). That is not a "
+              f"result: a longer linear window is free, and\nthe disk is an "
+              f"expensive delay line against it.")
     elif res < 1.0:
-        print(f"Predicts better than the input alone but does not beat the")
-        print(f"linear 10-lag baseline ({res:.3f} vs {lin:.3f}). On this task")
-        print("the disk is behaving as a delay line with extra steps; the")
-        print("nonlinearity is not contributing.")
+        print(f"Predicts better than the mean but beats no linear baseline "
+              f"({res:.3f} against\n{lin10:.3f} at 10 lags and {lin:.3f} at "
+              f"{best_k}). The nonlinearity is not reaching the readout\nin "
+              f"usable form.")
     else:
         print(f"No better than predicting the mean ({res:.3f}). Check the")
         print("lag-1 autocorrelation above: if it is near zero the frame is")
         print("long against the ring-down and no memory survives between")
         print("samples, which no readout can repair.")
+    print("\nThe certification protocol -- six independent draws, paired "
+          "intervals, and a\nleakage guard -- is scripts/certify_narma10.py; "
+          "one run is not evidence.")
     return 0
 
 

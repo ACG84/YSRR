@@ -46,6 +46,22 @@ LAMS = (1e-8, 1e-6, 1e-4, 1e-2, 1.0)
 LAG_CHOICES = (10, 20, 40)
 
 
+def narma_from(u: np.ndarray, order: int) -> np.ndarray:
+    """NARMA-`order` target for an input the device has ALREADY been driven with.
+
+    The family table has to reuse each seed's own `u` -- that is the sequence the
+    magnetisation actually saw -- and vary only the target. Regenerating `u` per
+    order would score the device against a history it never experienced.
+    """
+    y = np.zeros(len(u))
+    for k in range(order, len(u) - 1):
+        y[k + 1] = (0.3 * y[k] + 0.05 * y[k] * y[k - order + 1:k + 1].sum()
+                    + 1.5 * u[k - order + 1] * u[k] + 0.1)
+        if not np.isfinite(y[k + 1]) or abs(y[k + 1]) > 1e3:
+            y[k + 1] = 0.0
+    return y
+
+
 def load_features(path: Path) -> np.ndarray:
     obj = torch.load(path, weights_only=False, map_location="cpu")
     t = obj["feats"] if isinstance(obj, dict) else obj
@@ -155,6 +171,9 @@ def main():
                    help="truncate every seed to this many frames. Scores in "
                         "this project move with series length, so the arms must "
                         "be matched on it; defaults to the shortest seed found.")
+    p.add_argument("--family", type=int, nargs="*", default=[2, 3, 5],
+                   help="extra NARMA orders for the supplementary table, "
+                        "scored on each seed's own u. Pass nothing to skip.")
     p.add_argument("--out", default=None)
     args = p.parse_args()
 
@@ -272,6 +291,42 @@ def main():
           f"best linear NRMSE {np.sqrt(lin):.3f}   "
           f"(few-hundred-node echo-state networks reach ~0.2)")
 
+    # ---- supplementary: the rest of the NARMA family ---------------------
+    # EXPLORATORY, not part of the certification. The pre-registered claim is
+    # NARMA-10; these orders are scored on the same features and the same seeds
+    # afterwards, so a pass here is one of a dozen comparisons and carries the
+    # multiplicity that implies. Reported because NARMA-2 is where this project
+    # last claimed a win, and it is the order the device comes closest on.
+    fam = {}
+    if args.family:
+        print(f"\nsupplementary -- NARMA-{{{','.join(map(str, args.family))}}} on the "
+              f"same features and seeds.\nEXPLORATORY: not pre-registered, and "
+              f"unadjusted for {3 * len(args.family)} extra comparisons.")
+        print(f"  {'order':>5} {'conv n-lag':>11} {'best lin':>9} {'device':>8} "
+              f"{'lin+dev':>8} {'tier2 CI':>22} {'tier3 CI':>22}")
+        for order in args.family:
+            ps = {}
+            for k in ks:
+                u, _ = narma10(n, seed=k)
+                y = narma_from(u, order)
+                nl = best_lag_count(u, y, splits)
+                L = lags(u, nl)
+                ps[k] = {"conv": score(lags(u, order), y, splits),
+                         "linear_best": score(L, y, splits),
+                         "device": score(found[k][:n], y, splits),
+                         "linear+device": score(
+                             np.concatenate([L, found[k][:n]], axis=1), y, splits)}
+            a = paired(ps, "device", "linear_best", ks)
+            b = paired(ps, "linear+device", "linear_best", ks)
+            mean = lambda nm: float(np.mean([ps[k][nm] for k in ks]))
+            fam[order] = {"per_seed": ps, "tier2": {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv) for kk, vv in a.items()},
+                          "tier3": {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv) for kk, vv in b.items()}}
+            print(f"  {order:>5} {mean('conv'):>11.4f} {mean('linear_best'):>9.4f} "
+                  f"{mean('device'):>8.4f} {mean('linear+device'):>8.4f} "
+                  f"{'[%+.4f,%+.4f]%s' % (a['lo'], a['hi'], '*' if a['hi'] < 0 else ' '):>22} "
+                  f"{'[%+.4f,%+.4f]%s' % (b['lo'], b['hi'], '*' if b['hi'] < 0 else ' '):>22}")
+        print("  * interval excludes zero in the device's favour")
+
     out = Path(args.out) if args.out else root / "certification.json"
     out.write_text(json.dumps({
         "claim": "device beats the best linear filter on NARMA-10, across "
@@ -283,6 +338,10 @@ def main():
         "tiers": {name: {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv)
                          for kk, vv in st.items()}
                   for name, st in (("tier1", t1), ("tier2", t2), ("tier3", t3))},
+        "family_exploratory": {str(o): {"tier2": v["tier2"], "tier3": v["tier3"],
+                                        "per_seed": {str(k): pv for k, pv
+                                                     in v["per_seed"].items()}}
+                               for o, v in fam.items()},
     }, indent=2))
     print(f"wrote {out}")
     return 0

@@ -50,6 +50,21 @@ and the 10-lag number is a straw baseline.
 Every earlier NARMA-10 comparison in this project used the straw baseline. The
 device's 0.63 does beat 0.71; it loses to 0.17 by a factor of four.
 
+The error is not specific to order 10. `check_task_suite.py` scored every NARMA
+order against an *n*-lag filter, so NARMA-2's baseline was **two** lags:
+
+| order | conventional (*n* lags) | best linear | device (port drive, 900 frames) |
+|---|---|---|---|
+| 2 | 0.7745 | **0.1096** (5 lags) | 0.1461 |
+| 3 | 0.6950 | **0.1604** (10) | 0.1908 |
+| 5 | 0.6310 | **0.1553** (10) | 0.2436 |
+| 10 | 0.7294 | **0.1408** (40) | 0.6267 |
+
+So the NARMA-2 result — the one claim in this project that outlived every other
+re-measurement — was also a win over a straw baseline. Against the real one the
+device loses at every order. Both baselines are printed by
+`check_task_suite.py` now, and the runner prints both too.
+
 ## Protocol
 
 **Independent realisations.** Six NARMA-10 sequences, seeds 0-5, each a fresh
@@ -104,6 +119,16 @@ t-interval over the six seeds.
 All three require the leakage guard (`device_shifted` NMSE > 0.9 on every seed).
 A favourable mean with an interval straddling zero is not a pass at any tier:
 that is the evidential state the single-draw number is already in.
+
+## Supplementary, and explicitly not certification
+
+Orders 2, 3 and 5 are scored afterwards on the same features and the same seeds,
+reusing each seed's own `u` so the device is never scored against a history it
+did not experience. This is exploratory: it is nine further comparisons on data
+already used once, with no multiplicity adjustment, and it is reported because
+NARMA-2 is where this project last claimed a win and where the device comes
+closest. A `*` there is a hypothesis worth a fresh pre-registered run, not a
+result.
 
 ## Calibration
 

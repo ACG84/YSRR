@@ -20,7 +20,9 @@ cannot do at any length -- that is the part the disk's three-magnon scattering
 is supposed to supply, and the part worth building a device for.
 
 Also scores the NARMA family at several orders, since NARMA-n's memory
-requirement is n and the device's ceiling should show as a knee.
+requirement is n and the device's ceiling should show as a knee. Each order is
+scored against the best linear filter on the input rather than an n-lag one --
+see the note above that table for why the obvious baseline is a straw one.
 
 Runs entirely on cached features -- no simulation. Every readout uses the same
 washout/train/val/test protocol as the main experiments, and every target is
@@ -99,6 +101,9 @@ def main():
     p.add_argument("--splits", type=int, nargs=3, default=(150, 650, 150))
     p.add_argument("--max-lag", type=int, default=8)
     p.add_argument("--narma-orders", type=int, nargs="+", default=[2, 3, 5, 10])
+    p.add_argument("--lag-choices", type=int, nargs="+", default=[5, 10, 20, 40],
+                   help="depths the linear baseline may use; the one with the\n"
+                        "best VALIDATION error is the baseline that counts")
     p.add_argument("--out", default=None)
     args = p.parse_args()
 
@@ -151,16 +156,34 @@ def main():
           f"= {best_c[1]:.2f}\n")
 
     # ---- NARMA family ----------------------------------------------------
-    print("NARMA-n (memory requirement n), test NMSE against a linear n-lag filter")
-    print(f"  {'order':>6} {'reservoir':>11} {'linear':>9} {'verdict':>10}")
+    # Scored against the BEST linear filter, not an n-lag one. NARMA-n's
+    # memory requirement is n, so an n-lag baseline looks like the matched
+    # comparison and this suite used one for a long time. It is not matched: the
+    # 0.3*y[t] term feeds every past y forward, so u's influence on y reaches
+    # far past n steps and an n-lag window truncates predictability that is
+    # genuinely LINEAR. Measured on the targets alone, with no device involved:
+    #
+    #     order        2       3       5      10
+    #     n lags  0.7697  0.6968  0.6318  0.7324
+    #     best    0.1145  0.1604  0.1552  0.1417   (at 5, 10, 10, 40 lags)
+    #
+    # -- a factor of five. Every NARMA "win" this project recorded was a win
+    # over that straw baseline, including the NARMA-2 result that outlived all
+    # the others. Both columns are printed now: 'conv' for continuity with the
+    # old numbers, 'best' for the comparison that decides anything.
+    print("NARMA-n, test NMSE. 'conv' is the n-lag baseline this suite used to")
+    print("report; 'best' is the strongest linear filter on the same input,")
+    print("depth chosen on validation. Only 'best' is a real baseline.")
+    print(f"  {'order':>6} {'reservoir':>11} {'conv':>9} {'best':>9} "
+          f"{'lags':>5} {'verdict':>8}")
     narma_rows = []
+    n_wash, n_train, n_val = splits
+    te = slice(n_wash + n_train + n_val, n)
     for order in args.narma_orders:
         uu, yy = narma(order, n, seed=0)
-        L = np.stack([shift(uu, k) for k in range(order)], axis=1)
-        n_wash, n_train, n_val = splits
-        te = slice(n_wash + n_train + n_val, n)
 
         def nm(M):
+            """test NMSE and val NMSE, lambda chosen on val."""
             best, wb = None, None
             for lam in (1e-8, 1e-6, 1e-4, 1e-2, 1.0):
                 w = ridge_fit(M[slice(n_wash, n_wash + n_train)],
@@ -170,12 +193,21 @@ def main():
                                                n_wash + n_train + n_val)], w))
                 if best is None or e < best:
                     best, wb = e, w
-            return float(nmse(yy[te], ridge_predict(M[te], wb)))
+            return float(nmse(yy[te], ridge_predict(M[te], wb))), best
 
-        r, l = nm(X), nm(L)
-        narma_rows.append({"order": order, "reservoir": r, "linear": l})
-        mark = "WINS" if r < l * 0.95 else ("ties" if r < l * 1.1 else "loses")
-        print(f"  {order:>6} {r:>11.4f} {l:>9.4f} {mark:>10}")
+        def lag_mat(k):
+            return np.stack([shift(uu, j) for j in range(k)], axis=1)
+
+        r, _ = nm(X)
+        conv, _ = nm(lag_mat(order))
+        cand = {k: nm(lag_mat(k)) for k in args.lag_choices}
+        bk = min(cand, key=lambda k: cand[k][1])      # depth picked on VAL
+        best = cand[bk][0]
+        narma_rows.append({"order": order, "reservoir": r, "linear_conv": conv,
+                           "linear_best": best, "best_lags": bk})
+        mark = "WINS" if r < best * 0.95 else ("ties" if r < best * 1.1 else "loses")
+        print(f"  {order:>6} {r:>11.4f} {conv:>9.4f} {best:>9.4f} "
+              f"{bk:>5} {mark:>8}")
 
     out = Path(args.out) if args.out else \
         Path(args.features).parent / "task_suite.json"

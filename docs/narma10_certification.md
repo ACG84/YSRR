@@ -183,3 +183,109 @@ depth of the shallowest linear filter that matches the device's NMSE. A device
 that remembers 8 lags but performs like an 11-lag filter is being helped by its
 nonlinearity by that margin; one that performs like an 8-lag filter is not
 extracting anything its memory did not already give.
+
+---
+
+# Result
+
+**NOT CERTIFIED for NARMA-10.** Six seeds, 1200 frames each, run to completion
+under the protocol above. The decision rule was fixed before any device data
+existed and is applied here unchanged.
+
+![certification](narma10_certification.png)
+
+## Test NMSE by arm, mean over 6 seeds
+
+| arm | 0 | 1 | 2 | 3 | 4 | 5 | mean |
+|---|---|---|---|---|---|---|---|
+| `constant` | 1.032 | 1.167 | 1.099 | 1.180 | 1.071 | 1.148 | 1.116 |
+| `input_only` | 1.042 | 1.167 | 1.098 | 1.193 | 1.071 | 1.154 | 1.121 |
+| `linear_10lag` | 0.585 | 0.761 | 0.710 | 0.751 | 0.689 | 0.776 | 0.712 |
+| `linear_20lag` | 0.137 | 0.175 | 0.187 | 0.160 | 0.142 | 0.190 | 0.165 |
+| **`linear_best`** | 0.141 | 0.158 | 0.215 | 0.142 | 0.139 | 0.148 | **0.157** |
+| `poly2_10lag` | 0.681 | 0.862 | 0.743 | 0.818 | 0.697 | 0.796 | 0.766 |
+| **`device`** | 0.531 | 0.679 | 0.586 | 0.662 | 0.603 | 0.691 | **0.625** |
+| `linear+device` | 0.158 | 0.159 | 0.211 | 0.144 | 0.164 | 0.181 | 0.170 |
+| `device_shifted` | 1.074 | 1.180 | 1.112 | 1.266 | 1.067 | 1.220 | 1.153 |
+
+Selected depth for `linear_best`: 26, 26, 15, 40, 40, 40.
+
+**Leakage guard: PASS.** Device features shifted 37 frames against the target
+score NMSE 1.067–1.265 on every seed. Misaligned features predict nothing, so
+the pipeline is not scoring alignment that is not there.
+
+## The three tiers
+
+| tier | comparison | mean Δ | 95% CI | sign | verdict |
+|---|---|---|---|---|---|
+| 1 | `device − linear_10lag` | −0.0865 | [−0.110, −0.063] | 6/6 | **PASS** |
+| 2 | `device − linear_best` | **+0.4684** | [+0.392, +0.545] | 0/6 | **FAIL** |
+| 3 | `(linear+device) − linear_best` | +0.0126 | [−0.003, +0.028] | 1/6 | **FAIL** |
+
+Negative favours the device.
+
+Tier 1 passes cleanly and decisively — t(5) = −9.46, p = 0.0001, every seed in
+the same direction. It is also the tier this document said in advance would
+certify nothing. The 10-lag baseline cannot see `u[n-10]`, which is the term
+NARMA-10's recursion is built on, and beating a baseline that is structurally
+blind to the task is not a result.
+
+Tier 2 is the certification and it fails in the wrong direction by a wide
+margin: 0.625 against 0.157, a gap of 0.47 NMSE with the interval nowhere near
+zero and not one seed dissenting. The device is not close.
+
+Tier 3 fails too, and this is the more informative failure. Appending 60 device
+features to the best linear filter does not improve it — the point estimate is
+slightly *worse*, and the interval straddles zero. On this task the ports carry
+essentially nothing a linear readout has not already extracted from `u`.
+
+## Memory diagnostic
+
+| lag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| mean r² | 1.00 | 0.94 | 0.99 | 0.98 | 0.97 | 0.88 | 0.85 | 0.85 | 0.35 |
+
+Jaeger MC **8.12**, r² crossing 0.5 at lag **8.0** — against the ring-down
+prediction of 8.29 frames made before the run. The memory is exactly what the
+physics says it should be; nothing is lost between the magnetisation and the
+ports.
+
+Equivalent depth **11.0**: the device performs like an 11-lag linear filter
+while remembering 8. That margin is real and it is the nonlinearity doing work.
+It is also not enough, because the task needs `u[n-10]` and the device's memory
+ends at 8. It sits one lag short of the cliff, and the cliff is where all the
+performance is — a linear filter goes from 0.71 at 10 lags to 0.37 at 11.
+
+## Calibration
+
+Device NRMSE **0.790**. Best linear filter on the same input: **0.396**.
+Published echo-state networks with a few hundred nodes reach roughly **0.2**.
+
+## Supplementary (exploratory, unadjusted for 9 comparisons)
+
+| order | conv *n*-lag | best linear | device | linear+device | tier 2 CI | tier 3 CI |
+|---|---|---|---|---|---|---|
+| 2 | 0.730 | 0.114 | 0.144 | 0.123 | [+0.023, +0.038] | [+0.003, +0.015] |
+| 3 | 0.657 | 0.138 | 0.165 | 0.147 | [+0.019, +0.035] | [+0.005, +0.014] |
+| 5 | 0.614 | 0.136 | 0.247 | 0.145 | [+0.100, +0.123] | [+0.003, +0.015] |
+
+No starred rows: not one interval excludes zero in the device's favour. NARMA-2
+is where this project last claimed a win, and the device loses there too — to
+the best linear filter, and again at tier 3. The shorter tasks narrow the gap,
+which is what a memory-limited device should do, but narrowing is not winning.
+
+## What this retires
+
+The project's earlier NARMA-10 claim — reservoir 0.6274 against a 10-lag
+baseline of 0.7324 from a single input draw — reproduces almost exactly here
+(0.625 against 0.712, six draws). The number was never wrong. The **baseline**
+was, and re-measuring against a correctly powered one reverses the conclusion.
+
+This is the fourth claim in this project to survive its original measurement and
+fail a matched-control re-measurement, after the amplitude threshold, the 3.2x
+port-drive memory gain, and the quadratic-capacity collapse.
+
+The device is a genuine nonlinear dynamical system with 8 frames of memory,
+performing like an 11-lag filter. NARMA-10 needs 11 lags of memory and it has 8.
+That is a specific, physical, falsifiable diagnosis: the fix is longer ring-down
+(lower damping, or fewer carrier cycles per frame), not a different readout.

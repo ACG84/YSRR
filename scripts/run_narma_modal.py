@@ -94,6 +94,14 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         t0m = disk._tap_masks.to(dtype)[0]
         unit[:, :, 0, 2] = t0m / t0m.sum().clamp_min(1e-30)
 
+    # Graph-capturable stepper: the four RK4 substep fields are handed in as
+    # tensors so the step captures once and replays, instead of breaking the
+    # graph on a Python callable every substep. 0.63 ms/step against 16.26 on
+    # CPU. Off CUDA this returns the eager function, so the loop below is
+    # identical either way.
+    stepper = disk.rollout.graph_stepper()
+    graphed = stepper is not disk.rollout.rk4_step_fields
+    hz = disk.h_zero
     m = disk.m0.clone() if m_resume is None else m_resume.clone().to(dtype)
     start = len(done) if m_resume is not None else 0
     feats, t0 = list(done), time.time()
@@ -115,11 +123,17 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         accQ = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64)
         for k in range(steps_per_frame):
             tk = (j * steps_per_frame + k) * cfg.dt
-
-            def h_drive(theta, tk=tk, amp=amp):
-                return unit * (amp * math.sin(w * (tk + theta * cfg.dt)))
-
-            m = disk.rollout.rk4_step(m, disk.h_zero, h_drive)
+            # h at theta = 0, 1/2, 1/2, 1. The two half-step fields are the
+            # same value, so this is three scalars, not four.
+            s0 = amp * math.sin(w * tk)
+            sh = amp * math.sin(w * (tk + 0.5 * cfg.dt))
+            s1 = amp * math.sin(w * (tk + cfg.dt))
+            h0, hh, h1 = hz + unit * s0, hz + unit * sh, hz + unit * s1
+            if graphed:
+                torch.compiler.cudagraph_mark_step_begin()
+                m = stepper(m, h0, hh, hh, h1).clone()
+            else:
+                m = stepper(m, h0, hh, hh, h1)
             p = disk.port_signals(m).double()
             for i, wi in enumerate(ws):
                 accI[i] += p * math.cos(wi * tk)

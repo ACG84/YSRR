@@ -8,14 +8,14 @@ protocol existed. This script only executes them.
 Three tiers, all decided by the upper bound of a 95% t-interval on a paired
 per-seed difference, all requiring the leakage guard to pass:
 
-    tier 1   device < linear 10-lag     the conventional baseline. Reported for
-                                        comparability only: measuring the
-                                        baselines on the target alone shows a
-                                        10-lag filter loses 0.71 where a 20-lag
-                                        filter gets 0.17, because NARMA-10's
-                                        y-recursion carries u's influence far
-                                        past ten steps. Beating it certifies
-                                        nothing.
+    tier 1   device < linear 10-lag     the conventional baseline, and an off-
+                                        by-one: the target at index n depends on
+                                        u[n-10], which a "10-lag" design matrix
+                                        excludes. Measured on the target alone,
+                                        ten lags gives 0.71 and eleven gives
+                                        0.37. Reported for comparability with
+                                        this project's earlier numbers; beating
+                                        it certifies nothing.
     tier 2   device < best linear       THE certification. Lag count chosen on
                                         validation, so the linear filter gets
                                         every advantage the data allows.
@@ -75,6 +75,18 @@ def narma_from(u: np.ndarray, order: int) -> np.ndarray:
         if not np.isfinite(y[k + 1]) or abs(y[k + 1]) > 1e3:
             y[k + 1] = 0.0
     return y
+
+
+def draw(seed: int, n: int, run_frames: int):
+    """The input the device was actually driven with, truncated to `n`.
+
+    Generated at `run_frames` -- the length the simulation was launched with --
+    and then sliced. Regenerating at `n` would be wrong whenever narma10()'s
+    divergence redraw fires at one length and not the other; the targets stay
+    correct under slicing because the recursion is causal.
+    """
+    u, y = narma10(max(run_frames, n), seed=seed)
+    return u[:n], y[:n]
 
 
 def load_features(path: Path) -> np.ndarray:
@@ -192,6 +204,13 @@ def main():
                    help="truncate every seed to this many frames. Scores in "
                         "this project move with series length, so the arms must "
                         "be matched on it; defaults to the shortest seed found.")
+    p.add_argument("--run-frames", type=int, default=1200,
+                   help="the --frames the SIMULATIONS were launched with. The\n"
+                        "input must be regenerated at that length and then\n"
+                        "truncated, never regenerated at the truncated length:\n"
+                        "narma10() redraws on divergence, so a short draw can\n"
+                        "redraw where a long one did not, and the features\n"
+                        "would be paired with an input the device never saw.")
     p.add_argument("--family", type=int, nargs="*", default=[2, 3, 5],
                    help="extra NARMA orders for the supplementary table, "
                         "scored on each seed's own u. Pass nothing to skip.")
@@ -230,7 +249,7 @@ def main():
     per_seed, chosen, lam_seen = {}, {}, []
     for k in ks:
         F = found[k][:n]
-        u, y = narma10(n, seed=k)
+        u, y = draw(k, n, args.run_frames)
         nl = best_lag_count(u, y, splits)
         chosen[k] = nl
         L = lags(u, nl)
@@ -342,7 +361,7 @@ def main():
         for order in args.family:
             ps = {}
             for k in ks:
-                u, _ = narma10(n, seed=k)
+                u, _ = draw(k, n, args.run_frames)
                 y = narma_from(u, order)
                 nl = best_lag_count(u, y, splits)
                 L = lags(u, nl)

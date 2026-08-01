@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/certify_resume_hook.sh\"",
+            "timeout": 20,
+            "statusMessage": "Checking long-running certification runs"
+          }
+        ]
+      }
+    ]
+  }
+}

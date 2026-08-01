@@ -42,7 +42,14 @@ from magnonic_nn.reservoir import narma10, ridge_fit, ridge_predict, nmse
 
 SHIFT = 37          # the leakage guard's misalignment: longer than any memory
                     # the device has, so nothing legitimate can survive it
-LAMS = (1e-8, 1e-6, 1e-4, 1e-2, 1.0)
+# Ten decades, and wide on purpose. The grid this project uses elsewhere tops
+# out at 1.0, and the linear baselines' validation optimum is 10 -- so that grid
+# was clipping the BASELINES at their edge while the device's optimum (also 1.0)
+# sat comfortably inside. Widening it moves the device not at all (its test NMSE
+# is flat within 1% from 1e-10 to 1e0) and improves the filters it has to beat,
+# which is the direction a fairness fix should run. Arms whose chosen lambda
+# lands on a grid endpoint are flagged below rather than silently trusted.
+LAMS = tuple(10.0 ** e for e in range(-10, 7))
 LAG_CHOICES = (10, 20, 40)
 
 
@@ -96,8 +103,12 @@ def standardise(X: np.ndarray, tr: slice) -> np.ndarray:
     return (X - mu) / np.where(sd < 1e-12, 1.0, sd)
 
 
-def score(X: np.ndarray, y: np.ndarray, splits):
-    """Test NMSE with lambda chosen on validation. Test is never fitted on."""
+def score(X: np.ndarray, y: np.ndarray, splits, lam_out=None):
+    """Test NMSE with lambda chosen on validation. Test is never fitted on.
+
+    ``lam_out`` collects the chosen lambdas so the caller can check none of them
+    ended up pinned to an endpoint of the grid.
+    """
     n_wash, n_train, n_val = splits
     tr = slice(n_wash, n_wash + n_train)
     va = slice(n_wash + n_train, n_wash + n_train + n_val)
@@ -109,6 +120,8 @@ def score(X: np.ndarray, y: np.ndarray, splits):
         e = nmse(y[va], ridge_predict(Z[va], w))
         if best is None or e < best[0]:
             best = (e, lam, w)
+    if lam_out is not None:
+        lam_out.append(best[1])
     return nmse(y[te], ridge_predict(Z[te], best[2]))
 
 
@@ -206,7 +219,7 @@ def main():
         print(f"  truncated to the shortest complete seed; still running: {short}")
     print()
 
-    per_seed, chosen = {}, {}
+    per_seed, chosen, lam_seen = {}, {}, []
     for k in ks:
         F = found[k][:n]
         u, y = narma10(n, seed=k)
@@ -224,7 +237,11 @@ def main():
             "linear+device":  np.concatenate([L, F], axis=1),
             "device_shifted": np.roll(F, SHIFT, axis=0),
         }
-        per_seed[k] = {name: score(X, y, splits) for name, X in A.items()}
+        per_seed[k] = {}
+        for name, X in A.items():
+            lo = []
+            per_seed[k][name] = score(X, y, splits, lam_out=lo)
+            lam_seen.append((name, lo[0]))
 
     order = ["constant", "input_only", "linear_10lag", "linear_20lag",
              "linear_best", "poly2_10lag", "device", "linear+device",
@@ -237,6 +254,16 @@ def main():
               + f"{np.mean(v):>9.4f}")
     print(f"  {'(best lags)':<15}" + "".join(f"{chosen[k]:>9d}" for k in ks))
     print()
+
+    # Only the TOP of the grid matters. An arm choosing 1e-10 is saying ridge
+    # is unnecessary for it -- a real optimum, not a truncated one -- and the
+    # low-dimensional baselines do exactly that. An arm choosing 1e6 is pressed
+    # against the ceiling and might do better past it.
+    pinned = sorted({nm for nm, l in lam_seen if l == LAMS[-1]})
+    if pinned:
+        print(f"warning   these arms chose the largest lambda on the grid "
+              f"({LAMS[-1]:.0e}) and may be\n          under-served by it: "
+              f"{', '.join(pinned)}\n")
 
     guard = [per_seed[k]["device_shifted"] for k in ks]
     guard_ok = all(v > 0.9 for v in guard)

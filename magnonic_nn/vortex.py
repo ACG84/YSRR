@@ -40,6 +40,19 @@ __all__ = ["VortexConfig", "VortexDisk", "vortex_state", "disk_mask",
            "PortedVortexConfig", "PortedVortexDisk", "ported_mask", "port_alpha",
            "CoupledPortedConfig", "CoupledPortedArray", "coupled_ported_mask"]
 
+def _dev(device):
+    """Resolve a device argument to the CURRENT torch default.
+
+    These constructors defaulted to "cpu" literally, so the geometry -- mask,
+    alpha, the vortex state -- stayed on the host even after set_device("cuda")
+    moved magnum.np's own tensors. The result was a device mismatch deep inside
+    magnum.np's exchange field, reported as a bare RuntimeError because its
+    Timer re-raises the exception CLASS and discards the message. Following the
+    default device means set_device works as the rest of the package assumes.
+    """
+    return torch.empty(0).device if device is None else device
+
+
 
 @dataclass
 class VortexConfig:
@@ -71,15 +84,15 @@ class VortexConfig:
         return GAMMA * self.exchange_field() / (2 * math.pi)
 
 
-def disk_mask(cfg: VortexConfig, device="cpu", dtype=torch.float64) -> torch.Tensor:
+def disk_mask(cfg: VortexConfig, device=None, dtype=torch.float64) -> torch.Tensor:
     """``(nx, ny, 1, 1)`` mask: 1 inside the disk, 0 in the surrounding vacuum."""
     n = cfg.n_cells
-    idx = (torch.arange(n, device=device, dtype=dtype) - (n - 1) / 2) * cfg.dx
+    idx = (torch.arange(n, device=_dev(device), dtype=dtype) - (n - 1) / 2) * cfg.dx
     X, Y = torch.meshgrid(idx, idx, indexing="ij")
     return ((X**2 + Y**2) <= cfg.radius**2).to(dtype).reshape(n, n, 1, 1)
 
 
-def vortex_state(cfg: VortexConfig, device="cpu", dtype=torch.float64) -> torch.Tensor:
+def vortex_state(cfg: VortexConfig, device=None, dtype=torch.float64) -> torch.Tensor:
     """Analytic vortex ansatz, ``(nx, ny, 1, 3)``.
 
     In-plane curling with the chosen chirality, plus an out-of-plane core whose
@@ -89,7 +102,7 @@ def vortex_state(cfg: VortexConfig, device="cpu", dtype=torch.float64) -> torch.
     (polarity, chirality) sector rather than a random one.
     """
     n = cfg.n_cells
-    idx = (torch.arange(n, device=device, dtype=dtype) - (n - 1) / 2) * cfg.dx
+    idx = (torch.arange(n, device=_dev(device), dtype=dtype) - (n - 1) / 2) * cfg.dx
     X, Y = torch.meshgrid(idx, idx, indexing="ij")
     r = torch.sqrt(X**2 + Y**2).clamp_min(1e-18)
 
@@ -105,7 +118,7 @@ def vortex_state(cfg: VortexConfig, device="cpu", dtype=torch.float64) -> torch.
 class VortexDisk:
     """A relaxed vortex disk that can be driven and read out modally."""
 
-    def __init__(self, cfg: VortexConfig, timesteps: int, device="cpu",
+    def __init__(self, cfg: VortexConfig, timesteps: int, device=None,
                  dtype=torch.float64, checkpoint: bool = False):
         self.cfg = cfg
         n = cfg.n_cells
@@ -114,11 +127,11 @@ class VortexDisk:
                               renormalize=True, demag=True)
 
         self.mask = disk_mask(cfg, device, dtype)
-        alpha = torch.full((n, n, 1, 1), cfg.alpha, device=device, dtype=dtype)
+        alpha = torch.full((n, n, 1, 1), cfg.alpha, device=_dev(device), dtype=dtype)
         self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
         self.rollout.set_Ms(cfg.Ms * self.mask)
 
-        self.h_zero = torch.zeros(n, n, 1, 3, device=device, dtype=dtype)
+        self.h_zero = torch.zeros(n, n, 1, 3, device=_dev(device), dtype=dtype)
         self.m0 = None
 
     def relax(self, steps: int = 4000, alpha_relax: float = 0.5) -> torch.Tensor:
@@ -192,10 +205,10 @@ class PortedVortexConfig(VortexConfig):
         return [2 * math.pi * k / self.n_ports for k in range(self.n_ports)]
 
 
-def ported_mask(cfg: PortedVortexConfig, device="cpu", dtype=torch.float64):
+def ported_mask(cfg: PortedVortexConfig, device=None, dtype=torch.float64):
     """``(nx, ny, 1, 1)`` mask for the disk plus its radial guides."""
     n = cfg.n_cells
-    idx = (torch.arange(n, device=device, dtype=dtype) - (n - 1) / 2) * cfg.dx
+    idx = (torch.arange(n, device=_dev(device), dtype=dtype) - (n - 1) / 2) * cfg.dx
     X, Y = torch.meshgrid(idx, idx, indexing="ij")
 
     mask = (X**2 + Y**2) <= cfg.radius**2
@@ -208,7 +221,7 @@ def ported_mask(cfg: PortedVortexConfig, device="cpu", dtype=torch.float64):
     return mask.to(dtype).reshape(n, n, 1, 1)
 
 
-def port_alpha(cfg: PortedVortexConfig, device="cpu", dtype=torch.float64):
+def port_alpha(cfg: PortedVortexConfig, device=None, dtype=torch.float64):
     """Damping field: uniform everywhere, ramped up at the guide far ends.
 
     Without this the guides are resonators rather than ports -- the wave
@@ -216,7 +229,7 @@ def port_alpha(cfg: PortedVortexConfig, device="cpu", dtype=torch.float64):
     standing wave set by guide length instead of what the disk emitted.
     """
     n = cfg.n_cells
-    idx = (torch.arange(n, device=device, dtype=dtype) - (n - 1) / 2) * cfg.dx
+    idx = (torch.arange(n, device=_dev(device), dtype=dtype) - (n - 1) / 2) * cfg.dx
     X, Y = torch.meshgrid(idx, idx, indexing="ij")
     r = torch.sqrt(X**2 + Y**2)
 
@@ -229,7 +242,7 @@ def port_alpha(cfg: PortedVortexConfig, device="cpu", dtype=torch.float64):
 class PortedVortexDisk(VortexDisk):
     """Vortex disk read out through its waveguide ports."""
 
-    def __init__(self, cfg: PortedVortexConfig, timesteps: int, device="cpu",
+    def __init__(self, cfg: PortedVortexConfig, timesteps: int, device=None,
                  dtype=torch.float64):
         self.cfg = cfg
         n = cfg.n_cells
@@ -243,7 +256,7 @@ class PortedVortexDisk(VortexDisk):
         self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
         self.rollout.set_Ms(cfg.Ms * self.mask)
 
-        self.h_zero = torch.zeros(n, n, 1, 3, device=device, dtype=dtype)
+        self.h_zero = torch.zeros(n, n, 1, 3, device=_dev(device), dtype=dtype)
         self.m0 = None
         self._tap_masks = self._build_taps(device, dtype)
 
@@ -251,7 +264,7 @@ class PortedVortexDisk(VortexDisk):
         """One tap per guide, placed before the absorbing taper begins."""
         cfg = self.cfg
         n = cfg.n_cells
-        idx = (torch.arange(n, device=device, dtype=dtype) - (n - 1) / 2) * cfg.dx
+        idx = (torch.arange(n, device=_dev(device), dtype=dtype) - (n - 1) / 2) * cfg.dx
         X, Y = torch.meshgrid(idx, idx, indexing="ij")
         outer = cfg.radius + cfg.guide_length
         tap_r = outer - cfg.absorb_frac * cfg.guide_length - 2 * cfg.dx
@@ -320,11 +333,11 @@ class CoupledArrayConfig(VortexConfig):
         return [(-self.separation / 2, 0.0), (self.separation / 2, 0.0)]
 
 
-def coupled_mask(cfg: CoupledArrayConfig, device="cpu", dtype=torch.float64):
+def coupled_mask(cfg: CoupledArrayConfig, device=None, dtype=torch.float64):
     """Two disks, the link between them, and one outward port each."""
     nx, ny = cfg.grid
-    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
-    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
     X, Y = torch.meshgrid(x, y, indexing="ij")
 
     mask = torch.zeros_like(X, dtype=torch.bool)
@@ -341,11 +354,11 @@ def coupled_mask(cfg: CoupledArrayConfig, device="cpu", dtype=torch.float64):
     return mask.to(dtype).reshape(nx, ny, 1, 1)
 
 
-def coupled_alpha(cfg: CoupledArrayConfig, device="cpu", dtype=torch.float64):
+def coupled_alpha(cfg: CoupledArrayConfig, device=None, dtype=torch.float64):
     """Damping ramped only at the OUTWARD ends; the link stays lossless."""
     nx, ny = cfg.grid
-    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
-    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
     X, _ = torch.meshgrid(x, y, indexing="ij")
 
     outer = cfg.separation / 2 + cfg.radius + cfg.out_length
@@ -357,7 +370,7 @@ def coupled_alpha(cfg: CoupledArrayConfig, device="cpu", dtype=torch.float64):
 class CoupledDiskArray:
     """Two guide-coupled vortex disks, driven and read at either end."""
 
-    def __init__(self, cfg: CoupledArrayConfig, timesteps: int, device="cpu",
+    def __init__(self, cfg: CoupledArrayConfig, timesteps: int, device=None,
                  dtype=torch.float64):
         self.cfg = cfg
         nx, ny = cfg.grid
@@ -369,11 +382,11 @@ class CoupledDiskArray:
         alpha = coupled_alpha(cfg, device, dtype) * self.mask
         self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
         self.rollout.set_Ms(cfg.Ms * self.mask)
-        self.h_zero = torch.zeros(nx, ny, 1, 3, device=device, dtype=dtype)
+        self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
         self.m0 = None
 
-        x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
-        y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+        x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
         X, Y = torch.meshgrid(x, y, indexing="ij")
         self.disk_masks = torch.stack([
             (((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius**2).to(dtype)
@@ -487,10 +500,10 @@ def _radial_guides(X, Y, cx, cy, cfg):
     return m
 
 
-def coupled_ported_mask(cfg: CoupledPortedConfig, device="cpu", dtype=torch.float64):
+def coupled_ported_mask(cfg: CoupledPortedConfig, device=None, dtype=torch.float64):
     nx, ny = cfg.grid
-    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
-    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
     X, Y = torch.meshgrid(x, y, indexing="ij")
     m = torch.zeros_like(X, dtype=torch.bool)
     for cx, cy in cfg.centres():
@@ -500,11 +513,11 @@ def coupled_ported_mask(cfg: CoupledPortedConfig, device="cpu", dtype=torch.floa
     return m.to(dtype).reshape(nx, ny, 1, 1)
 
 
-def coupled_ported_alpha(cfg: CoupledPortedConfig, device="cpu", dtype=torch.float64):
+def coupled_ported_alpha(cfg: CoupledPortedConfig, device=None, dtype=torch.float64):
     """Absorb at the OUTWARD guide ends; the link corridor stays lossless."""
     nx, ny = cfg.grid
-    x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
-    y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
     X, Y = torch.meshgrid(x, y, indexing="ij")
 
     outer = cfg.radius + cfg.guide_length
@@ -527,7 +540,7 @@ def coupled_ported_alpha(cfg: CoupledPortedConfig, device="cpu", dtype=torch.flo
 class CoupledPortedArray:
     """Two fully-ported vortex disks joined through one port each."""
 
-    def __init__(self, cfg: CoupledPortedConfig, timesteps: int, device="cpu",
+    def __init__(self, cfg: CoupledPortedConfig, timesteps: int, device=None,
                  dtype=torch.float64):
         self.cfg = cfg
         nx, ny = cfg.grid
@@ -538,11 +551,11 @@ class CoupledPortedArray:
         alpha = coupled_ported_alpha(cfg, device, dtype) * self.mask
         self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
         self.rollout.set_Ms(cfg.Ms * self.mask)
-        self.h_zero = torch.zeros(nx, ny, 1, 3, device=device, dtype=dtype)
+        self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
         self.m0 = None
 
-        x = (torch.arange(nx, device=device, dtype=dtype) - (nx - 1) / 2) * cfg.dx
-        y = (torch.arange(ny, device=device, dtype=dtype) - (ny - 1) / 2) * cfg.dx
+        x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
         X, Y = torch.meshgrid(x, y, indexing="ij")
         self.disk_masks = torch.stack([
             (((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius**2).to(dtype)

@@ -34,18 +34,34 @@ is wrong for this task:
 
 | lags of `u` | test NMSE, mean over 6 seeds |
 |---|---|
-| 0 (constant) | 1.12 |
+| 1 | 1.12 |
+| 5 | 0.73 |
 | 10 | 0.71 |
-| **20** | **0.17** |
+| **11** | **0.37** |
+| 20 | 0.17 |
+| 26 (best) | 0.15 |
 | 40 | 0.15 |
 
-NARMA-10 is `y[t+1] = 0.3 y[t] + 0.05 y[t] sum(y[t-9..t]) + 1.5 u[t-9] u[t] +
-0.1`. The `0.3 y[t]` term feeds every past `y` forward, so `u`'s influence on
-`y` reaches far past ten steps and a ten-lag window truncates predictability
-that is genuinely *linear*. The correct linear reference is ~20 lags, and it
-scores NMSE 0.17, i.e. NRMSE 0.41 — which is the linear-regression figure
-NARMA-10 is conventionally quoted against, so the 20-lag number is the right one
-and the 10-lag number is a straw baseline.
+The whole curve is flat from 3 to 10 lags and then falls off a cliff at 11. That
+is not a smooth memory effect — it is an off-by-one. NARMA-10 is
+
+    y[t+1] = 0.3 y[t] + 0.05 y[t] sum(y[t-9..t]) + 1.5 u[t-9] u[t] + 0.1
+
+so the target at index `n` depends on `u[n-10]`. A design matrix of "ten lags"
+holds `u[n] ... u[n-9]` and therefore **excludes `u[n-10]`** — one of the two
+inputs to the task's own product term. The conventional baseline is missing
+precisely the column the task's nonlinearity is built from, and restoring it
+halves the error with no extra memory in any meaningful sense.
+
+Past 11 lags the improvement is slower and genuinely about memory: the
+`0.3 y[t]` term feeds every past `y` forward, so `u`'s influence outlives the
+ten-step window and the filter keeps gaining down to ~26 lags and 0.146. That is
+NRMSE 0.38, which is the linear-regression figure NARMA-10 is conventionally
+quoted against — confirming the corrected number is the right reference and the
+10-lag number is a straw baseline.
+
+The device scores 0.63. It loses to the *minimal correctly specified* linear
+filter (11 lags, 0.37) by 1.7x and to the best one (26 lags, 0.15) by 4.3x.
 
 Every earlier NARMA-10 comparison in this project used the straw baseline. The
 device's 0.63 does beat 0.71; it loses to 0.17 by a factor of four.
@@ -91,9 +107,9 @@ Each is a ridge readout on a different feature set, scored the same way.
 |---|---|---|
 | `constant` | 0 | the scale everything is read against |
 | `input_only` | 1 | `u_n` alone. Anything below this is memory. |
-| `linear_10lag` | 10 | the conventional baseline, kept only so this connects to the project's earlier numbers and to papers that use it |
-| `linear_20lag` | 20 | enough history to capture the recursion |
-| `linear_best` | 10/20/40 | **the baseline that decides.** Lag count chosen on validation. The best purely linear predictor of `y` from `u`'s history. |
+| `linear_10lag` | 10 | the conventional baseline, kept only so this connects to the project's earlier numbers and to papers that use it. Off by one: it cannot see `u[n-10]`. |
+| `linear_20lag` | 20 | past the cliff, into the region where the recursion is what is being captured |
+| `linear_best` | 10-40 | **the baseline that decides.** Depth chosen on validation from {10, 11, 15, 20, 26, 40}. The best purely linear predictor of `y` from `u`'s history. |
 | `poly2_10lag` | 65 | ten lags and every product of them: the nonlinearity computed in software for free |
 | `device` | 60 | six ports x five lock-in tones x (re, im) |
 | `linear_best + device` | +60 | **the residual-value test.** Does the device add anything a linear filter has not already extracted? |

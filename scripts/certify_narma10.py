@@ -50,7 +50,15 @@ SHIFT = 37          # the leakage guard's misalignment: longer than any memory
 # which is the direction a fairness fix should run. Arms whose chosen lambda
 # lands on a grid endpoint are flagged below rather than silently trusted.
 LAMS = tuple(10.0 ** e for e in range(-10, 7))
-LAG_CHOICES = (10, 20, 40)
+# 11 is in here for a specific reason. NARMA-10 is
+#   y[t+1] = 0.3 y[t] + 0.05 y[t] sum(y[t-9..t]) + 1.5 u[t-9] u[t] + 0.1
+# so the target at index n depends on u[n-10]. A "10-lag" design matrix holds
+# u[n] ... u[n-9] and therefore EXCLUDES u[n-10] -- one of the two inputs to the
+# task's own product term. The conventional baseline is off by one, and that
+# single missing column is most of why it looks weak: mean test NMSE over six
+# seeds goes 0.7119 at ten lags to 0.3715 at eleven. The slower improvement
+# beyond that, to 0.1462 at twenty-six, is the y-recursion.
+LAG_CHOICES = (10, 11, 15, 20, 26, 40)
 
 
 def narma_from(u: np.ndarray, order: int) -> np.ndarray:

@@ -231,19 +231,31 @@ class LLGRollout:
         return m_next
 
     def graph_stepper(self, mode: str = "reduce-overhead"):
-        """A compiled ``(m, h0, h1, h2, h3) -> m`` closure.
+        """``(step_fn, compiled)`` for a ``(m, h0, h1, h2, h3) -> m`` closure.
 
-        Returns the eager function unchanged off CUDA, so callers need no
-        branch. Thermal noise is deliberately excluded: it draws fresh randoms
-        every step, which a replayed graph would freeze into a fixed pattern --
-        the noise would become a repeating artefact rather than noise.
+        Off CUDA the eager function comes back unchanged, so callers need no
+        branch to *run*; the flag is there because callers do need to know
+        whether they are driving a replayed graph, which requires
+        ``cudagraph_mark_step_begin()`` and a clone of the output each step.
+
+        The flag is returned rather than left to be inferred. The obvious
+        inference -- ``stepper is not rollout.rk4_step_fields`` -- is always
+        true: every attribute access builds a fresh bound-method object, so the
+        eager fallback never compares identical to itself. The caller then takes
+        the graph branch on CPU forever. Harmless in that instance (the mark is
+        a no-op and the clone is a copy) but only by luck.
+
+        Thermal noise is deliberately excluded: it draws fresh randoms every
+        step, which a replayed graph would freeze into a fixed pattern -- noise
+        shaped, but not noise.
         """
         if self.temperature > 0.0 or not torch.cuda.is_available():
-            return self.rk4_step_fields
+            return self.rk4_step_fields, False
         try:
-            return torch.compile(self.rk4_step_fields, mode=mode, dynamic=False)
+            return torch.compile(self.rk4_step_fields, mode=mode,
+                                 dynamic=False), True
         except Exception:
-            return self.rk4_step_fields
+            return self.rk4_step_fields, False
 
     def rk4_step(
         self,

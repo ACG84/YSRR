@@ -106,8 +106,7 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     # graph on a Python callable every substep. 0.63 ms/step against 16.26 on
     # CPU. Off CUDA this returns the eager function, so the loop below is
     # identical either way.
-    stepper = disk.rollout.graph_stepper()
-    graphed = stepper is not disk.rollout.rk4_step_fields
+    stepper, graphed = disk.rollout.graph_stepper()
     hz = disk.h_zero
     m = disk.m0.clone() if m_resume is None else m_resume.clone().to(dtype)
     start = len(done) if m_resume is not None else 0

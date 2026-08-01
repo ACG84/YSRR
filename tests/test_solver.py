@@ -294,3 +294,105 @@ def test_source_interpolation_modes_agree_at_small_dt(f64):
     coarse = gap(2e-11, 20)
     fine = gap(5e-12, 80)
     assert fine < coarse
+
+
+# ------------------------------------------------- the graph-capturable step
+
+
+def _rollout(f64_or_f32, nx=12, ny=12):
+    """A small rollout with spatially varying damping, which is the case the
+    graph path had to be taught to handle."""
+    cfg = mnn.get_preset("tiny")
+    cfg.mesh.nx, cfg.mesh.ny, cfg.mesh.nz = nx, ny, 1
+    cfg.material.abc_width = 2
+    cfg.solver.demag = False
+    cfg.solver.dt = 1e-12
+    cfg.solver.timesteps = 8
+    alpha = mnn.absorbing_damping(cfg.mesh, cfg.material)
+    roll = mnn.LLGRollout(cfg.mesh, cfg.solver, cfg.material.A, alpha,
+                          cfg.material.Ms)
+    torch.manual_seed(0)
+    m = torch.zeros(nx, ny, 1, 3, dtype=torch.get_default_dtype())
+    m[..., 0] = 1.0
+    h = torch.zeros_like(m)
+    h[..., 2] = 1e4
+    return roll, m, h
+
+
+def test_field_stepper_matches_the_callable_stepper(f64):
+    """``rk4_step_fields`` and ``rk4_step`` are the same integrator.
+
+    The whole reason the field form exists is that a Python callable per substep
+    forces a graph break, so the two must agree exactly or the CUDA path is
+    silently integrating something else. Every NARMA run since the graph stepper
+    landed goes through ``rk4_step_fields`` -- including on CPU, where
+    ``graph_stepper`` returns it unwrapped -- so this is the step the results
+    are actually made of.
+    """
+    roll, m, h = _rollout(f64)
+    drive = torch.zeros_like(h)
+    drive[..., 1] = 5e3
+
+    a = m.clone()
+    for _ in range(6):
+        a = roll.rk4_step(a, h, lambda theta: drive * (1.0 + theta))
+    b = m.clone()
+    for _ in range(6):
+        b = roll.rk4_step_fields(b, h + drive, h + drive * 1.5,
+                                 h + drive * 1.5, h + drive * 2.0)
+    assert torch.equal(a, b)
+
+
+def test_graph_stepper_falls_back_to_eager_off_cuda(f64):
+    """Off CUDA the compiled path is not available, and the caller must not have
+    to know: ``graph_stepper`` hands back the plain function so the driving loop
+    is identical either way."""
+    roll, _, _ = _rollout(f64)
+    if not torch.cuda.is_available():
+        fn, compiled = roll.graph_stepper()
+        assert compiled is False
+        assert fn == roll.rk4_step_fields
+
+
+def test_graph_stepper_declines_to_compile_with_thermal_noise(f64):
+    """A replayed graph freezes its random draws, which would turn Langevin
+    noise into a fixed repeating pattern -- noise-shaped, but not noise. The
+    stepper must refuse to compile rather than produce that silently."""
+    roll, _, _ = _rollout(f64)
+    roll.set_temperature(300.0)
+    fn, compiled = roll.graph_stepper()
+    assert compiled is False
+    assert fn == roll.rk4_step_fields
+
+
+def test_alpha_registration_precomputes_gamma_prime(f64):
+    """``gamma'`` must exist before the first step, not be allocated inside it.
+
+    Allocating it lazily inside the stepper let a captured graph take ownership
+    of the cached tensor, so every replay read memory that had since been
+    overwritten. Precomputing makes it a stable input the graph closes over.
+    """
+    roll, m, h = _rollout(f64)
+    assert roll._gamma_prime is not None
+    alpha, gp = roll._gamma_prime
+    assert alpha is roll.alpha
+    assert torch.allclose(gp, roll.gamma / (1.0 + alpha ** 2))
+    # a caller-supplied alpha must NOT poison the cache
+    other = torch.full_like(alpha, 0.5)
+    roll.torque(m, h, other)
+    assert roll._gamma_prime[0] is roll.alpha
+
+
+def test_thermal_field_is_zero_where_there_is_no_material(f64):
+    """Langevin noise is driven by fluctuation-dissipation, and outside the
+    magnet there is nothing to dissipate. Noise leaking into Ms = 0 cells would
+    excite geometry that does not exist."""
+    roll, m, _ = _rollout(f64)
+    Ms = torch.full((m.shape[0], m.shape[1], 1, 1), 8e5,
+                    dtype=torch.get_default_dtype())
+    Ms[:4] = 0.0
+    roll.set_Ms(Ms)
+    roll.set_temperature(300.0)
+    h_th = roll._thermal_field(m)
+    assert float(h_th[:4].abs().max()) == 0.0
+    assert float(h_th[4:].abs().max()) > 0.0

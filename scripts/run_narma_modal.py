@@ -56,21 +56,28 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     IS the reservoir's memory, and resetting between samples would leave a
     stateless nonlinearity with nothing to compute over.
     """
-    # Resume from a partial run. A 50-minute rollout was lost to a stray
-    # signal with nothing on disk, because only the COMPLETED feature set was
-    # cached. Checkpointing every ckpt_every frames caps that loss, and the
-    # reservoir state is deterministic given the input prefix, so replaying the
-    # first j frames reproduces the state exactly -- the cost of resuming is
-    # bounded by the checkpoint interval, not the run length.
-    done = []
+    # Resume cheaply. The checkpoint carries the MAGNETISATION as well as the
+    # features, so a restart reloads the reservoir state instead of replaying
+    # to rebuild it. That distinction is the whole point on this machine: the
+    # container has rebooted three times in a day, roughly hourly, and the
+    # previous scheme replayed from frame 0 -- so a crash at minute 39 of a
+    # 40-minute run cost 39 minutes, not the checkpoint interval. It also kept
+    # any run longer than the reboot period from EVER finishing, since each
+    # attempt restarted from nothing.
+    done, m_resume = [], None
     if cache is not None and cache.exists():
         prev = torch.load(cache, weights_only=False)
-        if len(prev) >= len(u):
+        if isinstance(prev, dict):
+            feats_prev, m_resume = prev["feats"], prev.get("m")
+        else:
+            feats_prev = prev                     # old format: features only
+        if len(feats_prev) >= len(u):
             print(f"[cached] {cache.name}", flush=True)
-            return prev
-        done = [r.tolist() for r in prev]
-        print(f"[resume] {cache.name} has {len(done)}/{len(u)} frames; "
-              f"replaying to rebuild reservoir state", flush=True)
+            return feats_prev if not isinstance(prev, dict) else prev["feats"]
+        done = [list(r) for r in feats_prev.tolist()]
+        print(f"[resume] {cache.name} has {len(done)}/{len(u)} frames"
+              + (" (state restored)" if m_resume is not None
+                 else " (no state saved; replaying)"), flush=True)
 
     cfg = disk.cfg
     n = cfg.n_cells
@@ -87,8 +94,9 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         t0m = disk._tap_masks.to(dtype)[0]
         unit[:, :, 0, 2] = t0m / t0m.sum().clamp_min(1e-30)
 
-    m = disk.m0.clone()
-    feats, t0 = [], time.time()
+    m = disk.m0.clone() if m_resume is None else m_resume.clone().to(dtype)
+    start = len(done) if m_resume is not None else 0
+    feats, t0 = list(done), time.time()
     w = 2 * math.pi * carrier
     # Lock in at several frequencies, not just the drive. Three-magnon
     # scattering is the entire nonlinear mechanism here -- it is what produces
@@ -100,6 +108,8 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     # tap-delay.
     ws = [2 * math.pi * f for f in (carrier, *tones)]
     for j, un in enumerate(u):
+        if j < start:
+            continue                       # state was restored, not replayed
         amp = (amp_lo + (amp_hi - amp_lo) * float(un)) * 1e-3 / MU_0
         accI = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64)
         accQ = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64)
@@ -127,13 +137,14 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         feats.append(row)
         if (j + 1) % 25 == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
-            if cache is not None and j + 1 > len(done):
-                torch.save(torch.tensor(np.array(feats), dtype=torch.float64),
-                           cache)
+            if cache is not None:
+                torch.save({"feats": torch.tensor(np.array(feats),
+                                                  dtype=torch.float64),
+                            "m": m.detach().cpu()}, cache)
 
     F = torch.tensor(np.array(feats), dtype=torch.float64)
     if cache is not None:
-        torch.save(F, cache)
+        torch.save({"feats": F, "m": m.detach().cpu()}, cache)
     return F
 
 

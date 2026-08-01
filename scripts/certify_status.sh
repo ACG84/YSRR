@@ -28,17 +28,35 @@ cd "$root" || exit 2
 
 cmdline_of() { tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null; }
 
+# Is this PID one of our runners? Tested on argv[0], never on the whole command
+# line: any shell that merely mentions run_narma_modal -- this script's own
+# grep, the watchdog, the resume hook -- would match a substring test, so a
+# recycled PID landing on one would read as a live run. A runner has argv[0]
+# "python" (phase 1, pre-rename) or "magnumnp..." (phase 2); a shell has "bash".
+# The rename collapses the whole title into argv[0] as ONE field --
+# "magnumnp scripts/run_narma_modal.py" -- so take the first word of argv[0]
+# before stripping a directory, or what gets tested is the basename of the path
+# inside that title and nothing matches.
+ident_ok() {
+    local cmd a0 head
+    cmd=$(tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null) || return 1
+    a0=${cmd%%$'\n'*}
+    head=${a0%% *}
+    case "${head##*/}" in
+        magnumnp*) return 0 ;;
+        python*)   case "$cmd" in *run_narma_modal.py*) return 0 ;; esac ;;
+    esac
+    return 1
+}
+
 alive=0 total=0 complete=0
 for s in $(seq 0 $((SEEDS - 1))); do
     d=runs/certify/seed_$s
     pid=$(cat "$d/pid" 2>/dev/null)
     state=dead
-    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-        # Either identity counts as ours; anything else is a recycled PID.
-        if cmdline_of "$pid" | grep -qE 'run_narma_modal|magnumnp'; then
-            state=alive
-            alive=$((alive + 1))
-        fi
+    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null && ident_ok "$pid"; then
+        state=alive
+        alive=$((alive + 1))
     fi
     n=$(grep -o "frame [0-9]*/${FRAMES}" "$d/run.log" 2>/dev/null |
         tail -1 | grep -o '^frame [0-9]*' | grep -o '[0-9]*')

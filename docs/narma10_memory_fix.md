@@ -230,3 +230,68 @@ Until that is measured, the honest statement is narrower than either failed
 hypothesis: **the device's usable memory is ~8 frames, it is not set by Gilbert
 damping, it is not set by radiation into the ports, and the mechanism is
 unidentified.**
+
+---
+
+# Result: the ceiling is the disk, not the readout — and depth is what is left
+
+Same run, one seed, 600 frames. Six physical port taps against six random
+spatial functionals of the **whole magnetisation**, both demodulated at the same
+five tones over the same frame, both 60 features wide. The only difference
+between the arms is where the state is sampled.
+
+| readout | dims | MC | cliff | r²@0 | r²@5 | r²@8 | r²@10 |
+|---|---|---|---|---|---|---|---|
+| `lockin_60` (six port taps) | 60 | **8.04** | 8 | 1.00 | 0.89 | 0.30 | 0.01 |
+| `state_60` (whole disk) | 60 | **7.76** | 8 | 0.87 | 0.79 | 0.46 | 0.26 |
+
+Reading the entire magnetisation sees **0.97×** the memory the six rim taps see,
+and the cliff sits at lag 8 for both. The ports are not throwing memory away.
+~8 frames is what the magnetisation itself retains, and no readout extends it.
+
+Two honest qualifications. The state arm scores 0.87 at lag 0 rather than 1.00,
+so six random functionals of a ~27,000-dimensional state are a slightly lossy
+sample — this is a like-for-like comparison at equal width, not a strict upper
+bound. And the state arm is genuinely better *deep*: r² 0.46 against 0.30 at lag
+8, and 0.26 against 0.01 at lag 10. The ports do lose something past lag 7. It
+is nowhere near enough to move the cliff to 11, but it is not nothing, and a
+wider state read is the follow-up if that margin ever matters.
+
+## Three failed designs, and why they are recorded
+
+This question took four attempts. The three that failed were each caught by the
+same check — an arm that cannot reconstruct `u[n]` at lag **zero** is broken, not
+informative — and each would otherwise have produced this same verdict with far
+less justification:
+
+| design | failure | r²@0 |
+|---|---|---|
+| raw port waveform | frame-local indexing discards absolute carrier phase | 0.02 |
+| 45-tone bank | strict superset scored MC 2.07 vs 8.04; one global ridge λ cannot shrink uninformative high-variance columns | — |
+| frame-end state snapshot | sampled at a phase advancing 0.4 cycle/frame; similarity +0.988 at separation 5 | 0.00 |
+
+Two of the three would have said "the ceiling is in the disk" — the right answer
+for entirely wrong reasons. The lag-0 gate is the only thing that separated them
+from the run above.
+
+## What this closes, and what it opens
+
+Closed: **damping** (a fourfold reduction bought 0.34 frames), **radiation** (τ
+is 1–2 ns regardless of port count), and now **readout** (the whole state at
+equal width sees 0.97× what the ports see). Three mechanisms proposed, three
+measured dead ends. The single ported vortex disk holds ~8 frames of usable
+memory and NARMA-10's product term needs 11.
+
+Not closed: **depth**. Two stages each holding ~8 frames compose — the second
+integrates the first's output, so a cascade reaches further than either alone,
+which is the standard multiple-timescale argument for deep reservoirs. That
+route is also clear on stability: the renormalised Lyapunov exponent at the
+operating point, for a disk with four free ports (an interior cascade stage
+spends two on links), is −0.09 full-run and +0.08 late-half — λ ≈ 0, the edge of
+chaos, where a reservoir wants to sit. The earlier positive readings were taken
+at 8 GHz, below the guides' own 11 GHz cutoff, where they are evanescent and
+cannot radiate.
+
+So the sequence has eliminated every single-disk fix and left exactly one live
+hypothesis, which happens to be the architectural one: not a better disk, and
+not a better readout, but more of them in series.

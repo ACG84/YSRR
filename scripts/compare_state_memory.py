@@ -106,10 +106,14 @@ def main():
               "  the ports do not expose, so a better physical readout -- not\n"
               "  different physics -- is the route to NARMA-10.")
     elif st["mc"] < 1.15 * lock["mc"]:
-        print("  The ceiling is in the DISK. An unbiased read of the state at\n"
-              "  the same width sees no more memory than the ports do, so ~8\n"
-              "  frames is what the magnetisation retains. NARMA-10 needs 11,\n"
-              "  and no readout or cascade of these disks reaches it.")
+        print("  The ceiling is in the DISK, not the readout. An unbiased read\n"
+              "  of the state at the same width sees no more memory than the\n"
+              "  ports do, so ~8 frames is what the magnetisation retains and a\n"
+              "  better readout will not extend it.\n"
+              "  This does NOT close the cascade route. Two stages each holding\n"
+              "  ~8 frames compose: the second integrates the first's output, so\n"
+              "  depth is the remaining way to reach lag 10 -- unlike damping and\n"
+              "  unlike readout, both of which are now measured dead ends.")
     else:
         print("  Ambiguous: a real but modest gain. Report the numbers, not a\n"
               "  verdict.")

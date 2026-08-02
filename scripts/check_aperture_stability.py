@@ -56,6 +56,11 @@ def drive(disk, freq, n_steps, amp, dtype, perturb=None, record=8):
     return out
 
 
+def record_dt(cfg, args, record=8):
+    """ns between recorded states -- the x-axis the exponent is fitted on."""
+    return record * cfg.dt * 1e9
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -87,10 +92,39 @@ def main():
         s2 = drive(disk, args.freq * 1e9, args.steps, amp, dtype, perturb=pert)
         d = torch.stack([(a - b).norm() for a, b in zip(s1, s2)])
         d0 = float(d[len(d) // 8].clamp_min(1e-30)); dT = float(d[-1])
-        lam = math.log(max(dT, 1e-30) / d0) / (args.steps * cfg.dt * 1e9)
-        rows.append({"n_ports": npo, "guide_cells": guide_cells, "lambda": lam})
+        T_ns = args.steps * cfg.dt * 1e9
+        lam = math.log(max(dT, 1e-30) / d0) / T_ns
+
+        # The two-point exponent above is only an exponent while the
+        # perturbation is still growing exponentially. Once the two
+        # trajectories decorrelate, d saturates at a ceiling set by the state
+        # norm, and log(ceiling/d0)/T reports a number that depends on the
+        # transient rather than on any rate -- which is how a lambda series can
+        # come out non-monotonic in aperture and mean nothing. So: fit log d
+        # over the unsaturated window as well, and record enough to tell the
+        # two apart afterwards.
+        dv = d.tolist()
+        ceil = max(dv)
+        lo = len(dv) // 8
+        idx = [i for i in range(lo, len(dv)) if dv[i] < 0.2 * ceil and dv[i] > 0]
+        lam_fit, n_fit = float("nan"), len(idx)
+        if n_fit >= 8:
+            xs = [i * record_dt(cfg, args) for i in idx]
+            ys = [math.log(dv[i]) for i in idx]
+            xm = sum(xs) / len(xs); ym = sum(ys) / len(ys)
+            den = sum((x - xm) ** 2 for x in xs)
+            if den > 0:
+                lam_fit = sum((x - xm) * (y - ym)
+                              for x, y in zip(xs, ys)) / den
+        sat = dT >= 0.9 * ceil
+        rows.append({"n_ports": npo, "guide_cells": guide_cells, "lambda": lam,
+                     "lambda_fit": lam_fit, "d_start": d0, "d_end": dT,
+                     "d_ceiling": ceil, "saturated": bool(sat),
+                     "fit_points": n_fit})
         print(f"{npo:>8} {guide_cells:>12} {lam:>+10.3f} "
-              f"{'CHAOTIC' if lam > 0 else 'stable':>10}", flush=True)
+              f"{'CHAOTIC' if lam > 0 else 'stable':>10}"
+              f"   fit {lam_fit:>+8.3f}  d {d0:.2e}->{dT:.2e}"
+              f"{'  SATURATED' if sat else ''}", flush=True)
 
     (outdir / "results.json").write_text(json.dumps(rows, indent=2))
     stable = [r for r in rows if r["lambda"] < 0]

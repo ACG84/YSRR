@@ -231,6 +231,17 @@ def main():
                         "score comes back nan, including input-only.")
     p.add_argument("--steps-per-frame", type=int, default=200)
     p.add_argument("--carrier-ghz", type=float, default=12.0)
+    p.add_argument("--alpha", type=float, default=None,
+                   help="Gilbert damping of the disk bulk (not the absorbing\n"
+                        "tapers, which stay at absorb_alpha). This is the knob\n"
+                        "the NARMA-10 certification points at: memory in frames\n"
+                        "is 1/(2 pi alpha N_cycles), measured 8.12 against 8.29\n"
+                        "predicted at the 0.008 default, so the model is good to\n"
+                        "2% and lowering alpha should buy memory proportionally.\n"
+                        "0.008 is permalloy-like, 0.004 CoFeB-like, 0.002 needs\n"
+                        "an optimised low-damping alloy. Note this varies damping\n"
+                        "ALONE: a real material swap would move Ms and A too, so\n"
+                        "these are idealised points on one axis, not materials.")
     p.add_argument("--tones-ghz", type=float, nargs="*",
                    default=[9.9, 10.3, 13.7, 24.0],
                    help="extra lock-in frequencies. Defaults are where the\n"
@@ -265,15 +276,20 @@ def main():
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
 
     u, y = narma10(args.frames, seed=args.seed)
-    cfg = (PortedVortexConfig() if args.absorb_frac is None
-           else PortedVortexConfig(absorb_frac=args.absorb_frac))
+    kw = {}
+    if args.absorb_frac is not None:
+        kw["absorb_frac"] = args.absorb_frac
+    if args.alpha is not None:
+        kw["alpha"] = args.alpha
+    cfg = PortedVortexConfig(**kw)
     disk = PortedVortexDisk(cfg, timesteps=args.steps_per_frame + 4, dtype=dtype)
     t0 = time.time(); disk.relax(steps=args.relax_steps)
     tau_ns = 1.0 / (cfg.alpha * 2 * math.pi * args.carrier_ghz * 1e9) * 1e9
     frame_ns = args.steps_per_frame * cfg.dt * 1e9
     print(f"relaxed {time.time()-t0:.0f}s, core mz "
           f"{float(disk.m0[:, :, 0, 2].max()):+.3f}\n"
-          f"frame {frame_ns:.2f} ns, ring-down {tau_ns:.2f} ns "
+          f"alpha {cfg.alpha:.4f}, frame {frame_ns:.2f} ns, "
+          f"ring-down {tau_ns:.2f} ns "
           f"-> ~{tau_ns/frame_ns:.1f} frames of physical memory", flush=True)
 
     F = run_reservoir(disk, u, args.steps_per_frame, args.carrier_ghz * 1e9,

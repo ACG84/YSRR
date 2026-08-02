@@ -321,3 +321,60 @@ what is downstream. Its job is transduction; the lags that matter live in stages
 3 and 4, which never see the drive directly. What the measurement adds is the
 budget: that division of labour works over three or four stages, not over the
 six that a geometric extrapolation from one hop would have promised.
+
+---
+
+# Can the input stage annihilate? Not while staying usable
+
+The architecture's appeal is a division of labour: if the deep stages hold the
+memory, the input stage is free to destroy its own state every frame, because
+its job is transduction. Stage 1 carries 200× the amplitude of the deepest
+usable stage, so there is signal budget for it. The question is whether the disk
+has a drive that both **fires** (reverses its core) and leaves the dynamics
+**usable** (λ < 0).
+
+Measured on a single ported disk, sweeping amplitude at two bands:
+
+| band | amp | core (end) | flips | λ/ns | verdict |
+|---|---|---|---|---|---|
+| 12 GHz | 30 mT | +0.347 | 0 | **−0.596** | stable, no fire |
+| 12 GHz | 60 mT | −0.277 | **7** | +5.545 | fires, chaotic |
+| 12 GHz | 100 mT | −0.003 | **4** | +9.417 | fires, chaotic |
+| 12 GHz | 150 mT | +0.042 | 0 | +9.771 | scrambled |
+| 12 GHz | 220 mT | −0.021 | 0 | +9.730 | scrambled |
+| 0.5 GHz | 5 mT | +0.883 | 0 | **−1.441** | stable, no fire |
+| 0.5 GHz | 10 mT | +0.868 | 0 | **−1.429** | stable, no fire |
+| 0.5 GHz | 20 mT | +0.764 | 0 | +0.349 | no fire |
+| 0.5 GHz | 40 mT | −0.178 | 0 | +2.092 | no fire |
+
+**No amplitude in either band both fires and stays stable.** At the 12 GHz
+carrier the core reverses from 60 mT, but λ is +5.5/ns there — over a 0.20 ns
+frame that is ~3× divergence *per frame*, so stage 1's output stops being a
+reproducible function of the input. Nothing downstream can recover information
+that sensitivity to initial conditions has already destroyed, however much
+memory the deep stages have.
+
+## What this does not settle
+
+The 0.5 GHz arm was a **guess** at the gyrotropic band, not a measurement. The
+gyrotropic frequency of this specific disk has never been measured here, and the
+0.5 GHz sweep shows the core barely moving (0.883 → 0.764 up to 20 mT) which is
+consistent with driving off-resonance. So this rules out core annihilation at
+the operating carrier, and does **not** rule out a cheap reversal at the true
+gyrotropic resonance. Measuring that frequency — ring down the core position
+after a small in-plane pulse and take its spectrum — is the prerequisite for
+any further attempt, and it is cheap.
+
+## The reframing the data supports
+
+Core reversal is not the only annihilating nonlinearity available, and it may
+not be the one worth chasing. This disk already has a *threshold* nonlinearity
+that does not destroy state: three-magnon splitting above its power threshold,
+which is what produces the 23.4× AB/BA discrimination this project measured. It
+redistributes energy among modes rather than erasing the core, so mode
+populations — and therefore memory — survive it.
+
+That preserves the architectural idea while dropping the mechanism. The input
+stage can be driven hard into strong nonlinearity, be lossy, and hold almost no
+memory of its own, with the lags that matter living in stages 3 and 4. What it
+cannot be, on this device at this carrier, is literally spiking.

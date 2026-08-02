@@ -102,3 +102,78 @@ Stability is not a gate here: λ at the operating point for a four-port disk is
 because a cascade stage spends two of its six ports on links, and that budget is
 what earlier work got wrong by measuring at 8 GHz, below the guides' own 11 GHz
 cutoff, where they cannot radiate at all.
+
+---
+
+# Result: the control fired, and the timing says why
+
+Both arms, 600 frames, one seed, splits (150, 300, 75), max_lag 28.
+
+| run | arm | dims | MC | window (r² > 0.5) | width | peak @ lag |
+|---|---|---|---|---|---|---|
+| linked | A | 60 | 5.79 | 0 – 6 | 7 | 1 |
+| linked | **B** | 60 | 8.88 | **3 – 12** | 10 | **6** |
+| linked | **A+B** | 120 | **10.58** | **0 – 11** | **12** | 1 |
+| no-link | A | 60 | 4.59 | 0 – 4 | 5 | 1 |
+| no-link | **B** | 60 | 6.30 | **0 – 4** | 5 | **1** |
+| no-link | A+B | 120 | 8.65 | 0 – 8 | 9 | 2 |
+| *single disk* | *ports* | *60* | *8.04* | *0 – 7* | *8* | *0* |
+
+## The pre-registered rule fires: not certified
+
+Rule 2 says that if no-link stage B shows memory of `u`, the coupling is not
+purely guided and the linked result measures a mixed mechanism. No-link B peaks
+at r² 0.90. **The rule fires, so this run does not certify composition**, and
+that is the ruling regardless of what follows.
+
+It fires for a real reason. The drive is applied only to disk A's cells, so with
+the link deleted, disk B can only be reached by stray dipolar field across the
+700 nm gap. It is reached: no-link B recovers `u` at r² 0.90.
+
+## What the rule did not anticipate: the two mechanisms separate by timing
+
+No-link B peaks at **lag 1** and dies by lag 4. Linked B peaks at **lag 6** and
+holds past lag 12.
+
+Dipolar coupling is a near-field effect and is effectively instantaneous — it
+cannot produce a five-frame delay. A frame is 0.20 ns, so linked B's peak sits
+~1.0 ns behind the drive, which over 700 nm is ~700 m/s, comfortably below the
+~2000 m/s magnon group velocity. A guided component must arrive no faster than
+the group velocity allows, and this one does not.
+
+So both mechanisms are present and they are distinguishable: an instantaneous
+dipolar background in both arms, and a delayed component that exists only when
+the link is there. The memory extension rides on the delayed one — A+B reaches
+lag 11 linked against lag 8 unlinked, and the single disk reaches lag 7.
+
+This is the discriminator `run_narma_coupled.py`'s own header identified before
+any of this ran: *"What distinguishes them is timing: a guided component must
+arrive no faster than the group velocity allows."* The control was built to
+subtract the dipolar contribution and cannot, because deleting the link also
+deletes that material's own dipolar field. Timing separates them; material
+deletion does not.
+
+## A metric that misreported its own arm
+
+`cliff` — the first lag whose r² falls below 0.5 — assumes memory decays
+monotonically from lag 0. Stage B does not: it *rises* to a peak at lag 6. The
+metric returned `cliff = 1` for linked B, which reads as "no memory" for an arm
+that actually spans lags 3 – 12.
+
+Every memory number earlier in this project came from a single driven disk,
+where the assumption held and the metric was sound. It broke the first time the
+readout sat downstream of a delay. The window (first and last lag above 0.5)
+is reported here instead, and `cliff` should not be used on a cascade.
+
+## What would settle it
+
+Vary the separation. Dipolar coupling falls off steeply with distance while a
+guided delay grows linearly with it, so measuring stage B's peak lag against
+separation separates the two cleanly — no material deletion, no confound. If the
+peak lag scales with distance and the dipolar background falls away, the guided
+cascade is doing the work and the six-seed certification is worth its compute.
+
+Until that runs, the honest statement is: **a two-stage geometry reaches lag 11
+where one disk reaches 7, the extension appears only with the link present and
+arrives with a propagation-consistent delay, and the pre-registered control
+cannot yet rule out a mixed mechanism.**

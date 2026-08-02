@@ -66,4 +66,25 @@ if [ -d runs/screen ]; then
         echo "damping screen incomplete ($s_done/$n_alpha) -- supervisor restarted"
     fi
 fi
+
+# The readout probe is a single run rather than a sweep, so it gets no
+# supervisor -- the hook relaunches it directly. Safe to do blindly: the runner
+# resumes from its checkpoint, which now carries the waveform alongside the
+# features, so a relaunch costs at most CKPT_EVERY frames.
+PROBE_FRAMES="${PROBE_FRAMES:-600}"
+probe=runs/readout_probe
+if [ -d "$probe" ] &&
+   ! grep -qs "frame ${PROBE_FRAMES}/${PROBE_FRAMES}" \
+        "$probe/run.log" runs/readout_probe.log; then
+    # Match the script name, not the process name: magnum.np renames the worker
+    # to "magnumnp scripts/run_narma_modal.py" a few minutes into startup, so a
+    # comm-based check reports zero runners while one is healthily running.
+    if [ "$(ps -eo args --no-headers | grep -c '[r]un_narma_modal.py')" -eq 0 ]; then
+        OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nohup python \
+            scripts/run_narma_modal.py --frames "$PROBE_FRAMES" \
+            --splits 150 300 75 --drive port --seed 0 --save-waveform \
+            --outdir "$probe" >> runs/readout_probe.log 2>&1 &
+        echo "readout probe unfinished -- relaunched (resumes from checkpoint)"
+    fi
+fi
 exit 0

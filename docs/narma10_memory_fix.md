@@ -181,3 +181,52 @@ stability argument wanted, and each one is a leak.
 That is a measurement, not a conclusion: it predicts memory should rise as port
 count or taper absorption falls, and it should be tested by measuring the free
 decay directly rather than by inferring it from another 800-frame task run.
+
+## The radiation hypothesis fails too
+
+Tested directly by free decay — drive, cut the drive, fit the deviation energy
+inside the disk (`check_ringdown.py`), 20 mT at 12 GHz:
+
+| α | ports | τ (ns) | τ (frames) | model τ | meas/model |
+|---|---|---|---|---|---|
+| 0.008 | 6 | 1.29 | 6.5 | 1.66 | 0.78 |
+| 0.002 | 6 | 1.92 | 9.6 | 6.63 | 0.29 |
+| 0.008 | 2 | 0.96 | 4.8 | 1.66 | 0.58 |
+| 0.008 | 1 | 1.62 | 8.1 | 1.66 | 0.98 |
+
+Damping-limited predicts τ ∝ 1/α and no port dependence. Radiation-limited
+predicts τ flat in α and rising as ports are removed. **Neither happens.**
+Fourfold less damping lengthens τ by 1.49×, not 4×; and removing ports moves τ
+non-monotonically (6 → 1.29, 2 → 0.96, 1 → 1.62), which is not a trend at all.
+
+τ is 1–2 ns — 5 to 10 frames — in every configuration tested, and MC is pinned
+near 8.3 in every configuration tested. Something sets that scale, and it is
+neither of the two knobs.
+
+## The remaining candidate: the readout, not the disk
+
+What has never varied across any of these runs is the readout. Every MC number
+in this project comes from 60 features: six ports × five lock-in tones ×
+(re, im), one vector per frame. MC measures memory *visible in those features*,
+not memory in the magnetisation, and the two are only the same if the readout
+projects the state faithfully.
+
+Three independent observations now point the same way. The 60 features carry
+only ~20 dimensions of variance, and two tone pairs are near-degenerate
+(12↔24 GHz at 0.993, 10.3↔13.7 GHz at 0.999). Tier 3 of the certification found
+that appending all 60 to a linear filter improves nothing. And MC is invariant
+at 8.3 across a fourfold damping change and a sixfold change in port count —
+which is what a saturated measurement looks like when the instrument, not the
+sample, is the limit.
+
+This is a hypothesis with a cheap decisive test, and it is not yet evidence.
+Run a short sweep that saves the raw per-frame port waveform rather than its
+five lock-in projections, and compute MC from both. If the waveform carries
+substantially more memory than the 60 features, the 8-lag ceiling belongs to the
+readout and is fixable without touching the physics. If it carries the same, the
+ceiling is in the magnetisation and the device genuinely forgets at 8 frames.
+
+Until that is measured, the honest statement is narrower than either failed
+hypothesis: **the device's usable memory is ~8 frames, it is not set by Gilbert
+damping, it is not set by radiation into the ports, and the mechanism is
+unidentified.**

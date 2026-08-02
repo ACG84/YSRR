@@ -33,22 +33,37 @@ root="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$root" 2>/dev/null || exit 0
 [ -d runs/certify ] || exit 0
 
-done_n=$(grep -l "frame ${FRAMES}/${FRAMES}" runs/certify/seed_*/run.log 2>/dev/null | wc -l)
-[ "$done_n" -ge "$SEEDS" ] && exit 0
+# A supervisor is alive if its recorded PID exists AND its cmdline is still the
+# script we started. The cmdline check is what distinguishes our supervisor from
+# whatever recycled that PID after a reboot.
+sup_alive () {           # sup_alive <pidfile> <script name>
+    local pid
+    [ -f "$1" ] || return 1
+    pid=$(cat "$1" 2>/dev/null)
+    [ -n "${pid:-}" ] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q "$2"
+}
 
-pf=runs/certify/supervisor.pid
-if [ -f "$pf" ]; then
-    pid=$(cat "$pf" 2>/dev/null)
-    # /proc/PID/cmdline is NUL-separated; tr makes it greppable. The cmdline
-    # check is what distinguishes our supervisor from whatever recycled that
-    # PID after a reboot.
-    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null &&
-       tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null |
-       grep -q "certify_supervise.sh"; then
-        exit 0
-    fi
+done_n=$(grep -l "frame ${FRAMES}/${FRAMES}" runs/certify/seed_*/run.log 2>/dev/null | wc -l)
+if [ "$done_n" -lt "$SEEDS" ] &&
+   ! sup_alive runs/certify/supervisor.pid certify_supervise.sh; then
+    nohup bash scripts/certify_supervise.sh >> runs/certify_supervise.log 2>&1 &
+    echo "certification incomplete ($done_n/$SEEDS seeds) -- supervisor restarted"
 fi
 
-nohup bash scripts/certify_supervise.sh >> runs/certify_supervise.log 2>&1 &
-echo "certification incomplete ($done_n/$SEEDS seeds) -- supervisor restarted"
+# The damping screen has the same problem and the same fix. It is a separate
+# block rather than a loop because the two sweeps finish independently: the
+# certification is done and its block is now a no-op, while the screen is not.
+SCREEN_FRAMES="${SCREEN_FRAMES:-800}"
+if [ -d runs/screen ]; then
+    n_alpha=$(ls -d runs/screen/alpha_* 2>/dev/null | wc -l)
+    s_done=$(grep -l "frame ${SCREEN_FRAMES}/${SCREEN_FRAMES}" \
+             runs/screen/alpha_*/run.log 2>/dev/null | wc -l)
+    if [ "$n_alpha" -gt 0 ] && [ "$s_done" -lt "$n_alpha" ] &&
+       ! sup_alive runs/screen/supervisor.pid screen_supervise.sh; then
+        nohup bash scripts/screen_supervise.sh >> runs/screen_supervise.log 2>&1 &
+        echo "damping screen incomplete ($s_done/$n_alpha) -- supervisor restarted"
+    fi
+fi
 exit 0

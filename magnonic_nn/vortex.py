@@ -668,3 +668,184 @@ class CoupledPortedArray:
         dm = ((m - self.m0) ** 2).sum(-1)[:, :, 0]
         w = self.disk_masks
         return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)
+
+
+@dataclass
+class ChainPortedConfig(PortedVortexConfig):
+    """N fully-ported vortex disks in a line, each linked to its neighbours.
+
+    CoupledPortedConfig generalised from two stages to a cascade of N, so that
+    "how deep can this go" is a question the geometry can express at all.
+
+    The depth budget is set by two measured numbers rather than by taste. At
+    700 nm the guided transfer per hop is 0.383 and the dipolar crosstalk that
+    reaches any disk directly from the driven one is 0.0043, so the guided
+    signal arriving at stage n is 0.383^(n-1) and falls to the crosstalk floor
+    at stage 6. Depth 5 is therefore the ceiling at this separation, and depth 4
+    puts the deepest stage's response at lag ~10.4 -- which is where NARMA-10's
+    product term lives.
+
+    CHIRALITY ALTERNATES, and that is not cosmetic. Two neighbours of the SAME
+    chirality drive the strip between them in the same rotational sense, which
+    is opposite senses in the lab frame, and the strip nucleates a Bloch wall at
+    the midpoint it cannot avoid. Measured on the two-disk build at 30 mT:
+
+        same chirality      wall, mz peak 0.98   lambda -0.171   B/A 0.00275
+        opposite chirality  no wall, mz 0.00     lambda -0.292   B/A 0.00380
+
+    Alternating +1/-1 along the chain makes EVERY adjacent pair opposite, which
+    is the only assignment with that property.
+    """
+
+    n_disks: int = 3
+    separation: float = 700e-9        # centre to centre, adjacent stages
+    link_width: float = 80e-9         # 80 to match the ports: 40 is evanescent
+                                      # at 12 GHz and would not be a waveguide
+    link_alpha: float | None = None   # damping inside the link corridors
+
+    @property
+    def grid(self) -> tuple[int, int]:
+        half_x = ((self.n_disks - 1) * self.separation / 2
+                  + self.radius + self.guide_length)
+        reach_y = self.radius + self.guide_length
+        return (2 * (int(np.ceil(half_x / self.dx)) + self.margin_cells),
+                2 * (int(np.ceil(reach_y / self.dx)) + self.margin_cells))
+
+    def centres(self):
+        off = (self.n_disks - 1) / 2.0
+        return [((i - off) * self.separation, 0.0) for i in range(self.n_disks)]
+
+    def chiralities(self):
+        return [(+1 if i % 2 == 0 else -1) for i in range(self.n_disks)]
+
+
+def _chain_links(cfg: ChainPortedConfig, X, Y):
+    """Boolean mask of the link corridors between consecutive stages."""
+    reg = torch.zeros_like(X, dtype=torch.bool)
+    cs = cfg.centres()
+    for (ax, _), (bx, _) in zip(cs[:-1], cs[1:]):
+        reg = reg | ((X >= ax) & (X <= bx) & (Y.abs() <= cfg.link_width / 2))
+    return reg
+
+
+def chain_ported_mask(cfg: ChainPortedConfig, device=None, dtype=torch.float64):
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+    m = torch.zeros_like(X, dtype=torch.bool)
+    for cx, cy in cfg.centres():
+        m = m | _radial_guides(X, Y, cx, cy, cfg)
+    if cfg.link_width > 0:
+        m = m | _chain_links(cfg, X, Y)
+    return m.to(dtype).reshape(nx, ny, 1, 1)
+
+
+def chain_ported_alpha(cfg: ChainPortedConfig, device=None, dtype=torch.float64):
+    """Absorb at the OUTWARD guide ends only; link corridors stay lossless.
+
+    An absorbing taper spilling into a link would attenuate the very coupling
+    the cascade runs on, so the corridors are cut out of the ramp explicitly.
+    """
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+
+    outer = cfg.radius + cfg.guide_length
+    start = outer - cfg.absorb_frac * cfg.guide_length
+    ramp = torch.ones_like(X)
+    for cx, cy in cfg.centres():
+        r = torch.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
+        ramp = torch.minimum(ramp,
+                             ((r - start) / (outer - start)).clamp(0.0, 1.0) ** 2)
+    if cfg.link_width > 0:
+        link = _chain_links(cfg, X, Y)
+        ramp = torch.where(link, torch.zeros_like(ramp), ramp)
+        alpha = cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp
+        if cfg.link_alpha is not None:
+            alpha = torch.where(link, torch.full_like(alpha, cfg.link_alpha),
+                                alpha)
+    else:
+        alpha = cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp
+    return alpha.reshape(nx, ny, 1, 1)
+
+
+class ChainPortedArray:
+    """A cascade of N ported vortex disks; stage i taps occupy block i."""
+
+    def __init__(self, cfg: ChainPortedConfig, timesteps: int, device=None,
+                 dtype=torch.float64):
+        self.cfg = cfg
+        nx, ny = cfg.grid
+        mesh = MeshConfig(nx=nx, ny=ny, nz=1, dx=cfg.dx, dy=cfg.dx,
+                          dz=cfg.thickness)
+        solver = SolverConfig(dt=cfg.dt, timesteps=timesteps, checkpoint=False,
+                              renormalize=True, demag=True)
+        self.mask = chain_ported_mask(cfg, device, dtype)
+        alpha = chain_ported_alpha(cfg, device, dtype) * self.mask
+        self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha,
+                                  Ms_ref=cfg.Ms)
+        self.rollout.set_Ms(cfg.Ms * self.mask)
+        self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
+        self.m0 = None
+
+        x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+        self._X, self._Y = torch.meshgrid(x, y, indexing="ij")
+        self.disk_masks = torch.stack([
+            (((self._X - cx) ** 2 + (self._Y - cy) ** 2) <= cfg.radius**2).to(dtype)
+            for cx, cy in cfg.centres()])
+        self._tap_masks = self._build_taps(dtype)
+
+    def _build_taps(self, dtype):
+        cfg = self.cfg
+        outer = cfg.radius + cfg.guide_length
+        tap_r = outer - cfg.absorb_frac * cfg.guide_length - 2 * cfg.dx
+        solid = self.mask[:, :, 0, 0] > 0.5
+        taps = []
+        for cx, cy in cfg.centres():
+            dX, dY = self._X - cx, self._Y - cy
+            for th in cfg.port_angles():
+                u = dX * math.cos(th) + dY * math.sin(th)
+                v = -dX * math.sin(th) + dY * math.cos(th)
+                taps.append((((u - tap_r).abs() <= 1.5 * cfg.dx)
+                             & (v.abs() <= cfg.guide_width / 2)
+                             & solid).to(dtype))
+        return torch.stack(taps)
+
+    def port_signals(self, m: torch.Tensor) -> torch.Tensor:
+        dm = (m - self.m0)[:, :, 0, 2]
+        w = self._tap_masks
+        return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)
+
+    def relax(self, steps: int = 5000, alpha_relax: float = 0.5,
+              require_tol: float | None = None):
+        cfg = self.cfg
+        nx, ny = cfg.grid
+        X, Y = self._X, self._Y
+        m = torch.zeros(nx, ny, 1, 3, dtype=self.h_zero.dtype)
+        m[:, :, 0, 2] = 1.0
+        for k, (cx, cy) in enumerate(cfg.centres()):
+            dX, dY = X - cx, Y - cy
+            r = torch.sqrt(dX**2 + dY**2).clamp_min(1e-18)
+            mz = cfg.polarity * torch.exp(-(r / cfg.core_width) ** 2)
+            ip = torch.sqrt((1 - mz**2).clamp_min(0.0))
+            sel = self.disk_masks[k] > 0
+            c = cfg.chiralities()[k]
+            m[:, :, 0, 0] = torch.where(sel, -c * ip * dY / r, m[:, :, 0, 0])
+            m[:, :, 0, 1] = torch.where(sel, c * ip * dX / r, m[:, :, 0, 1])
+            m[:, :, 0, 2] = torch.where(sel, mz, m[:, :, 0, 2])
+        m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12) * self.mask
+        self.m0 = self.rollout.relax(m, self.h_zero, steps, alpha_relax)
+        if require_tol is not None:
+            probe = self.rollout.relax(self.m0.clone(), self.h_zero, 20,
+                                       alpha_relax)
+            drift = float((probe - self.m0).norm()
+                          / max(float(self.m0.norm()), 1e-30))
+            if drift > require_tol:
+                raise RuntimeError(
+                    f"relaxation still drifting: {drift:.2e} > "
+                    f"{require_tol:.0e} after {steps} steps. A timing "
+                    f"measurement on this state would read drift as signal.")
+        return self.m0

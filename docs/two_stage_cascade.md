@@ -244,3 +244,80 @@ memory; a second stage fed through a guide reaches lag 11. The next step is the
 six-seed certification protocol on the cascade — same arms, same three tiers,
 same leakage guard — which is what would turn this from a measured mechanism
 into a certified result.
+
+---
+
+# How deep can it go? Measured, and shallower than extrapolation predicted
+
+`ChainPortedConfig` / `ChainPortedArray` generalise the two-disk build to N
+stages in a line with alternating chirality, so every adjacent pair is opposite
+— the only assignment avoiding the Bloch wall that same-chirality neighbours
+nucleate in the link. Verified at N = 3, 4, 5: grids 388/528/668 × 108, no empty
+taps, and the five-disk ground state passes the drift guard (1593 s to relax).
+
+One impulse into stage 1 measures every stage at once.
+
+| stage | arrival (ns) | peak lag (frames) | amplitude | rel. to stage 1 | **predicted** |
+|---|---|---|---|---|---|
+| 1 | 0.088 | 1.98 | 8.97e-02 | 1.0000 | 1.0000 |
+| 2 | 0.430 | 4.48 | 3.43e-02 | **0.3822** | **0.3830** |
+| 3 | 1.253 | 9.48 | 3.66e-03 | 0.0408 | 0.1467 |
+| 4 | 2.089 | 13.77 | 4.61e-04 | 0.0051 | 0.0562 |
+| 5 | — | 13.62 | 4.99e-06 | 0.0001 | 0.0215 |
+
+## The extrapolation was wrong, and why
+
+Stage 2 lands on prediction to three digits (0.3822 against 0.3830). Stages 3–5
+fall progressively far below it: the fitted transfer is **0.092 per hop**, not
+the 0.383 measured across a single hop.
+
+The single-hop number does not extrapolate because a terminal stage and an
+interior stage are different objects. In the two-disk build, stage B is an
+endpoint and the arriving wave is fully deposited. In a chain, every interior
+stage is a scattering node carrying **four free radiating ports, each with an
+absorbing taper** — the very ports that make a stage readable. They drain the
+signal passing through. Depth and readability trade against each other per
+stage, and no two-disk measurement can show it.
+
+The delay per hop also grows: **0.652 ns (3.26 frames)** fitted across depth,
+against 0.430 ns for a single hop, consistent with each interior disk holding
+and re-radiating rather than simply relaying.
+
+## Where the floor actually is
+
+Comparing each stage against the dipolar crosstalk reaching it *directly* from
+the driven disk, using the separation sweep's own falloff — which fits
+**1/r^3.3**, against 1/r³ for an ideal dipole, an independent confirmation that
+the no-link coupling is what it was called:
+
+| stage | gap | guided | dipolar floor | margin |
+|---|---|---|---|---|
+| 2 | 700 nm | 0.382 | 0.00427 | 89× |
+| 3 | 1400 nm | 0.0408 | 0.00044 | **92×** |
+| 4 | 2100 nm | 0.0051 | 0.00012 | **44×** |
+| 5 | 2800 nm | 0.00006 | 0.000046 | **1.2×** |
+
+**Depth 4 is the ceiling.** Stage 5 sits at its own crosstalk floor — whatever
+arrives through four hops is no stronger than what leaks straight across the
+substrate, so a fifth stage is not part of the cascade in any meaningful sense.
+
+Absolute level is the other limit and this simulation cannot rule on it: stage 4
+carries 0.5% of stage 1 and stage 5 carries 0.006%, with no thermal noise
+modelled. A real detector's noise floor may bind before the crosstalk floor
+does.
+
+## What this means for the architecture
+
+**Three stages is the operating point for NARMA-10.** Stage 3 peaks at lag
+**9.48** — essentially on `u[n-10]`, the term the whole task turns on — while
+holding a 92× crosstalk margin. Stage 4 extends coverage to lag 13.8 at 44×, so
+a four-stage chain spans lags 0–14 across its stages and is worth building if
+the task needs the tail.
+
+And the input stage can be treated as expendable, which was the architectural
+point. Stage 1 carries 200× the amplitude of the deepest usable stage, so it can
+be driven hard enough to annihilate its own state each frame without starving
+what is downstream. Its job is transduction; the lags that matter live in stages
+3 and 4, which never see the drive directly. What the measurement adds is the
+budget: that division of labour works over three or four stages, not over the
+six that a geometric extrapolation from one hop would have promised.

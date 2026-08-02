@@ -101,7 +101,7 @@ def save_ckpt(cache, feats, m, waves=None, states=None):
 @torch.no_grad()
 def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
                   cache=None, tones=(), drive="uniform", keep_waves=False,
-                  wave_stride=2, state_dims=0):
+                  wave_stride=2, state_dims=0, state_lockin=0):
     """Drive frame by frame with no reset; return (n_frames, n_features).
 
     The magnetisation is carried across frames deliberately -- that continuity
@@ -137,7 +137,8 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             print(f"[cached] {cache.name}", flush=True)
             return feats_prev if not isinstance(prev, dict) else prev["feats"]
         done = [list(r) for r in feats_prev.tolist()]
-        if state_dims and isinstance(prev, dict) and prev.get("state") is not None:
+        if (state_dims or state_lockin) and isinstance(prev, dict) \
+                and prev.get("state") is not None:
             states = [r for r in prev["state"].numpy()[:len(done)]]
         if keep_waves and isinstance(prev, dict) and prev.get("waves") is not None:
             # Trim to the features' length: a checkpoint is written features-
@@ -185,6 +186,25 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     inside_m = disk.disk_only[:, :, 0, 0] > 0.5
     n_state = int(inside_m.sum()) * 3
     P = None
+    # A frame-END SNAPSHOT of the state does not work, and the reason is the one
+    # that killed the raw-waveform arm: the frame is 2.4 carrier cycles, so the
+    # phase at the sampling instant advances 0.4 cycle per frame. Measured on the
+    # snapshots, cosine similarity is +0.988 at frame separation 5 and -0.19 at
+    # separation 1, and max |corr(projection, u[n])| is 0.084 against the
+    # lock-in's 0.930. The state is there; the phase makes it unreadable by any
+    # fixed linear map.
+    #
+    # So demodulate the state exactly as the ports are demodulated, and the
+    # comparison then isolates the one thing left: SPATIAL SAMPLING. Six physical
+    # port taps against `state_lockin` random spatial functionals of the whole
+    # magnetisation, same tones, same I/Q, same width.
+    PL = None
+    if state_lockin:
+        gl = torch.Generator().manual_seed(999)
+        PL = torch.randn(n_state, state_lockin, generator=gl,
+                         dtype=torch.float64) / math.sqrt(n_state)
+        if states is None:
+            states = []
     if state_dims:
         g = torch.Generator().manual_seed(12345)
         P = torch.randn(n_state, state_dims, generator=g,
@@ -208,6 +228,9 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         dev = m.device
         accI = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64, device=dev)
         accQ = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64, device=dev)
+        if PL is not None:
+            sI = torch.zeros(len(ws), state_lockin, dtype=torch.float64)
+            sQ = torch.zeros(len(ws), state_lockin, dtype=torch.float64)
         wrow = [] if waves is not None else None
         for k in range(steps_per_frame):
             tk = (j * steps_per_frame + k) * cfg.dt
@@ -226,6 +249,12 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             for i, wi in enumerate(ws):
                 accI[i] += p * math.cos(wi * tk)
                 accQ[i] += p * math.sin(wi * tk)
+            if PL is not None:
+                sv = ((m - disk.m0)[:, :, 0, :][inside_m]
+                      .reshape(-1).double() @ PL)
+                for i, wi in enumerate(ws):
+                    sI[i] += sv * math.cos(wi * tk)
+                    sQ[i] += sv * math.sin(wi * tk)
             # The raw port waveform, kept only when asked for. The lock-in below
             # collapses this to five tones; whether that projection is what
             # limits the measured memory is not answerable from the projection
@@ -246,8 +275,16 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         if waves is not None:
             waves.append(np.array(wrow, dtype=np.float32).ravel())
         if states is not None:
-            d_state = (m - disk.m0)[:, :, 0, :][inside_m].reshape(-1).double()
-            states.append((d_state @ P).cpu().numpy().astype(np.float32))
+            if PL is not None:
+                row_s = []
+                for i in range(len(ws)):
+                    A = ((sI[i] + 1j * sQ[i]) / steps_per_frame).cpu().numpy()
+                    for q in range(state_lockin):
+                        row_s += [A[q].real, A[q].imag]
+                states.append(np.array(row_s, dtype=np.float32))
+            else:
+                d_state = (m - disk.m0)[:, :, 0, :][inside_m].reshape(-1).double()
+                states.append((d_state @ P).cpu().numpy().astype(np.float32))
         if (j + 1) % CKPT_EVERY == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
             save_ckpt(cache, torch.tensor(np.array(feats), dtype=torch.float64),
@@ -326,6 +363,12 @@ def main():
                         "magnetisation per frame. This is the readout-vs-disk\n"
                         "test: if the state carries memory past lag 8 that the\n"
                         "ports do not, the ceiling is in the readout.")
+    p.add_argument("--save-state-lockin", type=int, default=0, metavar="N",
+                   help="lock-in readout of the FULL magnetisation: N random\n"
+                        "spatial functionals, demodulated at the same tones as\n"
+                        "the ports. N=6 gives exactly the shipped readout's 60\n"
+                        "features, so the only difference is WHERE the state is\n"
+                        "sampled -- six physical taps versus the whole disk.")
     p.add_argument("--wave-stride", type=int, default=2,
                    help="keep every Nth step of the waveform")
     p.add_argument("--seed", type=int, default=0)
@@ -358,7 +401,8 @@ def main():
                       cache=outdir / "features_multitone.pt",
                       tones=[t * 1e9 for t in args.tones_ghz],
                       drive=args.drive, keep_waves=args.save_waveform,
-                      wave_stride=args.wave_stride, state_dims=args.save_state)
+                      wave_stride=args.wave_stride, state_dims=args.save_state,
+                      state_lockin=args.save_state_lockin)
     X = F.cpu().numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
 

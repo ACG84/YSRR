@@ -87,4 +87,34 @@ if [ -d "$probe" ] &&
         echo "state probe unfinished -- relaunched (resumes from checkpoint)"
     fi
 fi
+# The cascade pair. Same reasoning as the probe above -- single runs, no
+# supervisor, resume from checkpoint so a blind relaunch costs at most
+# CKPT_EVERY frames. The relaxed ground state is cached per outdir, so a restart
+# does not re-pay the multi-minute relax on a 248x108 mesh either.
+CASCADE_FRAMES="${CASCADE_FRAMES:-600}"
+for d in cascade_linked cascade_nolink; do
+    [ -d "runs/$d" ] || continue
+    grep -qs "frame ${CASCADE_FRAMES}/${CASCADE_FRAMES}" "runs/$d.log" && continue
+    # Liveness by RECORDED PID, never by argv: the rename destroys --outdir, so
+    # an argv match reports zero while a run is healthy and starts a second
+    # writer on the same checkpoint. Confirm the PID is still one of ours.
+    live=0
+    if [ -f "runs/$d/pid" ]; then
+        pid=$(cat "runs/$d/pid" 2>/dev/null)
+        if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null &&
+           tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null |
+           grep -qE 'run_narma_coupled|magnumnp'; then
+            live=1
+        fi
+    fi
+    if [ "$live" -eq 0 ]; then
+        extra=""
+        [ "$d" = cascade_nolink ] && extra="--no-link"
+        OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nohup python \
+            scripts/run_narma_coupled.py --frames "$CASCADE_FRAMES" \
+            --splits 150 300 75 --drive one --seed 0 $extra \
+            --outdir "runs/$d" >> "runs/$d.log" 2>&1 &
+        echo "$d unfinished -- relaunched (resumes from checkpoint)"
+    fi
+done
 exit 0

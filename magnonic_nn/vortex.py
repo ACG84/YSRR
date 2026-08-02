@@ -562,6 +562,39 @@ class CoupledPortedArray:
             for cx, cy in cfg.centres()])
         self.guide_cells_per_disk = int(
             (self.mask[:, :, 0, 0].sum() - self.disk_masks.sum()) / 2)
+        self._tap_masks = self._build_taps(X, Y, dtype)
+
+    def _build_taps(self, X, Y, dtype):
+        """One tap per guide per disk, same geometry as the single disk.
+
+        The class carried no readout at all, so any task run through it was
+        impossible rather than merely wrong. Taps sit just inside the absorbing
+        taper, as on PortedVortexDisk, but referenced to EACH disk's own centre.
+
+        Restricted to cells that actually carry material: a tap window that
+        overhangs empty space would average real signal against structural zeros
+        and read low by whatever fraction it overhangs.
+        """
+        cfg = self.cfg
+        outer = cfg.radius + cfg.guide_length
+        tap_r = outer - cfg.absorb_frac * cfg.guide_length - 2 * cfg.dx
+        solid = self.mask[:, :, 0, 0] > 0.5
+        taps = []
+        for cx, cy in cfg.centres():
+            dX, dY = X - cx, Y - cy
+            for th in cfg.port_angles():
+                u = dX * math.cos(th) + dY * math.sin(th)
+                v = -dX * math.sin(th) + dY * math.cos(th)
+                sel = (((u - tap_r).abs() <= 1.5 * cfg.dx)
+                       & (v.abs() <= cfg.guide_width / 2) & solid)
+                taps.append(sel.to(dtype))
+        return torch.stack(taps)          # (n_disks * n_ports, nx, ny)
+
+    def port_signals(self, m: torch.Tensor) -> torch.Tensor:
+        """Mean out-of-plane deviation at each tap, disk A's ports first."""
+        dm = (m - self.m0)[:, :, 0, 2]
+        w = self._tap_masks
+        return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)
 
     def relax(self, steps: int = 1800, alpha_relax: float = 0.5,
               require_tol: float | None = None):

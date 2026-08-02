@@ -35,7 +35,7 @@ two independent reservoirs sharing a substrate and the link is decoration.
     python scripts/run_narma_coupled.py --no-link      # the control
 """
 from __future__ import annotations
-import argparse, json, math, sys, time
+import argparse, json, math, os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
@@ -52,56 +52,111 @@ def lag_matrix(u, n_lags):
     return out
 
 
+CKPT_EVERY = int(os.environ.get("CKPT_EVERY", "5"))
+
+
+def save_ckpt(cache, feats, m):
+    """Atomic checkpoint: temp file, fsync, rename.
+
+    Without this a coupled run cannot finish on this machine at all. The mesh is
+    248x108 against a single disk's 108x108, so a 600-frame run is ~55 minutes,
+    and the container reboots every 10-30. The previous all-or-nothing cache
+    ("if it exists, load it; otherwise compute everything and save at the end")
+    guarantees zero progress under those conditions -- the exact failure that
+    banked no frames for 24 minutes earlier in this project.
+    """
+    if cache is None:
+        return
+    tmp = cache.with_suffix(cache.suffix + ".tmp")
+    with open(tmp, "wb") as fh:
+        torch.save({"feats": feats, "m": m.detach().cpu()}, fh)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, cache)
+
+
 @torch.no_grad()
 def run_reservoir(arr, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
-                  cache=None):
-    """Drive both disks, no reset between frames; return (n_frames, features)."""
-    if cache is not None and cache.exists():
-        print(f"[cached] {cache.name}", flush=True)
-        return torch.load(cache, weights_only=False)
+                  cache=None, tones=(), drive="one"):
+    """Drive, no reset between frames; return (n_frames, features).
 
+    drive="one" is the CASCADE topology and the point of this script: only disk
+    A is driven, so disk B sees the input solely through the link. Driving both
+    (drive="both", the previous behaviour) gives two parallel reservoirs sharing
+    a substrate, which tests whether coupling helps a wider readout -- a
+    different question from whether two stages COMPOSE their memory.
+
+    Readout matches run_narma_modal exactly: the same five tones, per-disk
+    cross-port DFT, signed modes, real and imaginary parts only. It has to, or
+    the single-disk memory numbers this is compared against are measuring a
+    different instrument.
+    """
     cfg = arr.cfg
-    # The array exposes disk_masks (one per disk, shape (n_disks, nx, ny)),
-    # not the single disk_only a lone PortedVortexDisk carries. Drive the disk
-    # bodies and not the guides: a drive applied to the guides would inject
-    # directly into the readout and the ports would be measuring the input.
-    unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
-    unit[:, :, 0, 0] = arr.disk_masks.sum(dim=0).clamp(max=1.0).to(dtype)
+    done, m_resume = [], None
+    if cache is not None and cache.exists():
+        try:
+            prev = torch.load(cache, weights_only=False)
+            if isinstance(prev, dict):
+                feats_prev, m_resume = prev["feats"], prev.get("m")
+            else:
+                feats_prev = prev
+            if len(feats_prev) >= len(u):
+                print(f"[cached] {cache.name}", flush=True)
+                return feats_prev
+            done = [list(r) for r in feats_prev.tolist()]
+            print(f"[resume] {cache.name} has {len(done)}/{len(u)} frames"
+                  + (" (state restored)" if m_resume is not None else ""),
+                  flush=True)
+        except Exception as e:
+            print(f"[resume] {cache.name} unreadable ({type(e).__name__}); "
+                  "starting from frame 0", flush=True)
 
-    m = arr.m0.clone()
+    # Drive the disk BODIES, never the guides: a drive on a guide injects
+    # straight into the readout and the ports would be measuring the input.
+    unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
+    if drive == "both":
+        unit[:, :, 0, 0] = arr.disk_masks.sum(dim=0).clamp(max=1.0).to(dtype)
+    else:
+        unit[:, :, 0, 0] = arr.disk_masks[0].to(dtype)
+
+    m = arr.m0.clone() if m_resume is None else m_resume.clone().to(dtype)
+    start = len(done) if m_resume is not None else 0
     n_ports_total = arr.port_signals(m).shape[0]
-    w = 2 * math.pi * carrier
-    feats, t0 = [], time.time()
+    ws = [2 * math.pi * f for f in (carrier, *tones)]
+    feats, t0 = list(done), time.time()
     for j, un in enumerate(u):
+        if j < start:
+            continue
         amp = (amp_lo + (amp_hi - amp_lo) * float(un)) * 1e-3 / MU_0
-        accI = torch.zeros(n_ports_total, dtype=torch.float64)
-        accQ = torch.zeros(n_ports_total, dtype=torch.float64)
+        accI = torch.zeros(len(ws), n_ports_total, dtype=torch.float64)
+        accQ = torch.zeros(len(ws), n_ports_total, dtype=torch.float64)
         for k in range(steps_per_frame):
             tk = (j * steps_per_frame + k) * cfg.dt
 
             def h_drive(theta, tk=tk, amp=amp):
-                return unit * (amp * math.sin(w * (tk + theta * cfg.dt)))
+                return unit * (amp * math.sin(ws[0] * (tk + theta * cfg.dt)))
 
             m = arr.rollout.rk4_step(m, arr.h_zero, h_drive)
             p = arr.port_signals(m).double()
-            accI += p * math.cos(w * tk)
-            accQ += p * math.sin(w * tk)
-        A = ((accI + 1j * accQ) / steps_per_frame).numpy()
-        # each disk's ports decompose independently -- they are separate
-        # six-port rings, not one twelve-port ring
+            for i, wi in enumerate(ws):
+                accI[i] += p * math.cos(wi * tk)
+                accQ[i] += p * math.sin(wi * tk)
         row = []
-        for d in range(0, n_ports_total, cfg.n_ports):
-            M = np.fft.fft(A[d:d + cfg.n_ports])
-            for q in range(cfg.n_ports // 2 + 1):
-                v = M[q] + (M[cfg.n_ports - q] if 0 < q < cfg.n_ports - q else 0.0)
-                row += [v.real, v.imag, abs(v)]
+        for i in range(len(ws)):
+            A = ((accI[i] + 1j * accQ[i]) / steps_per_frame).numpy()
+            # each disk's ports are their own six-port ring, so they decompose
+            # independently rather than as one twelve-port ring
+            for d in range(0, n_ports_total, cfg.n_ports):
+                M = np.fft.fft(A[d:d + cfg.n_ports])
+                for q in range(cfg.n_ports):
+                    row += [M[q].real, M[q].imag]
         feats.append(row)
-        if (j + 1) % 50 == 0:
+        if (j + 1) % CKPT_EVERY == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
+            save_ckpt(cache, torch.tensor(np.array(feats), dtype=torch.float64), m)
 
     F = torch.tensor(np.array(feats), dtype=torch.float64)
-    if cache is not None:
-        torch.save(F, cache)
+    save_ckpt(cache, F.cpu(), m)
     return F
 
 
@@ -127,6 +182,15 @@ def main():
                         "below its own cutoff is not a waveguide.")
     p.add_argument("--no-link", action="store_true",
                    help="the control: same two disks, link deleted")
+    p.add_argument("--tones-ghz", type=float, nargs="*",
+                   default=[9.9, 10.3, 13.7, 24.0],
+                   help="extra lock-in tones; must match run_narma_modal or the\n"
+                        "single-disk numbers this is compared against are a\n"
+                        "different instrument")
+    p.add_argument("--drive", default="one", choices=["one", "both"],
+                   help="'one' drives only disk A, so disk B sees the input\n"
+                        "solely through the link -- the CASCADE. 'both' drives\n"
+                        "each disk directly, which is two parallel reservoirs.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cpu")
     p.add_argument("--outdir", default="runs/narma_coupled")
@@ -135,6 +199,13 @@ def main():
     mnn.set_precision("float32"); mnn.set_device(args.device)
     dtype = torch.float32
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
+    # Record the PID so a watchdog can tell THIS run from the other cascade arm.
+    # It cannot be done from the process table: magnum.np renames the worker to
+    # "magnumnp scripts/run_narma_coupled.py" a few minutes in, destroying argv
+    # and with it the --outdir that distinguishes linked from nolink. A watchdog
+    # matching on argv therefore sees zero running and launches a duplicate onto
+    # a live checkpoint -- two writers, one file, frames going backwards.
+    (outdir / "pid").write_text(str(os.getpid()))
 
     u, y = narma10(args.frames, seed=args.seed)
     cfg = CoupledPortedConfig(
@@ -146,7 +217,23 @@ def main():
     # 5000 steps with a hard guard: every coupled lambda in this project
     # measured at 900 steps was reporting relaxation drift as dynamics, and a
     # reservoir run on a drifting ground state has the same problem silently.
-    arr.relax(steps=args.relax_steps, require_tol=args.require_tol)
+    # Cache the relaxed ground state. It is deterministic given the config, and
+    # it costs minutes on this mesh -- which every restart would otherwise pay
+    # again before even reading the checkpoint, on a container that reboots
+    # every 10-30 minutes. The guard below still runs the first time.
+    m0_cache = outdir / f"m0_{'nolink' if args.no_link else 'linked'}.pt"
+    if m0_cache.exists():
+        try:
+            arr.m0 = torch.load(m0_cache, weights_only=False).to(dtype)
+            print(f"[m0] restored from {m0_cache.name}", flush=True)
+        except Exception as e:
+            print(f"[m0] {m0_cache.name} unreadable ({type(e).__name__}); "
+                  "relaxing", flush=True)
+            arr.relax(steps=args.relax_steps, require_tol=args.require_tol)
+            torch.save(arr.m0.cpu(), m0_cache)
+    else:
+        arr.relax(steps=args.relax_steps, require_tol=args.require_tol)
+        torch.save(arr.m0.cpu(), m0_cache)
     tau_ns = 1.0 / (cfg.alpha * 2 * math.pi * args.carrier_ghz * 1e9) * 1e9
     frame_ns = args.steps_per_frame * cfg.dt * 1e9
     print(f"relaxed {time.time()-t0:.0f}s  link={not args.no_link}\n"
@@ -156,7 +243,9 @@ def main():
     tag = "nolink" if args.no_link else "linked"
     F = run_reservoir(arr, u, args.steps_per_frame, args.carrier_ghz * 1e9,
                       args.amp_lo_mT, args.amp_hi_mT, dtype,
-                      cache=outdir / f"features_{tag}.pt")
+                      cache=outdir / f"features_{tag}.pt",
+                      tones=[t * 1e9 for t in args.tones_ghz],
+                      drive=args.drive)
     X = F.numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
     ac1 = float(np.nanmean([np.corrcoef(X[:-1, i], X[1:, i])[0, 1]

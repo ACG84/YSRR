@@ -114,6 +114,13 @@ for d in cascade_linked cascade_nolink; do
             scripts/run_narma_coupled.py --frames "$CASCADE_FRAMES" \
             --splits 150 300 75 --drive one --seed 0 $extra \
             --outdir "runs/$d" >> "runs/$d.log" 2>&1 &
+        # Record the PID HERE, not inside the runner. The runner writes its own
+        # pid only after importing torch and building the array, ~20-30 s in --
+        # and a second hook invocation inside that window reads the PREVIOUS
+        # boot's stale pid, calls the run dead, and starts a duplicate writer on
+        # a live checkpoint. That is exactly what happened at 12:40, when the
+        # SessionStart hook and a manual check landed seconds apart.
+        echo $! > "runs/$d/pid"
         echo "$d unfinished -- relaunched (resumes from checkpoint)"
     fi
 done

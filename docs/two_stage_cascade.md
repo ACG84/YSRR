@@ -378,3 +378,79 @@ That preserves the architectural idea while dropping the mechanism. The input
 stage can be driven hard into strong nonlinearity, be lossy, and hold almost no
 memory of its own, with the lags that matter living in stages 3 and 4. What it
 cannot be, on this device at this carrier, is literally spiking.
+
+---
+
+# How wide, and does width pay?
+
+Width has an obvious confound: more disks means more features, and more features
+fit better whether or not they carry more information. Ridge with a fixed budget
+is the control — hold the feature count constant and change only how it is
+spent.
+
+## A single disk saturates its own readout
+
+Effective rank, dimensions carrying 99% of variance:
+
+| features | effective rank |
+|---|---|
+| one stage, 60 features | **16** of 60 |
+| two stages, 120 features | 22 of 120 |
+
+One disk read through six ports and five tones is a **16-dimensional** object.
+The shipped 60-feature readout is roughly four times oversampled on it, which is
+consistent with the earlier finding that two tone pairs sit at 0.993 and 0.999
+canonical correlation. Extra feature budget spent on one disk buys nothing,
+because there is nothing left there to read.
+
+## The same budget spent across disks does pay
+
+Sixty features, allocated differently, each stage reduced on its own so a quiet
+stage is never out-voted by a loud one:
+
+| allocation | dims | MC | window |
+|---|---|---|---|
+| all from stage 1 | 60 | 5.79 | 0 – 6 |
+| 30 stage 1 + 30 stage 2 | 60 | 7.36 | 1 – 7 |
+| 20 stage 1 + 40 stage 2 | 60 | **8.41** | **1 – 10** |
+| all from stage 2 | 60 | **8.88** | **3 – 12** |
+| *(120, both stages)* | *120* | *10.58* | *0 – 11* |
+
+Monotonic in how much budget moves to the deeper stage, at constant parameter
+count. The gain is information.
+
+A plain PCA of the 120 down to 60 does NOT show this — it scores 6.66, barely
+above stage 1 alone — because PCA ranks directions by variance and stage 2's
+signal is 0.38× stage 1's amplitude, so its directions are discarded for being
+quiet rather than uninformative. That is the same trap that made a 45-tone
+superset score below the five tones it contained. Reduce each stage separately
+and the effect is plain.
+
+## What this says about width, and what it does not
+
+The measured gain comes from **diversity of lag coverage**, not from disk count:
+stage 1 covers lags 0–6, stage 2 covers 3–12, and they are different because the
+link delays one relative to the other. Serial stages are diverse automatically.
+
+That is exactly what **parallel** width would lack. Two disks at the same depth,
+driven by the same input, sit at the same point in the delay line and see the
+same history; their states are copies up to geometry. This project has already
+paid for that lesson once — the Thiele array carried "twelve hand-tuned dampings
+that `alpha_spread` was faking", i.e. diversity had to be manufactured because
+identical parallel nodes supplied none.
+
+So the prediction is that parallel width is nearly free of benefit unless the
+disks are made genuinely different — detuned radius, different port angles, or
+different coupling phase — while serial depth buys diversity for nothing. It is
+a prediction, not a result: the parallel case has not been run. The cheap test
+is the canonical correlation between two same-depth disks' feature blocks under
+a shared drive; near 1 means redundancy and no width benefit, and it costs an
+impulse rather than a task run.
+
+## Practical shape
+
+Combining this with the depth budget — four stages before the guided signal
+reaches the crosstalk floor, three stages putting the deepest peak on lag 9.5 —
+the indicated device is **narrow and serial**: three or four stages of one disk
+each, with the feature budget weighted toward the deeper stages, rather than a
+wide bank at any single depth.

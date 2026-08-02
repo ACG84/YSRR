@@ -67,7 +67,7 @@ from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
 CKPT_EVERY = int(os.environ.get("CKPT_EVERY", "5"))
 
 
-def save_ckpt(cache, feats, m):
+def save_ckpt(cache, feats, m, waves=None):
     """Write the checkpoint atomically, or not at all.
 
     torch.save straight onto the live path is a torn-write waiting to happen:
@@ -83,16 +83,23 @@ def save_ckpt(cache, feats, m):
     if cache is None:
         return
     tmp = cache.with_suffix(cache.suffix + ".tmp")
+    obj = {"feats": feats, "m": m.detach().cpu()}   # host: a CUDA checkpoint
+    if waves is not None:                           # would only reload on CUDA
+        # Same file, so waveform and features can never resume out of step with
+        # each other. Optional key, so checkpoints written before this existed
+        # still load.
+        obj["waves"] = torch.tensor(np.array(waves), dtype=torch.float32)
     with open(tmp, "wb") as fh:
-        torch.save({"feats": feats, "m": m.detach().cpu()}, fh)  # host: a CUDA
-        fh.flush()               # checkpoint would only reload on a CUDA machine
+        torch.save(obj, fh)
+        fh.flush()
         os.fsync(fh.fileno())    # else the rename can beat the data to disk
     os.replace(tmp, cache)
 
 
 @torch.no_grad()
 def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
-                  cache=None, tones=(), drive="uniform"):
+                  cache=None, tones=(), drive="uniform", keep_waves=False,
+                  wave_stride=2):
     """Drive frame by frame with no reset; return (n_frames, n_features).
 
     The magnetisation is carried across frames deliberately -- that continuity
@@ -107,7 +114,7 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     # 40-minute run cost 39 minutes, not the checkpoint interval. It also kept
     # any run longer than the reboot period from EVER finishing, since each
     # attempt restarted from nothing.
-    done, m_resume = [], None
+    done, m_resume, waves = [], None, None
     prev = None
     if cache is not None and cache.exists():
         try:
@@ -128,6 +135,11 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             print(f"[cached] {cache.name}", flush=True)
             return feats_prev if not isinstance(prev, dict) else prev["feats"]
         done = [list(r) for r in feats_prev.tolist()]
+        if keep_waves and isinstance(prev, dict) and prev.get("waves") is not None:
+            # Trim to the features' length: a checkpoint is written features-
+            # first, so waves can only ever be equal or longer, never shorter.
+            wprev = prev["waves"].numpy()
+            waves = [row for row in wprev[:len(done)]]
         print(f"[resume] {cache.name} has {len(done)}/{len(u)} frames"
               + (" (state restored)" if m_resume is not None
                  else " (no state saved; replaying)"), flush=True)
@@ -157,6 +169,8 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     m = disk.m0.clone() if m_resume is None else m_resume.clone().to(dtype)
     start = len(done) if m_resume is not None else 0
     feats, t0 = list(done), time.time()
+    if keep_waves and waves is None:
+        waves = []
     w = 2 * math.pi * carrier
     # Lock in at several frequencies, not just the drive. Three-magnon
     # scattering is the entire nonlinear mechanism here -- it is what produces
@@ -174,6 +188,7 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         dev = m.device
         accI = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64, device=dev)
         accQ = torch.zeros(len(ws), cfg.n_ports, dtype=torch.float64, device=dev)
+        wrow = [] if waves is not None else None
         for k in range(steps_per_frame):
             tk = (j * steps_per_frame + k) * cfg.dt
             # h at theta = 0, 1/2, 1/2, 1. The two half-step fields are the
@@ -191,6 +206,12 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             for i, wi in enumerate(ws):
                 accI[i] += p * math.cos(wi * tk)
                 accQ[i] += p * math.sin(wi * tk)
+            # The raw port waveform, kept only when asked for. The lock-in below
+            # collapses this to five tones; whether that projection is what
+            # limits the measured memory is not answerable from the projection
+            # itself, so the un-projected signal has to be stored to compare.
+            if wrow is not None and k % wave_stride == 0:
+                wrow.append(p.cpu().numpy().copy())
         # per tone: lock-in amplitude per port, then the cross-port DFT the
         # guides implement. Modes are kept SIGNED (+n and -n separately)
         # rather than folded onto |n|: the vortex splits them -- n = +-1 sit
@@ -202,13 +223,15 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             for q in range(cfg.n_ports):
                 row += [M[q].real, M[q].imag]
         feats.append(row)
+        if waves is not None:
+            waves.append(np.array(wrow, dtype=np.float32).ravel())
         if (j + 1) % CKPT_EVERY == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
             save_ckpt(cache, torch.tensor(np.array(feats), dtype=torch.float64),
-                      m)
+                      m, waves)
 
     F = torch.tensor(np.array(feats), dtype=torch.float64)
-    save_ckpt(cache, F.cpu(), m)
+    save_ckpt(cache, F.cpu(), m, waves)
     return F
 
 
@@ -267,6 +290,16 @@ def main():
                         "16.26 on CPU, so a 400-frame point is ~50 s instead of\n"
                         "~18 min -- which also puts a run inside the window\n"
                         "between this container's reboots.")
+    p.add_argument("--save-waveform", action="store_true",
+                   help="also store the raw per-frame port waveform. The 60\n"
+                        "lock-in features are a five-tone projection of it, and\n"
+                        "whether that projection is what caps the measured\n"
+                        "memory at 8 lags cannot be answered from the projection\n"
+                        "itself -- MC was invariant at 8.3 across a fourfold\n"
+                        "damping change and a sixfold port change, which is what\n"
+                        "a saturated instrument looks like.")
+    p.add_argument("--wave-stride", type=int, default=2,
+                   help="keep every Nth step of the waveform")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--outdir", default="runs/narma_modal")
     args = p.parse_args()
@@ -296,7 +329,8 @@ def main():
                       args.amp_lo_mT, args.amp_hi_mT, dtype,
                       cache=outdir / "features_multitone.pt",
                       tones=[t * 1e9 for t in args.tones_ghz],
-                      drive=args.drive)
+                      drive=args.drive, keep_waves=args.save_waveform,
+                      wave_stride=args.wave_stride)
     X = F.cpu().numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
 

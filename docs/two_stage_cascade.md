@@ -177,3 +177,70 @@ Until that runs, the honest statement is: **a two-stage geometry reaches lag 11
 where one disk reaches 7, the extension appears only with the link present and
 arrives with a propagation-consistent delay, and the pre-registered control
 cannot yet rule out a mixed mechanism.**
+
+---
+
+# Follow-up: separation settles what deletion could not
+
+The control fired because no-link stage B still recovered `u`. Deleting the link
+removes that material's own dipolar field along with the guide, so it cannot say
+whether the link *is* the mechanism — only that something couples. Separation
+can, because the two candidates scale oppositely: a guided arrival grows with
+distance, a near-field one does not.
+
+Impulse measurement, 30 mT burst then silence, envelope of each disk's own taps
+(`check_link_timing.py`). Cheap enough to sweep — thousands of steps per point
+against 600 frames for a task run.
+
+| separation | link | arrival (ns) | implied speed | B/A |
+|---|---|---|---|---|
+| 500 nm | **linked** | 0.237 | 2110 m/s | **0.396** |
+| 700 nm | **linked** | 0.430 | 1628 m/s | **0.383** |
+| 1000 nm | **linked** | 0.666 | 1502 m/s | **0.248** |
+| 500 nm | no-link | 0.093 | — | 0.056 |
+| 700 nm | no-link | 0.014 | — | 0.0043 |
+| 1000 nm | no-link | 0.014 | — | 0.0013 |
+
+**Linked arrival grows linearly with separation.** A least-squares fit over the
+three points gives **1173 m/s** with a −0.181 ns intercept — the intercept being
+the time disk A needs to build up before it launches anything, which is why the
+per-point "implied speed" falls from 2110 toward the true slope as the gap
+widens. 1173 m/s sits below the ~2000 m/s magnon group velocity, which is the
+requirement: a guided component may arrive no *faster* than the group velocity
+allows.
+
+**No-link arrival does not move at all** — 0.093, 0.014, 0.014 ns — and its
+amplitude collapses by 42× between 500 and 1000 nm. Flat arrival with steeply
+falling amplitude is a near-field signature, not propagation.
+
+**At the cascade's own 700 nm separation, the guided path is 90× the dipolar
+one** (B/A 0.383 against 0.0043).
+
+## What this does and does not change
+
+It does not retroactively pass the cascade run: the pre-registered control fired
+and that ruling stands. What it changes is the interpretation. The control
+established that *something* couples without the link; it could not establish
+whether that something carried the result. The sweep shows it does not — the
+dipolar background is real, physically distinct (instantaneous rather than
+propagating), and two orders of magnitude weaker at the operating separation
+than the guided path the cascade actually ran on.
+
+So the memory extension measured earlier — stage B spanning lags 3–12 with a
+peak at lag 6, A+B reaching lag 11 against 8 unlinked and 7 for a single disk —
+is attributable to guided transport through the link. The delay that shifted B's
+window is the propagation time this sweep measures directly.
+
+The 1400 nm point is missing: its relaxation failed the drift guard at 5000
+steps (8.8e-3 against a 1e-3 tolerance) and is being re-run longer. A wider gap
+needs a longer relax, and running a stability-sensitive measurement on a still-
+settling ground state is exactly the error the guard exists to prevent.
+
+## Standing conclusion
+
+Depth works, and it is the only one of the four mechanisms tested that does.
+Damping, radiation and readout each failed to extend the single disk's ~8-frame
+memory; a second stage fed through a guide reaches lag 11. The next step is the
+six-seed certification protocol on the cascade — same arms, same three tiers,
+same leakage guard — which is what would turn this from a measured mechanism
+into a certified result.

@@ -111,3 +111,73 @@ stands as a property of the design rather than of one parameter.
 The full run then re-uses `docs/narma10_certification.md`'s protocol unchanged —
 same arms, same three tiers, same leakage guard, same six seeds. A second
 certification is a second pre-registration, not a re-scoring of this one.
+
+---
+
+# Result: the model is falsified. Memory is not damping-limited.
+
+One seed, 800 frames, α ∈ {0.006, 0.004, 0.002}, against the certification's
+α = 0.008 run as control. Measured with `screen_memory.py` at max_lag 28.
+
+| α | predicted MC | measured MC | meas/pred | cliff | reaches `u[n-10]`? |
+|---|---|---|---|---|---|
+| 0.008 (control) | 8.29 | **8.27** | 1.00 | 8 | no |
+| 0.006 | 11.05 | **8.29** | 0.75 | 8 | no |
+| 0.004 | 16.58 | **8.41** | 0.51 | 8 | no |
+| 0.002 | 33.16 | **8.61** | 0.26 | 8 | no |
+
+Both pre-registered falsification conditions fired: the departure exceeds 20%,
+and the ratio drifts systematically with α (1.00 → 0.75 → 0.51 → 0.26). A
+fourfold reduction in Gilbert damping bought **0.34 frames** of memory where the
+model demanded a fourfold increase.
+
+The r² curves are nearly identical across the sweep — same plateau to lag 7,
+same collapse at lag 8, same partial revival around lag 11 — so this is not a
+small effect being missed. Nothing about the memory changed.
+
+The damping did change. The run banners record ring-down 1.66 → 2.21 → 3.32 →
+6.63 ns, and the damping field's minimum tracks α exactly. So the parameter
+reached the physics; the physics did not care.
+
+## Why the control agreed, and what actually sets the memory
+
+The model predicted 8.29 against 8.12 measured at α = 0.008, and that 2%
+agreement is what made the extrapolation look safe. It was a coincidence. The
+same field that carries α has a **fixed maximum of 0.5** in every run — the
+absorbing tapers — and `absorb_alpha` was never a swept variable.
+
+That points at the mechanism. Above the guides' 11 GHz cutoff the ports
+propagate, so a driven disk radiates its state into the guides, where the tapers
+absorb it. That loss channel is set by geometry and taper strength, both
+untouched by α. Bulk Gilbert damping is a minority contributor, so scaling it
+moves the total decay hardly at all.
+
+The independent evidence lines up. Below cutoff (8 GHz) the guides are
+evanescent and cannot shed energy, and the renormalised Lyapunov exponent is
+positive at every port count; above cutoff (12 GHz) it drops sharply. Radiation
+into the ports is doing the work in both measurements.
+
+## What this retires, and what it costs
+
+The certification's diagnosis — "8 frames of memory against a task needing 11,
+so the fix is longer ring-down (lower damping, or fewer carrier cycles per
+frame)" — named the right deficit and the wrong cure. Lower damping is not a
+route to longer memory in this geometry at any physically sensible value.
+
+The pre-registered decision rule settles the rest: *"If no α clears the cliff,
+that is the answer: the geometry cannot reach NARMA-10's product term at any
+physically sensible damping, and the certification stands as a property of the
+design rather than of one parameter."* No α cleared it. **NOT CERTIFIED stands,
+and it is now a statement about the design.**
+
+## The trade-off this exposes
+
+If memory is radiation-limited, the ports that make the device readable are the
+same channel that drains its state. Memory and readout are then in direct
+competition, and that is a sharper and more useful constraint than damping ever
+was: six ports were chosen for mode selectivity and for the aperture the
+stability argument wanted, and each one is a leak.
+
+That is a measurement, not a conclusion: it predicts memory should rise as port
+count or taper absorption falls, and it should be tested by measuring the free
+decay directly rather than by inferring it from another 800-frame task run.

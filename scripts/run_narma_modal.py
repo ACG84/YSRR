@@ -67,7 +67,7 @@ from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
 CKPT_EVERY = int(os.environ.get("CKPT_EVERY", "5"))
 
 
-def save_ckpt(cache, feats, m, waves=None):
+def save_ckpt(cache, feats, m, waves=None, states=None):
     """Write the checkpoint atomically, or not at all.
 
     torch.save straight onto the live path is a torn-write waiting to happen:
@@ -89,6 +89,8 @@ def save_ckpt(cache, feats, m, waves=None):
         # each other. Optional key, so checkpoints written before this existed
         # still load.
         obj["waves"] = torch.tensor(np.array(waves), dtype=torch.float32)
+    if states is not None:
+        obj["state"] = torch.tensor(np.array(states), dtype=torch.float32)
     with open(tmp, "wb") as fh:
         torch.save(obj, fh)
         fh.flush()
@@ -99,7 +101,7 @@ def save_ckpt(cache, feats, m, waves=None):
 @torch.no_grad()
 def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
                   cache=None, tones=(), drive="uniform", keep_waves=False,
-                  wave_stride=2):
+                  wave_stride=2, state_dims=0):
     """Drive frame by frame with no reset; return (n_frames, n_features).
 
     The magnetisation is carried across frames deliberately -- that continuity
@@ -114,7 +116,7 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     # 40-minute run cost 39 minutes, not the checkpoint interval. It also kept
     # any run longer than the reboot period from EVER finishing, since each
     # attempt restarted from nothing.
-    done, m_resume, waves = [], None, None
+    done, m_resume, waves, states = [], None, None, None
     prev = None
     if cache is not None and cache.exists():
         try:
@@ -135,6 +137,8 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
             print(f"[cached] {cache.name}", flush=True)
             return feats_prev if not isinstance(prev, dict) else prev["feats"]
         done = [list(r) for r in feats_prev.tolist()]
+        if state_dims and isinstance(prev, dict) and prev.get("state") is not None:
+            states = [r for r in prev["state"].numpy()[:len(done)]]
         if keep_waves and isinstance(prev, dict) and prev.get("waves") is not None:
             # Trim to the features' length: a checkpoint is written features-
             # first, so waves can only ever be equal or longer, never shorter.
@@ -171,6 +175,22 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     feats, t0 = list(done), time.time()
     if keep_waves and waves is None:
         waves = []
+    # A direct readout of the magnetisation, for asking whether the ports are
+    # what limits the measured memory. A FIXED random projection, not more
+    # lock-in tones: adding tones adds high-variance uninformative columns that
+    # a single-lambda ridge cannot shrink selectively, which made a strict
+    # superset of the shipped readout score WORSE than it (MC 2.07 vs 8.04). A
+    # random projection is richer without being noisier, and at the shipped
+    # readout's own width it is a like-for-like comparison.
+    inside_m = disk.disk_only[:, :, 0, 0] > 0.5
+    n_state = int(inside_m.sum()) * 3
+    P = None
+    if state_dims:
+        g = torch.Generator().manual_seed(12345)
+        P = torch.randn(n_state, state_dims, generator=g,
+                        dtype=torch.float64) / math.sqrt(n_state)
+        if states is None:
+            states = []
     w = 2 * math.pi * carrier
     # Lock in at several frequencies, not just the drive. Three-magnon
     # scattering is the entire nonlinear mechanism here -- it is what produces
@@ -225,13 +245,16 @@ def run_reservoir(disk, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         feats.append(row)
         if waves is not None:
             waves.append(np.array(wrow, dtype=np.float32).ravel())
+        if states is not None:
+            d_state = (m - disk.m0)[:, :, 0, :][inside_m].reshape(-1).double()
+            states.append((d_state @ P).cpu().numpy().astype(np.float32))
         if (j + 1) % CKPT_EVERY == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
             save_ckpt(cache, torch.tensor(np.array(feats), dtype=torch.float64),
-                      m, waves)
+                      m, waves, states)
 
     F = torch.tensor(np.array(feats), dtype=torch.float64)
-    save_ckpt(cache, F.cpu(), m, waves)
+    save_ckpt(cache, F.cpu(), m, waves, states)
     return F
 
 
@@ -298,6 +321,11 @@ def main():
                         "itself -- MC was invariant at 8.3 across a fourfold\n"
                         "damping change and a sixfold port change, which is what\n"
                         "a saturated instrument looks like.")
+    p.add_argument("--save-state", type=int, default=0, metavar="N",
+                   help="also store N fixed random projections of the disk\n"
+                        "magnetisation per frame. This is the readout-vs-disk\n"
+                        "test: if the state carries memory past lag 8 that the\n"
+                        "ports do not, the ceiling is in the readout.")
     p.add_argument("--wave-stride", type=int, default=2,
                    help="keep every Nth step of the waveform")
     p.add_argument("--seed", type=int, default=0)
@@ -330,7 +358,7 @@ def main():
                       cache=outdir / "features_multitone.pt",
                       tones=[t * 1e9 for t in args.tones_ghz],
                       drive=args.drive, keep_waves=args.save_waveform,
-                      wave_stride=args.wave_stride)
+                      wave_stride=args.wave_stride, state_dims=args.save_state)
     X = F.cpu().numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
 

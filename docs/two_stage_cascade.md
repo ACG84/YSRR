@@ -454,3 +454,46 @@ reaches the crosstalk floor, three stages putting the deepest peak on lag 9.5 �
 the indicated device is **narrow and serial**: three or four stages of one disk
 each, with the feature budget weighted toward the deeper stages, rather than a
 wide bank at any single depth.
+
+## Is a parallel input layer worth it? Only if the feeds are diverse
+
+Two reasons a wide input layer might pay, and they need separating because one
+is quantifiable from measurements already in hand.
+
+**As a power combiner: no.** Depth is amplitude-limited — transfer is 0.092 per
+hop, an ~11× loss per stage. Parallel input disks summing into stage 2 buy depth
+only logarithmically, so **one extra usable stage costs 11 parallel input disks**
+if they add coherently and 121 if they do not. That is not a trade worth making.
+
+**As diversity: yes, but only with diverse feeds.** Measured on two ported disks
+with the link deleted, both driven, 30 mT impulse at 12 GHz:
+
+| drive | canonical correlations, disk A vs B | effective rank (12 features) |
+|---|---|---|
+| same phase | 1.00 1.00 1.00 1.00 1.00 1.00 | **5** |
+| 90° offset | 0.90 0.87 0.63 0.60 0.39 0.14 | **8** |
+| *(one disk, 6 features)* | — | *5* |
+
+Identically driven, the two disks are **exactly** redundant: every canonical
+correlation is 1.000, B/A rms is 1.0000, and the pair carries the same five
+dimensions one disk does. Doubling the input layer adds nothing. Note this holds
+even though the disks have opposite chirality — the mirror asymmetry is
+invisible through this readout.
+
+Offsetting the feed phase by 90° breaks it: the pair carries **8** effective
+dimensions against 5 for a single disk. Same disks, same drive amplitude, same
+geometry — only the feed line length differs, which is free.
+
+**Caveat on what this measures.** Effective rank is a necessary condition, not a
+sufficient one: redundant features certainly cannot help, but new dimensions are
+not automatically *useful* dimensions for a task. Whether the extra three carry
+lag information NARMA-10 needs, or merely carry the phase offset itself, needs a
+task run. The prediction is that they help less than depth does, because they
+sit at the same point in the delay line and depth is what supplied the lag
+coverage.
+
+**Practical reading.** Spread the input layer only with phase-diverse feeds, and
+expect a modest widening of the state rather than the extra memory that depth
+buys. The indicated device remains narrow and serial, with any width spent on
+the input stage rather than the deep ones — the deep stages are where lag
+coverage lives, and lag coverage is what the task was short of.

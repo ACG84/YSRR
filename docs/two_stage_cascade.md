@@ -497,3 +497,46 @@ expect a modest widening of the state rather than the extra memory that depth
 buys. The indicated device remains narrow and serial, with any width spent on
 the input stage rather than the deep ones — the deep stages are where lag
 coverage lives, and lag coverage is what the task was short of.
+
+## Does the input layer's diversity reach the deep stage? No
+
+Two phase-diverse disks are richer than one — 5 → 8 effective dimensions,
+measured on isolated disks. The architectural question is whether a deep stage
+fed by such a pair *inherits* that, or whether the link averages it away first.
+
+The three-disk chain answers it without new geometry: drive the two ENDS as the
+parallel input layer, read the MIDDLE as the deep stage fed by both. Impulse,
+30 mT at 12 GHz, m0 cached.
+
+| arm | deep rms | **deep-stage rank** | all-disk rank | deep/input amplitude |
+|---|---|---|---|---|
+| single input (stage 0) | 1.383e-02 | **5** | 8 | 0.343 |
+| in-phase ends | 1.937e-02 | **4** | 11 | 0.486 |
+| 90° ends | 1.952e-02 | **5** | 12 | 0.489 |
+
+**The deep stage gains nothing.** Rank 5 with one input, 4 with a redundant
+pair, 5 with a phase-diverse pair. Phase diversity recovers what the redundant
+pair *loses*; it does not beat a single input.
+
+What does rise is the all-disk rank, 8 → 12 — but that is the input disks' own
+features getting richer, and those sit at lag 0–2 where the task was never
+short. The lag coverage the task needs lives in the deep stage, and the deep
+stage is rank 5 in every arm.
+
+What a parallel input layer does deliver is **power**: the deep/input amplitude
+ratio rises 0.343 → 0.489 with two sources. That is real and it is the wrong
+currency — buying depth with amplitude costs ~11 input disks per stage.
+
+An earlier version of this script declared success here. It compared the
+phase-diverse pair against the in-phase pair (5 against 4) and never against the
+single-input control, which also scores 5. The comparison that decides an
+architecture is against the simpler architecture, not against a deliberately
+crippled version of the same one.
+
+## Standing recommendation
+
+Narrow and serial. Three or four stages, one disk each, feature budget weighted
+toward the deeper stages. Width on the input layer is worth it **only if the
+readout taps the input disks directly** — phase-diverse feeds then add ~3
+dimensions at short lag, for free — but it does not enrich what is downstream,
+and downstream is where the memory the task needs actually lives.

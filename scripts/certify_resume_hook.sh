@@ -124,4 +124,31 @@ for d in cascade_linked cascade_nolink; do
         echo "$d unfinished -- relaunched (resumes from checkpoint)"
     fi
 done
+
+# The 3-stage chain NARMA run. Same pattern as the cascade pair: recorded PID
+# checked against /proc, and the PID written by the LAUNCHER rather than the
+# runner, because the runner only records its own pid ~30 s in and a second
+# invocation inside that window would start a duplicate writer on a live
+# checkpoint.
+CHAIN_FRAMES="${CHAIN_FRAMES:-600}"
+if [ -d runs/chain3_narma ] &&
+   ! grep -qs "frame ${CHAIN_FRAMES}/${CHAIN_FRAMES}" runs/chain3_narma.log; then
+    live=0
+    if [ -f runs/chain3_narma/pid ]; then
+        pid=$(cat runs/chain3_narma/pid 2>/dev/null)
+        if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null &&
+           tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null |
+           grep -qE 'run_narma_chain|magnumnp'; then
+            live=1
+        fi
+    fi
+    if [ "$live" -eq 0 ]; then
+        OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nohup python \
+            scripts/run_narma_chain.py --n-disks 3 --frames "$CHAIN_FRAMES" \
+            --splits 150 300 75 --seed 0 --outdir runs/chain3_narma \
+            >> runs/chain3_narma.log 2>&1 &
+        echo $! > runs/chain3_narma/pid
+        echo "chain3 NARMA unfinished -- relaunched (resumes from checkpoint)"
+    fi
+fi
 exit 0

@@ -540,3 +540,97 @@ toward the deeper stages. Width on the input layer is worth it **only if the
 readout taps the input disks directly** — phase-diverse feeds then add ~3
 dimensions at short lag, for free — but it does not enrich what is downstream,
 and downstream is where the memory the task needs actually lives.
+
+## Three stages on the task: depth pays, and the third stage is where it pays
+
+Everything above is impulse work — arrival times, amplitudes, effective ranks.
+This is the task itself: one 600-frame NARMA-10 run through a 3-disk chain,
+driven at stage 1 only, every stage's ports recorded simultaneously so the arms
+cost nothing beyond the one run (2.5 h of watched compute).
+
+All numbers below are the **same seed, same 600 frames, same (150, 300, 75)
+splits, and the same scorer** (`certify_narma10.memory_function` / `score`,
+λ chosen on validation, test never fitted on). The single-disk row is the
+`statelock_probe` run re-scored through this identical path rather than quoted
+from the certification, which used six seeds at 1200 frames and is therefore not
+comparable line for line.
+
+Baselines under these conditions: `linear_10lag` **0.9901**, `linear_best`
+**0.1243** (20 lags, chosen on validation).
+
+| arm | dim | MC | r² > 0.5 window | peak lag | NARMA-10 NMSE |
+|---|---|---|---|---|---|
+| single disk (isolated) | 60 | 8.04 | 0–7 | 0 | 0.7913 |
+| S1 alone (in the chain) | 60 | 5.72 | 0–6 | 1 | 0.7753 |
+| S2 alone | 60 | 9.53 | 3–11 | 6 | 0.7117 |
+| S3 alone | 60 | 9.02 | 8–14 | 13 | 0.6913 |
+| S1+S2 | 120 | 11.24 | 0–11 | 1 | 0.2451 |
+| **S1+S2+S3** | 180 | **15.62** | **0–17** | 1 | **0.2008** |
+| *linear_best* | *20* | — | — | — | *0.1243* |
+
+**The stages tile the lag axis.** This is the clearest result in the project.
+Each stage's memory function occupies a distinct band and the bands abut:
+
+| lag | 0 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 18 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| S1 | 0.80 | 0.98 | 0.84 | 0.59 | 0.14 | 0.01 | 0.01 | 0.01 | 0.02 | 0.02 |
+| S2 | 0.01 | 0.36 | 0.92 | 0.97 | 0.88 | 0.85 | 0.49 | 0.30 | 0.06 | 0.03 |
+| S3 | 0.00 | 0.00 | 0.02 | 0.17 | 0.71 | 0.74 | 0.74 | 0.77 | 0.52 | 0.51 |
+| all | 0.90 | 0.99 | 0.95 | 0.96 | 0.94 | 0.90 | 0.72 | 0.77 | 0.54 | 0.45 |
+
+S1 is deaf past lag 8; S3 is deaf before lag 4 and carries r² ≈ 0.75 from lag 8
+to lag 18. The chain is behaving as a **delay line with a tap per stage**, which
+is what the link's 1173 m/s transit time predicted and is the mechanism the
+whole depth argument rested on. The impulse sweep put stage 3's peak at lag
+9.48; on the task it lands at 13, later than predicted but in the right band.
+
+Note S1 *inside the chain* is weaker than an isolated disk (MC 5.72 against
+8.04). The input stage pays for the link — it radiates into the corridor — and
+that loss is real. Depth is not free at the input; it is paid for downstream.
+
+### The dimension confound, and the control that settles it
+
+Depth also multiplies the readout: 60 → 120 → 180 columns. A wider readout fits
+better whether or not the extra stages hold anything, so the cumulative rows
+above cannot by themselves distinguish depth from width. The control is to spend
+the **same 60 columns** over more stages — the first 12/k modes of each of the
+first k stages — holding geometry, run, seed and scorer fixed and varying only
+how the fixed budget is distributed:
+
+| 60 columns spent on | MC | window | NARMA-10 NMSE |
+|---|---|---|---|
+| S1 only | 5.72 | 0–6 | 0.7753 |
+| split over S1–S2 | 7.91 | 1–9 | 0.6346 |
+| **split over S1–S3** | 8.43 | 1–6 | **0.2911** |
+
+**At identical readout width, depth-3 is 2.7× better than depth-1.** The gain is
+not the extra features. And the step from two stages to three is where nearly
+all of it appears (0.6346 → 0.2911), consistent with S3 being the only stage
+that reaches lag 10 — where NARMA-10's `u[n-10] · u[n]` product term lives.
+
+### The honest verdict
+
+**The chain does not beat the best linear filter.** 0.2008 against 0.1243, on
+one seed. It is not certified and this run does not attempt certification —
+the protocol is six independent draws with paired intervals and a leakage
+guard, and one run is not evidence.
+
+What did change is the size of the gap. Under identical conditions:
+
+| | NMSE | × linear_best |
+|---|---|---|
+| single disk | 0.7913 | 6.4× |
+| two stages | 0.2451 | 2.0× |
+| three stages | 0.2008 | 1.6× |
+
+Six months of single-disk work — lower damping, radiative loss, wider readouts,
+whole-state snapshots — moved the memory horizon by less than one frame. Depth
+moved it from lag 7 to lag 17 and cut the deficit from 6.4× to 1.6×. That is
+the mechanism that works, and it is the only one of the five tried that does.
+
+Whether a fourth stage closes the remaining 1.6× is the obvious next question,
+and the impulse sweep already bounds the answer: the guided signal fits 0.092
+per hop against a 0.0043 dipolar floor, so stage 4 sits ~13× above the floor and
+stage 5 ~5×. Four stages is the last one with margin. The returns are also
+visibly diminishing — 6.4× → 2.0× → 1.6× — so a fourth stage plausibly reaches
+parity with the linear filter rather than clearly beating it.

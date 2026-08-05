@@ -125,17 +125,25 @@ for d in cascade_linked cascade_nolink; do
     fi
 done
 
-# The 3-stage chain NARMA run. Same pattern as the cascade pair: recorded PID
-# checked against /proc, and the PID written by the LAUNCHER rather than the
-# runner, because the runner only records its own pid ~30 s in and a second
-# invocation inside that window would start a duplicate writer on a live
-# checkpoint.
+# The chain NARMA runs, at whatever depths exist. Same pattern as the cascade
+# pair: recorded PID checked against /proc, and the PID written by the LAUNCHER
+# rather than the runner, because the runner only records its own pid ~30 s in
+# and a second invocation inside that window would start a duplicate writer on a
+# live checkpoint.
+#
+# Depth comes from the DIRECTORY NAME rather than a hardcoded 3, so adding a
+# depth is `mkdir runs/chain4_narma` and nothing else. The previous version
+# named the depth in four places; the fifth stage would have been the fourth
+# chance to update three of them.
 CHAIN_FRAMES="${CHAIN_FRAMES:-600}"
-if [ -d runs/chain3_narma ] &&
-   ! grep -qs "frame ${CHAIN_FRAMES}/${CHAIN_FRAMES}" runs/chain3_narma.log; then
+for d in runs/chain*_narma; do
+    [ -d "$d" ] || continue
+    n=${d#runs/chain}; n=${n%_narma}
+    case "$n" in ''|*[!0-9]*) continue ;; esac      # not runs/chain<N>_narma
+    grep -qs "frame ${CHAIN_FRAMES}/${CHAIN_FRAMES}" "$d.log" && continue
     live=0
-    if [ -f runs/chain3_narma/pid ]; then
-        pid=$(cat runs/chain3_narma/pid 2>/dev/null)
+    if [ -f "$d/pid" ]; then
+        pid=$(cat "$d/pid" 2>/dev/null)
         if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null &&
            tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null |
            grep -qE 'run_narma_chain|magnumnp'; then
@@ -144,11 +152,10 @@ if [ -d runs/chain3_narma ] &&
     fi
     if [ "$live" -eq 0 ]; then
         OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nohup python \
-            scripts/run_narma_chain.py --n-disks 3 --frames "$CHAIN_FRAMES" \
-            --splits 150 300 75 --seed 0 --outdir runs/chain3_narma \
-            >> runs/chain3_narma.log 2>&1 &
-        echo $! > runs/chain3_narma/pid
-        echo "chain3 NARMA unfinished -- relaunched (resumes from checkpoint)"
+            scripts/run_narma_chain.py --n-disks "$n" --frames "$CHAIN_FRAMES" \
+            --splits 150 300 75 --seed 0 --outdir "$d" >> "$d.log" 2>&1 &
+        echo $! > "$d/pid"
+        echo "chain$n NARMA unfinished -- relaunched (resumes from checkpoint)"
     fi
-fi
+done
 exit 0

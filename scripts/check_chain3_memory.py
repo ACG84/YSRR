@@ -167,24 +167,38 @@ def main():
                        "linear_best_k": lin_k},
          "arms": rows}, indent=2))
 
-    print("\nreference: single disk MC 8.04, window 0-7, peak 0, NMSE 0.625;")
-    print("           two-stage A+B MC 10.58, window 0-11;")
-    print("           impulse prediction has stage 3 peaking at lag 9.48.")
+    print("\nreference: single disk MC 8.04, window 0-7, peak 0, NMSE 0.7913;")
+    print("           two stages 0.2451, three stages 0.2008 (same conditions);")
+    print(f"           linear_best {lin_best:.4f}.")
     print()
     if a.n_disks < 3:
         print(f"wrote {out}")
         return 0
-    s12 = rows["S1+S2"]
-    allr = rows["S1+S2+S3"]
-    if allr["MC"] > s12["MC"] + 0.5:
-        print("The third stage ADDS: the full chain holds more of the input's\n"
-              "history than the first two stages do, so depth is still buying\n"
-              "memory at three.")
+
+    # Judge the DEEPEST stage this run actually has, and judge it on memory and
+    # on the task separately -- they are different questions and at depth 4 they
+    # give different answers. An earlier version hardcoded the depth-3
+    # comparison and so reported "the third stage ADDS" for a four-stage run,
+    # which was true and not what the run was asked.
+    n = a.n_disks
+    prev = rows["+".join(f"S{d+1}" for d in range(n - 1))]
+    full = rows["+".join(f"S{d+1}" for d in range(n))]
+    d_mc = full["MC"] - prev["MC"]
+    d_nm = full["narma_nmse"] - prev["narma_nmse"]
+    print(f"stage {n}: memory {d_mc:+.2f} MC, task {d_nm:+.4f} NMSE "
+          f"({prev['narma_nmse']:.4f} -> {full['narma_nmse']:.4f})")
+    if d_mc > 0.5 and d_nm < -0.01:
+        print(f"  Stage {n} ADDS on both counts: it extends the memory AND the\n"
+              f"  task can use what it extended.")
+    elif d_mc > 0.5:
+        print(f"  Stage {n} extends MEMORY but not PERFORMANCE. It holds lags\n"
+              f"  the task does not need, and its columns cost more in readout\n"
+              f"  variance than the lags return. Depth has saturated for this\n"
+              f"  task at {n-1} stages -- which is a statement about NARMA-10's\n"
+              f"  10-lag horizon, not about the chain.")
     else:
-        print("The third stage does NOT add: the full chain holds no more than\n"
-              "the first two stages, so depth stops paying before three -- the\n"
-              "0.092-per-hop transfer has taken the deep stage's signal below\n"
-              "what the readout can use.")
+        print(f"  Stage {n} adds nothing: the per-hop transfer has taken its\n"
+              f"  signal below what the readout can use.")
     print(f"\nwrote {out}")
     return 0
 

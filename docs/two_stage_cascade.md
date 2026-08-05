@@ -634,3 +634,99 @@ per hop against a 0.0043 dipolar floor, so stage 4 sits ~13× above the floor an
 stage 5 ~5×. Four stages is the last one with margin. The returns are also
 visibly diminishing — 6.4× → 2.0× → 1.6× — so a fourth stage plausibly reaches
 parity with the linear filter rather than clearly beating it.
+
+## Four stages: the memory keeps growing, the task stops improving
+
+Three stages closed the deficit from 6.4× to 1.6× and the obvious question was
+whether a fourth closes the rest. The impulse budget said it should still have
+margin — 0.092 per hop against a 0.0043 dipolar floor puts stage 4 about 13×
+above it — and predicted its response near lag 12–17.
+
+A 4-disk chain, 528×108 mesh, driven at stage 1 only, 600 frames, same seed,
+same (150, 300, 75) splits, same scorer. Baselines unchanged: `linear_10lag`
+0.9901, `linear_best` **0.1243** (20 lags).
+
+| arm | dim | MC | r² > 0.5 window | peak lag | NARMA-10 NMSE |
+|---|---|---|---|---|---|
+| S1 alone | 60 | 5.73 | 0–6 | 1 | 0.7733 |
+| S2 alone | 60 | 9.56 | 3–11 | 6 | 0.7151 |
+| S3 alone | 60 | 9.47 | 8–14 | 13 | 0.6449 |
+| S4 alone | 60 | 8.23 | 13–16 | 14 | **1.0017** |
+| S1+S2 | 120 | 11.22 | 0–11 | 1 | 0.2466 |
+| **S1+S2+S3** | 180 | 15.73 | 0–15 | 1 | **0.2120** |
+| S1+S2+S3+S4 | 240 | **18.42** | **0–19** | 1 | 0.2553 |
+| *linear_best* | *20* | — | — | — | *0.1243* |
+
+**The impulse prediction was right and it did not help.** Stage 4 responds
+exactly where predicted — window 13–16, peak lag 14 — and it is a real signal,
+MC 8.23 on its own, as much raw memory as an entire isolated single disk. The
+chain now holds the input out to lag 19. Every physical prediction landed.
+
+**And the task got worse.** Adding stage 4 moves NARMA-10 from 0.2120 to
+0.2553, a 20% regression. On its own stage 4 scores 1.0017 — indistinguishable
+from predicting the mean. It carries memory the task has no use for: NARMA-10's
+deepest dependence is `u[n-10]`, three stages already cover lags 0–15, and
+stage 4's 60 columns buy lags 13–19 at the cost of 60 more columns of ridge
+variance. The trade is bad, and it is bad for a reason that has nothing to do
+with the magnetics.
+
+The matched-budget control says the same thing more gently. Spending a fixed 60
+columns over more stages:
+
+| 60 columns spent on | MC | NARMA-10 NMSE |
+|---|---|---|
+| S1 only | 5.73 | 0.7733 |
+| split over S1–S2 | 7.91 | 0.6317 |
+| split over S1–S3 | 8.44 | 0.3241 |
+| split over S1–S4 | 9.86 | 0.3157 |
+
+Depth-3 → depth-4 is 0.3241 → 0.3157: flat, inside noise. At fixed readout
+width the fourth stage is neutral; at growing width it is harmful. Either way
+it is not the missing 1.6×.
+
+### Reproducibility, unasked for and worth having
+
+The first three stages of this 4-chain are a different simulation from the
+3-chain — 528×108 against 388×108, a different ground state, a different link
+neighbourhood at stage 3, which now has a fourth disk beyond it instead of free
+space. They agree closely:
+
+| | 3-chain run | first 3 stages of the 4-chain |
+|---|---|---|
+| S1+S2+S3 NMSE | 0.2008 | 0.2120 |
+| MC | 15.62 | 15.73 |
+| S3 peak lag | 13 | 13 |
+| spread60 over S1–S3 | 0.2911 | 0.3241 |
+
+Two independent runs, agreeing to a few percent on the headline and exactly on
+the peak lag. Nothing here was set up as a replication and it is one anyway.
+
+### Where this leaves the architecture
+
+**Depth saturates at three stages for NARMA-10, and the device does not beat
+the best linear filter.** The full ladder, all at identical conditions:
+
+| | NMSE | × linear_best |
+|---|---|---|
+| single disk | 0.7913 | 6.4× |
+| two stages | 0.2451 | 2.0× |
+| three stages | **0.2008** | **1.6×** |
+| four stages | 0.2553 | 2.1× |
+
+The remaining 1.6× does not close by going deeper. That was the last cheap
+hypothesis, and it is now spent: five mechanisms have been tried — damping,
+radiative loss, readout width, input-layer width, and depth — and depth is the
+only one that moved anything, from 6.4× to 1.6×, and it has stopped.
+
+The saturation is **a property of the task, not a ceiling on the chain**. The
+chain's memory is still climbing at four stages (MC 15.73 → 18.42, horizon 15 →
+19) and the physics has margin for a fifth. NARMA-10 simply cannot spend it: it
+needs ten lags and it is being offered nineteen. A task with a longer horizon
+would be the honest place to look for the value of stages 4 and 5 — and if such
+a task exists, this chain already has the memory for it, which is a claim the
+single disk could never have made.
+
+What would close 1.6× on NARMA-10 specifically is not more memory but better use
+of the memory already held: the deficit is now against a 20-lag *linear* filter,
+which means the device's nonlinearity is not yet paying for the state it
+occupies. That is a readout and drive question, not a geometry one.

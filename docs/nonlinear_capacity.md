@@ -141,25 +141,83 @@ direction. What the square law does buy is same-lag quadratic capacity (0.11 →
 0.66 combined) and a modest real gain, 0.2008 → **0.1905**, the best device
 number so far and still 1.5× short of the linear filter.
 
-## Where this leaves it
+## The drive hypothesis, tested and REFUTED — the disk is already nonlinear
 
-**The device operates in linear response.** The drive modulates a 12 GHz carrier
-between 10 and 30 mT; the magnetisation's envelope responds linearly to that,
-and a linear readout of a linear envelope is a linear filter with extra steps.
-Depth gave it fifteen lags of memory and could not make it compute, because
-depth composes delays and delays are linear operations.
+The obvious reading of everything above is that the device operates in linear
+response, and that the fix is to drive it harder. That reading is wrong, and the
+measurement that settles it is cheap: drive one disk at constant amplitude, lock
+in per port, transform across ports, and watch the response as amplitude rises.
 
-That reframes the remaining 1.6× as a drive problem, not a geometry problem, and
-it is the first hypothesis in this project with a mechanism specific enough to
-predict its own failure mode. The nonlinearity in a vortex disk is amplitude-
-dependent: larger precession cone, nonlinear frequency shift, and — at 60 mT,
-already measured — core annihilation with λ = +5.5, far past useful. If a
-nonlinear-but-stable window exists it is between 30 and 60 mT, and it is narrow
-or it would have shown up already.
+(The cross-port transform is load-bearing. A uniform in-plane drive couples
+almost entirely to n = ±1 by symmetry, so averaging the six ports first lands on
+n = 0 and cancels the response — reporting the disk's strongest mode as silence,
+and the phase of that silence as a frequency shift.)
 
-Two things are worth saying plainly about that. Sweeping drive amplitude is
-cheap to screen on a single disk and is the obvious next measurement. But the
-window may not exist: the same measurements that make 10–30 mT linear make 60 mT
-unstable, and "usefully nonlinear yet stable" is a real constraint that many
-physical reservoirs fail. A negative there would be a genuine limit of this
-device on this task, not a tuning failure.
+Across the *exact* window the runs use:
+
+| drive | gain `|A|/a`, normalised | phase shift | mean m_z | vortex |
+|---|---|---|---|---|
+| 5 mT | 1.000 | — | 0.2466 | intact |
+| **10 mT** | **0.980** | **+3.2°** | 0.2262 | intact |
+| 15 mT | 0.947 | +8.6° | 0.1992 | intact |
+| 20 mT | 0.898 | +15.7° | 0.1712 | intact |
+| 25 mT | 0.835 | +24.0° | 0.1455 | intact |
+| **30 mT** | **0.758** | **+32.9°** | 0.1255 | intact |
+| 35 mT | 0.669 | +41.5° | 0.0910 | intact |
+| 40 mT | 0.571 | +49.2° | −0.1581 | **core expelled** |
+
+**The disk is strongly nonlinear over 10–30 mT.** Gain falls 23% across the
+modulation range and the response phase swings 30°. This is a large-signal
+nonlinearity, sitting squarely inside the operating point every run so far has
+used. There is nothing to fix about the drive amplitude; the nonlinearity was
+always there. (It also bounds the headroom: the core is expelled by 40 mT, so
+the stable window ends at ~35 mT, not the 60 mT annihilation threshold measured
+earlier under different conditions.)
+
+## Where this leaves it: the nonlinearity and the memory are in series, in the wrong order
+
+Both facts are now measured and they look contradictory: the disk is strongly
+nonlinear, and the chain carries essentially no nonlinear capacity. The
+resolution is in *where* each thing lives.
+
+A nonlinearity can only multiply signals that are present in the same state at
+the same time. The nonlinear element is the driven disk — stage 1 — and **stage
+1 remembers lags 0–6** (measured, depth ladder). So the only products it can
+form are between samples inside that span. That is exactly, and only, what was
+found:
+
+| product | r² |
+|---|---|
+| `s[n]·s[n−1]` | 0.054 |
+| `s[n]·s[n−5]` | 0.056 |
+| **`s[n−5]·s[n−6]`** | **0.208** |
+| `s[n−5]·s[n−7]` | 0.069 |
+| everything at lag ≥ 8 apart | **0.000** |
+
+Every product the device makes is between samples one or two frames apart. The
+deep stages remember out to lag 14 — but they receive no fresh input to mix
+against, only a delayed copy of one thing. So the chain nonlinearly mixes
+adjacent samples *first*, then delays the result. Depth composes delays, and
+delays are linear.
+
+**NARMA-10 needs the opposite order.** `u[n−9]·u[n]` requires a nonlinear element
+that sees a 9-frame-old copy and a fresh sample simultaneously. No stage in this
+chain ever does.
+
+That is an architectural prescription rather than a tuning knob, and the geometry
+already measured supplies the number: **stage 3's impulse response peaks at lag
+9.48**. Co-driving stage 3 with the same input gives one nonlinear element both
+the chain-delayed copy (~9.5 frames) and the fresh sample — which is `u[n]·u[n−9.5]`,
+against the `u[n]·u[n−9]` the task asks for. The delay line was accidentally
+built to the right length.
+
+This is now running: `--drive-stages 0 2`, same seed, frames, splits, and scorer,
+so it drops straight onto the ladder. The prediction is specific and therefore
+falsifiable — cross-lag product capacity near lag 9 should go from 0.000 to
+something, or the account above is wrong.
+
+Worth stating what would make it fail even if the reasoning is right: the fresh
+drive at stage 3 also injects a large lag-0 signal there, and if it swamps the
+delayed copy (which has been attenuated by 0.092 per hop, twice) the product term
+is a small correction on a big one. Transfer says the delayed copy arrives ~100×
+down on the direct drive, which is the real risk in this experiment.

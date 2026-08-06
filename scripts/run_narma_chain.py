@@ -77,7 +77,7 @@ def save_ckpt(cache, feats, m):
 
 @torch.no_grad()
 def run_reservoir(arr, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
-                  cache=None, tones=(), drive_stage=0):
+                  cache=None, tones=(), drive_stages=(0,)):
     """Drive, no reset between frames; return (n_frames, features).
 
     drive="one" is the CASCADE topology and the point of this script: only disk
@@ -113,8 +113,19 @@ def run_reservoir(arr, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
 
     # Drive the disk BODIES, never the guides: a drive on a guide injects
     # straight into the readout and the ports would be measuring the input.
+    #
+    # More than one stage may be driven, and that is the point of the co-drive
+    # arm. A nonlinearity can only multiply signals that are present in the SAME
+    # state at the SAME time. The capacity decomposition showed the disk is
+    # strongly nonlinear over this very amplitude range, and that every product
+    # it makes is between samples one or two frames apart -- because the
+    # nonlinearity sits at stage 1 and stage 1 only remembers lags 0-6. The deep
+    # stages remember out to lag 14 and have no fresh input to mix against.
+    # Feeding u to a deep stage as well puts the delayed copy (~9.5 frames
+    # through the chain) and the fresh sample in one nonlinear element.
     unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
-    unit[:, :, 0, 0] = arr.disk_masks[drive_stage].to(dtype)
+    for st in drive_stages:
+        unit[:, :, 0, 0] += arr.disk_masks[st].to(dtype)
 
     m = arr.m0.clone() if m_resume is None else m_resume.clone().to(dtype)
     start = len(done) if m_resume is not None else 0
@@ -185,8 +196,11 @@ def main():
                         "single-disk numbers this is compared against are a\n"
                         "different instrument")
     p.add_argument("--n-disks", type=int, default=3)
-    p.add_argument("--drive-stage", type=int, default=0,
-                   help="which stage receives the drive; 0 is the input stage")
+    p.add_argument("--drive-stages", type=int, nargs="+", default=[0],
+                   help="which stages receive the drive; 0 is the input stage.\n"
+                        "More than one co-drives: `--drive-stages 0 2` gives the\n"
+                        "deep stage both the chain-delayed copy and the fresh\n"
+                        "sample, which is what a cross-lag product needs.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cpu")
     p.add_argument("--outdir", default="runs/narma_coupled")
@@ -238,11 +252,13 @@ def main():
           f"-> ~{tau_ns/frame_ns:.1f} frames of memory", flush=True)
 
     tag = f"n{args.n_disks}_" + ("nolink" if args.no_link else "linked")
+    if list(args.drive_stages) != [0]:
+        tag += "_drv" + "".join(str(s) for s in args.drive_stages)
     F = run_reservoir(arr, u, args.steps_per_frame, args.carrier_ghz * 1e9,
                       args.amp_lo_mT, args.amp_hi_mT, dtype,
                       cache=outdir / f"features_{tag}.pt",
                       tones=[t * 1e9 for t in args.tones_ghz],
-                      drive_stage=args.drive_stage)
+                      drive_stages=tuple(args.drive_stages))
     X = F.numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
     ac1 = float(np.nanmean([np.corrcoef(X[:-1, i], X[1:, i])[0, 1]

@@ -138,9 +138,15 @@ done
 CHAIN_FRAMES="${CHAIN_FRAMES:-600}"
 for d in runs/chain*_narma; do
     [ -d "$d" ] || continue
-    n=${d#runs/chain}; n=${n%_narma}
-    case "$n" in ''|*[!0-9]*) continue ;; esac      # not runs/chain<N>_narma
+    # runs/chain<N>[_tag]_narma -- depth is the leading token, anything between
+    # it and _narma is a free-form label (codrive, wide, ...). Extra flags for
+    # that variant live in "$d/args", one line, so the hook stays generic
+    # instead of growing a branch per experiment.
+    base=${d#runs/chain}; base=${base%_narma}; n=${base%%_*}
+    case "$n" in ''|*[!0-9]*) continue ;; esac
     grep -qs "frame ${CHAIN_FRAMES}/${CHAIN_FRAMES}" "$d.log" && continue
+    xargs_extra=""
+    [ -f "$d/args" ] && xargs_extra=$(tr -d '\n' < "$d/args")
     live=0
     if [ -f "$d/pid" ]; then
         pid=$(cat "$d/pid" 2>/dev/null)
@@ -153,7 +159,8 @@ for d in runs/chain*_narma; do
     if [ "$live" -eq 0 ]; then
         OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nohup python \
             scripts/run_narma_chain.py --n-disks "$n" --frames "$CHAIN_FRAMES" \
-            --splits 150 300 75 --seed 0 --outdir "$d" >> "$d.log" 2>&1 &
+            --splits 150 300 75 --seed 0 --outdir "$d" $xargs_extra \
+            >> "$d.log" 2>&1 &
         echo $! > "$d/pid"
         echo "chain$n NARMA unfinished -- relaunched (resumes from checkpoint)"
     fi

@@ -221,3 +221,118 @@ drive at stage 3 also injects a large lag-0 signal there, and if it swamps the
 delayed copy (which has been attenuated by 0.092 per hop, twice) the product term
 is a small correction on a big one. Transfer says the delayed copy arrives ~100×
 down on the direct drive, which is the real risk in this experiment.
+
+## Pricing the fix before buying it — and finding the real constraint
+
+The co-drive arm was launched on a specific claim: NARMA-10 needs `u[n−9]·u[n]`,
+the chain has 0.000 of it, so manufacture it. Before spending three hours
+confirming whether it appears, it is worth pricing what it is worth **if it
+does**. That pricing is arithmetic on the task, not a device measurement, so it
+bounds what *any* mechanism delivering these terms could buy.
+
+The answer refutes the framing. Adding the exact term to a 20-lag linear filter
+changes nothing:
+
+| readout | dim | NMSE |
+|---|---|---|
+| linear, 20 lags (the bar) | 20 | 0.1243 |
+| + `u[n]·u[n−9]` **only** | 21 | **0.1242** |
+| + `u[n]·u[n−k]`, k = 8,9,10 | 23 | 0.1284 |
+| + `u[n]·u[n−k]`, k = 1..15 | 35 | 0.1375 |
+| + all 105 products, 15 lags | 135 | **0.0448** |
+
+The celebrated `u[n−9]·u[n]` term — the one every description of NARMA-10 quotes,
+including mine — is worth **nothing** on its own. What makes the task hard is the
+*y*-recursion, whose expansion needs products across many lag pairs.
+
+Splitting the 105 products by separation says which:
+
+| product family | dim | NMSE |
+|---|---|---|
+| squares `u[n−i]²` only | 35 | 0.1245 |
+| adjacent `u[n−i]·u[n−i−1]` | 35 | 0.1300 |
+| near pairs, \|i−j\| ≤ 2 | 62 | 0.1215 |
+| near pairs, \|i−j\| ≤ 4 | 85 | 0.1236 |
+| **far pairs, \|i−j\| ≥ 5** | 75 | **0.0401** |
+
+All of the value is in **long-separation** products, and none in short ones. The
+device makes exactly and only the worthless family: every product it carries is
+between samples one or two frames apart.
+
+### How many dimensions the value needs
+
+The value is not a few well-chosen terms. Projecting the far-pair block onto its
+own leading principal components and adding them to the linear filter:
+
+| product dimensions kept | NMSE | ×1.53 readout tax |
+|---|---|---|
+| 0 | 0.1243 | 0.1901 |
+| 3 | 0.1113 | 0.1702 |
+| 8 | 0.1123 | 0.1718 |
+| 21 | 0.1070 | 0.1637 |
+| **40** | 0.0745 | **0.1140** |
+| 75 (all) | 0.0404 | 0.0618 |
+
+Nothing useful happens until ~40 independent product directions are present. The
+"tax" column applies the device's own measured penalty — the chain scores 0.1905
+while holding linear memory of comparable span to the 20-lag filter's 0.1243, so
+its readout costs ~1.53× — and says the device would need **≥ 40** product
+dimensions to clear the bar.
+
+### What the device has
+
+Effective rank, measured on the training block:
+
+| state | columns | rank |
+|---|---|---|
+| single disk, port drive | 60 | 13 |
+| chain stage 1 (uniform drive) | 60 | 15 |
+| chain stage 2 | 60 | 14 |
+| chain stage 3 | 60 | 9 |
+| **all three stages together** | **180** | **21** |
+| four stages together | 240 | 21 |
+
+Stages of rank 15, 14 and 9 combine to 21, not 38: they are largely redundant
+with each other. And degree-1 capacity alone is 15.5 of that 21, leaving roughly
+**5 directions** for everything nonlinear — against the ~40 required.
+
+That also explains why depth stopped paying and why a drive-mode change will not
+rescue it. For a device whose state is a near-linear functional of input history,
+**effective rank is bounded by memory span**: each remembered lag contributes one
+direction, and a delayed copy of a signal already in the state is a linear
+combination of directions already counted. Adding disks in series adds delayed
+copies. It cannot add rank, and measurement agrees — 180 columns and 240 columns
+both give 21.
+
+Rank and nonlinearity are therefore not two problems but one. Genuinely new
+directions come only from computing genuinely new functionals of the history.
+
+## Is NARMA-10 feasible? Not on this architecture
+
+The gap is now quantified rather than guessed. The device needs ~40 independent
+long-separation product dimensions and has ~5, and the deficit cannot be closed
+by more depth (rank pinned at 21), more readout width (pinned at 21), a
+square-law detector (collapses rank to 5), or a harder drive (the disk is
+already nonlinear at the operating point; the core is expelled by 40 mT).
+
+What the measurements *do* support is a different architecture. Every ingredient
+has been separately demonstrated:
+
+- the link carries a genuine guided wave, 1173 m/s, 90× the dipolar background
+- delay is tunable and linear in separation, and a 3-hop delay lands at lag 9.5
+- the disk is strongly nonlinear at 30 mT and stable to ~35 mT
+- identical parallel disks are perfectly redundant (CC = 1.000) — but only when
+  fed identically
+
+Which points at a **delay-line bus tapped in parallel**: one guided line carrying
+the input, tapped at many points, each tap feeding its own nonlinear disk that
+*also* receives the fresh sample. Each disk then mixes a different delay against
+the present, producing long-separation products at a different separation each —
+many independent nonlinear functionals rather than one, in parallel rather than
+in series. That is the shape the capacity accounting asks for, and it is
+precisely not the serial chain that was built.
+
+Whether it clears 0.1243 is unproven and should not be assumed: it needs ~8×
+more nonlinear dimensions than anything measured here has produced, and the
+redundancy that killed parallel disks before would have to be broken by the
+differing delays rather than merely assumed to be.

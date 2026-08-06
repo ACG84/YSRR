@@ -336,3 +336,86 @@ Whether it clears 0.1243 is unproven and should not be assumed: it needs ~8×
 more nonlinear dimensions than anything measured here has produced, and the
 redundancy that killed parallel disks before would have to be broken by the
 differing delays rather than merely assumed to be.
+
+## The co-drive arm: stopped early, and it failed the way it was warned it might
+
+The co-drive run (`--drive-stages 0 2`) was stopped at 260 of 600 frames once its
+partial data was decisive. Scored against the single-drive control **at matched
+sample size** — same 260 frames, same reduced splits, same scorer, because a
+smaller training block lowers every capacity estimate and the comparison is
+worthless otherwise:
+
+| | single drive | co-drive (0 and 2) |
+|---|---|---|
+| degree-1 capacity | 8.91 | **4.95** |
+| r² at lag 9 | 0.857 | **0.152** |
+| r² at lag 11 | 0.548 | 0.126 |
+| r² at lag 14 | 0.298 | 0.005 |
+
+Products were unmeasurable either way at this sample size — the noise floor for
+`s[n]·s[n−k]` is 0.289 with 30 test points — so the arm never got to test its own
+prediction. What it did show is that **co-driving actively destroyed the long
+memory**: the horizon pulled in from ~lag 12 to ~lag 7 and degree-1 capacity
+nearly halved.
+
+This is the failure mode that was flagged when the arm was launched: the fresh
+sample injected at stage 3 arrives at full amplitude, the chain-delayed copy
+arrives ~100× down after two hops at 0.092 per hop, and the tap stops being a
+delay tap and becomes another input disk. It is an amplitude-balance failure, not
+a refutation of mixing fresh against delayed — and it makes the balance
+requirement quantitative for anything built next.
+
+## The bus: transport measured, and it is 16× better than the chain
+
+A poly-tap architecture needs one thing the chain could not provide — a delayed
+copy that arrives strong enough to be mixed rather than drowned. That is a
+property of the guide, not of the disks, and it had never been measured over
+micron distances. A bare 80 nm strip, 5 µm long, absorbing at both ends, driven
+near one end and tapped every 150 nm:
+
+| | |
+|---|---|
+| attenuation length | **951 nm** |
+| group velocity | **945 m/s** (chain fit gave 1173) |
+| one frame of delay | **189 nm** |
+
+| lag (frames) | tap at | amplitude | vs lag-5 tap |
+|---|---|---|---|
+| 5 | 900 nm | 1.454e−02 | 1.000 |
+| 8 | 1500 nm | 7.860e−03 | 0.541 |
+| 10 | 1950 nm | 4.743e−03 | 0.326 |
+| 12 | 2250 nm | 3.507e−03 | 0.241 |
+| 15 | 2850 nm | 1.841e−03 | **0.127** |
+
+Over the ~9.5 frames of delay that cost the chain two hops, the bus loses a
+factor of ~7 where the chain lost ~118 (0.092²). **The bus is ~16× better
+transport over the same delay**, which is the whole reason to route around the
+disks rather than through them. Tap positions follow directly: lags 5–15 sit
+between 0.9 and 2.9 µm, so the entire delay line is a ~3 µm strip.
+
+*Measurement note.* The first run of this used 4000 steps and averaged over the
+last third — a window beginning at 2.67 ns while the 2.7 µm tap was still
+arriving at 2.6 ns. Far taps were measured mid-transient and the fitted
+attenuation length came out 951 → 544 nm, nearly 2× too pessimistic, with
+arrival times that fell with distance. Converged at 12000 steps the profile is
+clean and exponential beyond the near field.
+
+### What this does and does not settle
+
+Settled: the transport half. A bus carries a usable delayed copy across the full
+range of separations the task needs, which the serial chain demonstrably cannot.
+
+Not settled, and it is the larger half: whether N tap disks each mixing fresh
+against delayed actually yield the ~40 independent long-separation product
+dimensions the capacity accounting demands. Nothing measured so far has produced
+more than ~5.
+
+The specific constraint the numbers now impose is **dynamic range**. The delayed
+amplitude spans 8× across lags 5–15, while the disk's usefully-nonlinear-and-
+still-stable drive window is roughly 15–35 mT — a factor of ~2.3. Those do not
+fit without per-tap compensation. Compensation is available in principle, since
+tap coupling strength is a geometric design parameter (stub width and length)
+and each tap's fresh feed is its own line, so near taps can couple weakly and far
+taps strongly. But that is an assumption about a design not yet built, and the
+honest position is that the bus removes the objection that killed the chain
+without yet establishing that the replacement works.

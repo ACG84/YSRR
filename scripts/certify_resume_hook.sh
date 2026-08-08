@@ -165,4 +165,37 @@ for d in runs/chain*_narma; do
         echo "chain$n NARMA unfinished -- relaunched (resumes from checkpoint)"
     fi
 done
+# The poly-tap impulse checks. Their relax is ~36 minutes on a 130k-cell mesh
+# against a container that reboots hourly, so they checkpoint every 1000 steps
+# and this restarts them to continue. Completion is the results file the script
+# writes last; liveness is the recorded PID, never argv, for the usual reason.
+#
+# NOTE the placement: appended before the FINAL `exit 0`, not the first one.
+# There are three in this file and two of them are early-exit guards inside
+# blocks; patching one of those once short-circuited every block below it while
+# still passing `bash -n`.
+for g in ${POLYTAP_GAPS:-0 30}; do
+    d=runs/polytap_impulse
+    [ -d "$d" ] || continue
+    log="runs/polytap_impulse_gap${g}.log"
+    [ "$g" = 0 ] && log=runs/polytap_impulse.log
+    [ -f "$log" ] || continue
+    [ -f "$d/results_n4_gap${g}.json" ] && continue
+    live=0
+    pidf="$d/pid_n4_gap${g}"
+    if [ -f "$pidf" ]; then
+        pid=$(cat "$pidf" 2>/dev/null)
+        if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null &&
+           tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null |
+           grep -qE 'check_polytap_impulse|magnumnp'; then
+            live=1
+        fi
+    fi
+    if [ "$live" -eq 0 ]; then
+        OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nohup python \
+            scripts/check_polytap_impulse.py --gap "$g" >> "$log" 2>&1 &
+        echo $! > "$pidf"
+        echo "polytap gap=$g unfinished -- relaunched (resumes relax)"
+    fi
+done
 exit 0

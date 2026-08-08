@@ -32,7 +32,7 @@ Three arms, because the failure modes are different and separable:
     python scripts/check_polytap_impulse.py
 """
 from __future__ import annotations
-import argparse, json, math, sys, time
+import argparse, json, math, os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
@@ -97,15 +97,37 @@ def main():
     print(f"grid {nx}x{ny}, {cfg.n_taps} taps, designed lags "
           f"{list(cfg.tap_lags[:cfg.n_taps])}")
 
-    m0c = outdir / f"m0_n{cfg.n_taps}_gap{int(a.gap)}.pt"
+    # Relax in CHUNKS, checkpointing each one.
+    #
+    # This mesh takes ~36 minutes to relax and the container reboots roughly
+    # hourly. An all-or-nothing relax on those odds does not merely risk the
+    # work, it can fail to ever finish: the gap-30 build died mid-relax with
+    # nothing saved and would have restarted from the ansatz every time. The
+    # progress file records how many steps the saved state has had, so a
+    # restart continues rather than repeating.
+    tag = f"n{cfg.n_taps}_gap{int(a.gap)}"
+    m0c = outdir / f"m0_{tag}.pt"
+    prog = outdir / f"m0_{tag}.steps"
+    done = 0
     if m0c.exists():
         arr.m0 = torch.load(m0c, weights_only=False).to(dtype)
-        print(f"[m0] restored from {m0c.name}")
-    else:
+        done = int(prog.read_text().strip()) if prog.exists() else a.relax_steps
+        print(f"[m0] restored from {m0c.name} at {done}/{a.relax_steps} steps")
+    CHUNK = 1000
+    while done < a.relax_steps:
         t0 = time.time()
-        arr.relax(steps=a.relax_steps)
-        torch.save(arr.m0.cpu(), m0c)
-        print(f"relaxed in {time.time()-t0:.0f}s")
+        if arr.m0 is None:
+            arr.relax(steps=CHUNK)              # builds the ansatz, then relaxes
+        else:
+            arr.m0 = arr.rollout.relax(arr.m0, arr.h_zero, CHUNK, 0.5)
+        done += CHUNK
+        tmp = m0c.with_suffix(".pt.tmp")
+        with open(tmp, "wb") as fh:
+            torch.save(arr.m0.cpu(), fh); fh.flush(); os.fsync(fh.fileno())
+        os.replace(tmp, m0c)
+        prog.write_text(str(done))
+        print(f"  relax {done}/{a.relax_steps} ({time.time()-t0:.0f}s)", flush=True)
+    (outdir / f"pid_{tag}").write_text(str(os.getpid()))
 
     amp = a.amp_mT * 1e-3 / MU_0
     win = max(4, int(round(1e3 / a.freq)))
@@ -136,7 +158,7 @@ def main():
             print(f"{d+1:>4} {cfg.tap_lags[d]:>9.1f} {t_arr:>10.3f} "
                   f"{t_arr/frame_ns:>9.2f} {pk:>11.4e}", flush=True)
         res[name] = rows
-        (outdir / "results.json").write_text(json.dumps(res, indent=2))
+        (outdir / f"results_{tag}.json").write_text(json.dumps(res, indent=2))
 
     print("\n=== balance: delayed copy vs fresh drive, per tap ===")
     print(f"{'tap':>4} {'bus amp':>11} {'fresh amp':>11} {'ratio':>8}")
@@ -173,7 +195,7 @@ def main():
               f"{max(bal):.3f}).\nA tap whose fresh drive swamps its delayed copy "
               f"is an input disk, not a\ndelay tap -- that is exactly how the "
               f"chain co-drive failed. Re-scale\nfresh_scale() before the task run.")
-    print(f"\nwrote {outdir / 'results.json'}")
+    print(f"\nwrote {outdir / f'results_{tag}.json'}")
     return 0
 
 

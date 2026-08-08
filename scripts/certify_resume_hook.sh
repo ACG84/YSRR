@@ -198,4 +198,29 @@ for g in ${POLYTAP_GAPS:-0 30}; do
         echo "polytap gap=$g unfinished -- relaunched (resumes relax)"
     fi
 done
+# Directional-coupler variants. Same restart discipline as the stub build; the
+# variant is identified by coupler length so several can coexist.
+for cl in ${POLYTAP_COUPLERS:-400}; do
+    d=runs/polytap_impulse
+    [ -d "$d" ] || continue
+    log="runs/polytap_impulse_cpl${cl}.log"
+    [ -f "$log" ] || continue
+    [ -f "$d/results_n4_cpl${cl}.json" ] && continue
+    live=0
+    pidf="$d/pid_n4_cpl${cl}"
+    if [ -f "$pidf" ]; then
+        pid=$(cat "$pidf" 2>/dev/null)
+        if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null &&
+           tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null |
+           grep -qE 'check_polytap_impulse|magnumnp'; then
+            live=1
+        fi
+    fi
+    if [ "$live" -eq 0 ]; then
+        OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 nohup python \
+            scripts/check_polytap_impulse.py --coupler-len "$cl" >> "$log" 2>&1 &
+        echo $! > "$pidf"
+        echo "polytap coupler=$cl unfinished -- relaunched (resumes relax)"
+    fi
+done
 exit 0

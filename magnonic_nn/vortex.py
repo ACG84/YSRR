@@ -1141,3 +1141,163 @@ class PolyTapArray:
                     f"relaxation still drifting: {drift:.2e} > "
                     f"{require_tol:.0e} after {steps} steps.")
         return self.m0
+
+
+@dataclass
+class DirCouplerConfig(PolyTapConfig):
+    """Poly-tap bus where each tap is a DIRECTIONAL coupler, not a stub.
+
+    The perpendicular stub was measured and rejected. A galvanic stub drains the
+    line (bus through-loss 0.431 at tap 1 against 0.729 for the bare guide), and
+    backing it off with a gap fixes the draining (0.912 at 30 nm) while halving
+    what the tap receives and collapsing its measured arrival from lag 4.90 to
+    lag 1.50 -- the tap stops reading the guided wave and starts reading stray
+    field. Both couplings are near-field, so a gap attenuates the signal and the
+    contamination together and no gap separates them.
+
+    A co-directional coupler separates them on a different axis. The tap's arm
+    runs PARALLEL to the bus, phase-matched (same width, so the same
+    dispersion), over a coupling length L_c. Guided power transfers coherently
+    along that length, accumulating as it goes; stray dipolar pickup does not
+    accumulate, because it has no fixed phase relationship to add along. So
+    coupling strength becomes a function of LENGTH -- which trades against
+    nothing but floor area -- instead of proximity, which trades directly
+    against contrast.
+
+    The arm is co-directional: power crosses into it travelling the same way the
+    bus wave travels, runs downstream to the arm's far end, and turns up into the
+    disk. The arm's UPSTREAM end is absorbing so nothing reflects back into the
+    coupling region.
+
+    The vertical link adds its own transit -- ~1 frame at 945 m/s over 200 nm --
+    on top of the bus delay to the tap. Tap lags are therefore measured rather
+    than assumed, as they were for the stub build.
+    """
+
+    coupler_len: float = 400e-9       # L_c, the coupling length. Bounded above
+                                      # by tap spacing: arms must not merge.
+    coupler_gap: float = 20e-9        # bus edge to arm edge
+    coupler_width: float = 80e-9      # MUST match the bus width, or the two
+                                      # guides have different dispersion, are not
+                                      # phase matched, and power beats back out
+                                      # as fast as it couples in.
+    link_len: float = 60e-9           # arm up to the disk's coupling guide
+    arm_absorb: float = 100e-9        # taper at the arm's upstream end
+
+    def arm_y(self) -> tuple[float, float]:
+        """(bottom, top) of the coupler arm, relative to the bus centreline."""
+        b = self.bus_width / 2 + self.coupler_gap
+        return (b, b + self.coupler_width)
+
+    def disk_cy(self) -> float:
+        _, top = self.arm_y()
+        return top + self.link_len + self.radius + self.guide_length
+
+    @property
+    def grid(self) -> tuple[int, int]:
+        nx = int(np.ceil(self.bus_length() / self.dx)) + 2 * self.margin_cells
+        top = self.disk_cy() + self.radius + self.guide_length + self.margin
+        bot = self.bus_width / 2 + self.margin
+        ny = int(np.ceil((top + bot) / self.dx)) + 2 * self.margin_cells
+        return (nx, ny)
+
+    def max_coupler_len(self) -> float:
+        """Longest arm that still leaves a gap between adjacent taps."""
+        xs = self.tap_x()
+        if len(xs) < 2:
+            return self.coupler_len
+        return min(b - a for a, b in zip(xs[:-1], xs[1:])) - 4 * self.dx
+
+
+def dircoupler_mask(cfg: DirCouplerConfig, device=None, dtype=torch.float64):
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+    yb = cfg._bus_y()
+    x0 = -(nx - 1) / 2 * cfg.dx
+    lo, hi = cfg.arm_y()
+
+    m = (((Y - yb).abs() <= cfg.bus_width / 2)
+         & (X >= x0) & (X <= x0 + cfg.bus_length()))
+    for (cx, cy) in cfg.centres():
+        # co-directional arm, running INTO the tap from upstream
+        m = m | ((X >= cx - cfg.coupler_len) & (X <= cx)
+                 & (Y >= yb + lo) & (Y <= yb + hi))
+        # vertical link from the arm up to the disk's coupling guide
+        m = m | ((X - cx).abs() <= cfg.guide_width / 2) & (Y >= yb + hi) \
+                & (Y <= cy - (cfg.radius + cfg.guide_length))
+        m = m | _radial_guides(X, Y, cx, cy, cfg)
+    return m.to(dtype).reshape(nx, ny, 1, 1)
+
+
+def dircoupler_alpha(cfg: DirCouplerConfig, device=None, dtype=torch.float64):
+    """Absorb at the bus ends, the readout guide ends, and each arm's upstream end.
+
+    The arm's upstream taper is what makes the coupler directional in practice:
+    without it the arm is a resonator, power that crossed in reflects off the
+    open end, and the tap reads a standing wave whose phase has nothing to do
+    with the delay it was placed for.
+    """
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+    yb, x0 = cfg._bus_y(), -(nx - 1) / 2 * cfg.dx
+    L = cfg.bus_length()
+    lo, hi = cfg.arm_y()
+
+    outer = cfg.radius + cfg.guide_length
+    start = outer - cfg.absorb_frac * cfg.guide_length
+    ramp = torch.zeros_like(X)
+    for cx, cy in cfg.centres():
+        r = torch.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
+        g = ((r - start) / (outer - start)).clamp(0.0, 1.0) ** 2
+        g = torch.where(r <= outer + cfg.dx, g, torch.zeros_like(g))
+        # the 270-degree guide is the link to the arm, not a readout port
+        g = torch.where(((X - cx).abs() <= cfg.guide_width / 2) & (Y < cy),
+                        torch.zeros_like(g), g)
+        ramp = torch.maximum(ramp, g)
+        # arm upstream taper
+        a0 = cx - cfg.coupler_len
+        arm = (Y >= yb + lo) & (Y <= yb + hi)
+        ta = ((a0 + cfg.arm_absorb - X) / cfg.arm_absorb).clamp(0.0, 1.0) ** 2
+        ta = torch.where(arm & (X >= a0), ta, torch.zeros_like(ta))
+        ramp = torch.maximum(ramp, ta)
+    bl = ((x0 + cfg.bus_absorb - X) / cfg.bus_absorb).clamp(0.0, 1.0) ** 2
+    br = ((X - (x0 + L - cfg.bus_absorb)) / cfg.bus_absorb).clamp(0.0, 1.0) ** 2
+    on_bus = (Y - yb).abs() <= cfg.bus_width / 2
+    ramp = torch.maximum(ramp, torch.where(on_bus,
+                                           torch.maximum(bl, br),
+                                           torch.zeros_like(bl)))
+    return (cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp).reshape(nx, ny, 1, 1)
+
+
+class DirCouplerArray(PolyTapArray):
+    """Poly-tap bus with directional couplers. Five readout ports per tap."""
+
+    def __init__(self, cfg: DirCouplerConfig, timesteps: int, device=None,
+                 dtype=torch.float64):
+        self.cfg = cfg
+        nx, ny = cfg.grid
+        mesh = MeshConfig(nx=nx, ny=ny, nz=1, dx=cfg.dx, dy=cfg.dx,
+                          dz=cfg.thickness)
+        solver = SolverConfig(dt=cfg.dt, timesteps=timesteps, checkpoint=False,
+                              renormalize=True, demag=True)
+        self.mask = dircoupler_mask(cfg, device, dtype)
+        alpha = dircoupler_alpha(cfg, device, dtype) * self.mask
+        self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha,
+                                  Ms_ref=cfg.Ms)
+        self.rollout.set_Ms(cfg.Ms * self.mask)
+        self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
+        self.m0 = None
+
+        x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+        self._X, self._Y = torch.meshgrid(x, y, indexing="ij")
+        self.disk_masks = torch.stack([
+            (((self._X - cx) ** 2 + (self._Y - cy) ** 2) <= cfg.radius**2).to(dtype)
+            for cx, cy in cfg.centres()])
+        self.bus_mask = self._bus_region(dtype)
+        self.inject_mask = self._inject_region(dtype)
+        self._tap_masks = self._build_taps(dtype)

@@ -38,7 +38,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
-from magnonic_nn.vortex import PolyTapConfig, PolyTapArray
+from magnonic_nn.vortex import (PolyTapConfig, PolyTapArray,
+                                DirCouplerConfig, DirCouplerArray)
 
 
 @torch.no_grad()
@@ -83,6 +84,11 @@ def main():
     p.add_argument("--quiet", type=int, default=2000)
     p.add_argument("--gap", type=float, default=0.0,
                    help="nm; coupling gap between bus and each tap guide")
+    p.add_argument("--coupler-len", type=float, default=0.0,
+                   help="nm. >0 selects the DIRECTIONAL coupler geometry: the\n"
+                        "tap's arm runs parallel to the bus over this length\n"
+                        "instead of butting into it perpendicular. Coupling then\n"
+                        "scales with length rather than proximity.")
     p.add_argument("--relax-steps", type=int, default=8000)
     p.add_argument("--outdir", default="runs/polytap_impulse")
     a = p.parse_args()
@@ -90,9 +96,20 @@ def main():
     mnn.set_precision("float32"); mnn.set_device("cpu")
     dtype = torch.float32
     outdir = Path(a.outdir); outdir.mkdir(parents=True, exist_ok=True)
-    cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
-                        coupling_gap=a.gap * 1e-9)
-    arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
+    if a.coupler_len > 0:
+        cfg = DirCouplerConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
+                               coupler_len=a.coupler_len * 1e-9,
+                               coupler_gap=(a.gap or 20.0) * 1e-9)
+        arr = DirCouplerArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
+        if cfg.coupler_len > cfg.max_coupler_len():
+            raise SystemExit(
+                f"coupler_len {cfg.coupler_len*1e9:.0f} nm exceeds the "
+                f"{cfg.max_coupler_len()*1e9:.0f} nm that tap spacing allows; "
+                f"adjacent arms would merge into one waveguide.")
+    else:
+        cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
+                            coupling_gap=a.gap * 1e-9)
+        arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     nx, ny = cfg.grid
     print(f"grid {nx}x{ny}, {cfg.n_taps} taps, designed lags "
           f"{list(cfg.tap_lags[:cfg.n_taps])}")
@@ -105,7 +122,8 @@ def main():
     # nothing saved and would have restarted from the ansatz every time. The
     # progress file records how many steps the saved state has had, so a
     # restart continues rather than repeating.
-    tag = f"n{cfg.n_taps}_gap{int(a.gap)}"
+    tag = (f"n{cfg.n_taps}_cpl{int(a.coupler_len)}" if a.coupler_len > 0
+           else f"n{cfg.n_taps}_gap{int(a.gap)}")
     m0c = outdir / f"m0_{tag}.pt"
     prog = outdir / f"m0_{tag}.steps"
     done = 0

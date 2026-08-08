@@ -849,3 +849,295 @@ class ChainPortedArray:
                     f"{require_tol:.0e} after {steps} steps. A timing "
                     f"measurement on this state would read drift as signal.")
         return self.m0
+
+
+@dataclass
+class PolyTapConfig(PortedVortexConfig):
+    """A delay-line BUS tapped in parallel by N vortex disks.
+
+    Why this shape rather than a deeper chain. The capacity accounting on the
+    3- and 4-stage chains found 98-99% of measured capacity sitting in degree-1
+    targets, with NARMA-10's long-separation products at exactly 0.000 -- and
+    the task's value lives entirely in those: products with |i-j| >= 5 score
+    0.0401 while every short-separation family sits at the 0.124 linear
+    baseline. The chain makes only the worthless kind, and for a structural
+    reason. Its nonlinear element is the driven disk, whose own memory spans
+    lags 0-6, so the only samples it can multiply are ones a frame or two
+    apart. Deep stages remember longer but receive no fresh input to mix
+    against. The chain mixes first and delays afterwards; the task needs the
+    opposite order.
+
+    So: one guide carries the input past every disk, and each disk ALSO
+    receives the fresh sample. Disk i then multiplies u[n] against u[n - k_i],
+    with k_i set by how far along the bus it sits -- many separations in
+    parallel rather than one in series.
+
+    Three measured numbers fix the geometry, none of them chosen by taste:
+
+        189 nm    one frame of delay on an 80 nm bus (945 m/s, measured)
+        951 nm    bus attenuation length (measured on a bare 5 um strip)
+        16x       how much better the bus is than the chain over the same
+                  delay: ~7x loss across 9.5 frames against the chain's ~118x
+
+    The disks hang off the bus by their OWN 270-degree port guide, so the
+    coupling is the tap geometry already characterised rather than a new
+    element. That guide is the input; the other five are the readout. Feeding
+    a signal into a guide that is also a readout tap would put the input
+    straight into the features -- the failure the single-disk work already
+    named -- so `port_signals` returns the five, not the six.
+
+    The amplitude balance is the constraint the co-drive arm died on. Driving
+    a tap with a full-amplitude fresh sample while its delayed copy arrives
+    100x down turns the tap into another input disk: measured, degree-1
+    capacity fell 8.91 -> 4.95 and the memory horizon pulled in from lag 12 to
+    lag 7. Here the fresh drive per tap is scaled by `fresh_scale()` to track
+    the bus decay, so both operands of the intended product arrive comparable.
+    """
+
+    n_taps: int = 4
+    # Rotate the port ring by half a sector so ONE guide points straight at the
+    # bus. The inherited ring sits at 0, 60, ... 300 degrees, which has no
+    # guide at 270 and therefore nothing to couple with; the two nearest sit at
+    # 240 and 300 and would each meet the bus at a 60-degree skew. The rotation
+    # also narrows the disk's x-footprint from 500 to 433 nm, which is what
+    # makes 567 nm tap spacing fit at all.
+    port_phase: float = math.pi / 6
+    # Gap between the bus edge and the tip of each disk's coupling guide.
+    #
+    # Zero -- a guide touching the bus -- is a STRONG tap, and strong taps drain
+    # the line. Measured on the zero-gap build: the bus falls 566x from the
+    # injection to the far end where the bare strip over the same span falls
+    # 17x, and probing between taps shows each one removing 20-60% of what
+    # reaches it on top of the guide's own attenuation. Tap 4 then receives
+    # 300x less than tap 1, which is no balance at all.
+    #
+    # A gap couples evanescently, so a few tens of nm buys orders of magnitude
+    # of coupling control: weak taps pass the wave on, at the cost of receiving
+    # less of it themselves. That trade is the design's central free parameter
+    # and this is the knob for sweeping it.
+    coupling_gap: float = 0.0
+    bus_width: float = 80e-9
+    bus_absorb: float = 400e-9        # absorbing taper at each bus end
+    inject_at: float = 600e-9         # from the left bus end
+    inject_len: float = 100e-9
+    tap_lags: tuple = (5.0, 8.0, 11.0, 14.0)   # frames of delay, per tap
+    frame_nm: float = 189e-9          # MEASURED: one frame of bus delay
+    atten_nm: float = 951e-9          # MEASURED: bus attenuation length
+    margin: float = 80e-9
+
+    def port_angles(self):
+        return [self.port_phase + 2 * math.pi * k / self.n_ports
+                for k in range(self.n_ports)]
+
+    def tap_x(self):
+        """Distance of each tap from the left bus end."""
+        return [self.inject_at + lag * self.frame_nm
+                for lag in self.tap_lags[:self.n_taps]]
+
+    def disk_cy(self) -> float:
+        """Disk centre height: its 270-degree guide stops `coupling_gap` short."""
+        return (self.bus_width / 2 + self.coupling_gap
+                + self.radius + self.guide_length)
+
+    def bus_length(self) -> float:
+        return (self.tap_x()[-1] + self.radius + self.guide_length
+                + self.bus_absorb + self.margin)
+
+    def fresh_scale(self):
+        """Per-tap fresh-drive amplitude, tracking the measured bus decay.
+
+        The delayed copy at tap i is attenuated by exp(-d_i / atten_nm); the
+        fresh sample is not attenuated at all. Scaling the fresh drive by the
+        same factor keeps the two operands of the product comparable at every
+        tap, which is precisely what the chain co-drive could not do.
+        """
+        x0 = self.inject_at
+        return [math.exp(-(x - x0) / self.atten_nm) for x in self.tap_x()]
+
+    @property
+    def grid(self) -> tuple[int, int]:
+        nx = int(np.ceil(self.bus_length() / self.dx)) + 2 * self.margin_cells
+        top = self.disk_cy() + self.radius + self.guide_length + self.margin
+        bot = self.bus_width / 2 + self.margin
+        ny = int(np.ceil((top + bot) / self.dx)) + 2 * self.margin_cells
+        return (nx, ny)
+
+    def centres(self):
+        """Disk centres in mesh coordinates (origin at the mesh centre)."""
+        nx, ny = self.grid
+        x_off = -(nx - 1) / 2 * self.dx           # mesh x of the left bus end
+        y_bus = self._bus_y()
+        return [(x_off + x, y_bus + self.disk_cy()) for x in self.tap_x()]
+
+    def _bus_y(self) -> float:
+        """Mesh y of the bus centreline: disks sit above, so the bus sits low."""
+        nx, ny = self.grid
+        return -(ny - 1) / 2 * self.dx + self.bus_width / 2 + self.margin
+
+    def inject_x(self) -> float:
+        nx, ny = self.grid
+        return -(nx - 1) / 2 * self.dx + self.inject_at
+
+    def chiralities(self):
+        return [(+1 if i % 2 == 0 else -1) for i in range(self.n_taps)]
+
+
+def polytap_mask(cfg: PolyTapConfig, device=None, dtype=torch.float64):
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+    yb = cfg._bus_y()
+    x0 = -(nx - 1) / 2 * cfg.dx
+    m = (((Y - yb).abs() <= cfg.bus_width / 2)
+         & (X >= x0) & (X <= x0 + cfg.bus_length()))
+    for cx, cy in cfg.centres():
+        m = m | _radial_guides(X, Y, cx, cy, cfg)
+    return m.to(dtype).reshape(nx, ny, 1, 1)
+
+
+def polytap_alpha(cfg: PolyTapConfig, device=None, dtype=torch.float64):
+    """Absorb at the bus ends and at the five READOUT guide ends.
+
+    The 270-degree guide is the bus coupling, not a port, so its taper is cut
+    out by the vertical corridor below each disk -- an absorber there would
+    attenuate the very signal the tap exists to receive, the same mistake the
+    chain avoided by cutting its link corridors out of the ramp.
+    """
+    nx, ny = cfg.grid
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+    yb, x0 = cfg._bus_y(), -(nx - 1) / 2 * cfg.dx
+    L = cfg.bus_length()
+
+    outer = cfg.radius + cfg.guide_length
+    start = outer - cfg.absorb_frac * cfg.guide_length
+    ramp = torch.zeros_like(X)
+    for cx, cy in cfg.centres():
+        r = torch.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
+        g = ((r - start) / (outer - start)).clamp(0.0, 1.0) ** 2
+        # LOCAL to this disk. The clamp saturates at 1 for every r beyond the
+        # guide tip, so without this the taper would extend to infinity and
+        # damp the entire bus at absorb_alpha -- which is exactly what the
+        # first version did, and what the geometry check caught.
+        g = torch.where(r <= outer + cfg.dx, g, torch.zeros_like(g))
+        # cut the coupling corridor: directly below this disk, down to the bus
+        g = torch.where(((X - cx).abs() <= cfg.guide_width / 2) & (Y < cy),
+                        torch.zeros_like(g), g)
+        ramp = torch.maximum(ramp, g)
+    # bus ends
+    bl = ((x0 + cfg.bus_absorb - X) / cfg.bus_absorb).clamp(0.0, 1.0) ** 2
+    br = ((X - (x0 + L - cfg.bus_absorb)) / cfg.bus_absorb).clamp(0.0, 1.0) ** 2
+    on_bus = (Y - yb).abs() <= cfg.bus_width / 2
+    ramp = torch.maximum(ramp, torch.where(on_bus,
+                                           torch.maximum(bl, br),
+                                           torch.zeros_like(bl)))
+    return (cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp).reshape(nx, ny, 1, 1)
+
+
+class PolyTapArray:
+    """A bus with N tap disks. Tap i contributes five readout ports."""
+
+    BUS_PORT = 4          # index of the 270-degree guide in port_angles()
+
+    def __init__(self, cfg: PolyTapConfig, timesteps: int, device=None,
+                 dtype=torch.float64):
+        self.cfg = cfg
+        nx, ny = cfg.grid
+        mesh = MeshConfig(nx=nx, ny=ny, nz=1, dx=cfg.dx, dy=cfg.dx,
+                          dz=cfg.thickness)
+        solver = SolverConfig(dt=cfg.dt, timesteps=timesteps, checkpoint=False,
+                              renormalize=True, demag=True)
+        self.mask = polytap_mask(cfg, device, dtype)
+        alpha = polytap_alpha(cfg, device, dtype) * self.mask
+        self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha,
+                                  Ms_ref=cfg.Ms)
+        self.rollout.set_Ms(cfg.Ms * self.mask)
+        self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
+        self.m0 = None
+
+        x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+        y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+        self._X, self._Y = torch.meshgrid(x, y, indexing="ij")
+        self.disk_masks = torch.stack([
+            (((self._X - cx) ** 2 + (self._Y - cy) ** 2) <= cfg.radius**2).to(dtype)
+            for cx, cy in cfg.centres()])
+        self.bus_mask = self._bus_region(dtype)
+        self.inject_mask = self._inject_region(dtype)
+        self._tap_masks = self._build_taps(dtype)
+
+    @property
+    def n_readout(self) -> int:
+        return self.cfg.n_ports - 1
+
+    def _bus_region(self, dtype):
+        cfg = self.cfg
+        nx, _ = cfg.grid
+        x0 = -(nx - 1) / 2 * cfg.dx
+        return (((self._Y - cfg._bus_y()).abs() <= cfg.bus_width / 2)
+                & (self._X >= x0)
+                & (self._X <= x0 + cfg.bus_length())).to(dtype)
+
+    def _inject_region(self, dtype):
+        cfg = self.cfg
+        xi = cfg.inject_x()
+        return (((self._Y - cfg._bus_y()).abs() <= cfg.bus_width / 2)
+                & (self._X >= xi) & (self._X <= xi + cfg.inject_len)).to(dtype)
+
+    def _build_taps(self, dtype):
+        """Five taps per disk: every port guide EXCEPT the bus coupling."""
+        cfg = self.cfg
+        outer = cfg.radius + cfg.guide_length
+        tap_r = outer - cfg.absorb_frac * cfg.guide_length - 2 * cfg.dx
+        solid = self.mask[:, :, 0, 0] > 0.5
+        angles = cfg.port_angles()
+        taps = []
+        for cx, cy in cfg.centres():
+            dX, dY = self._X - cx, self._Y - cy
+            for i, th in enumerate(angles):
+                if i == self.BUS_PORT:
+                    continue
+                u = dX * math.cos(th) + dY * math.sin(th)
+                v = -dX * math.sin(th) + dY * math.cos(th)
+                taps.append((((u - tap_r).abs() <= 1.5 * cfg.dx)
+                             & (v.abs() <= cfg.guide_width / 2)
+                             & solid).to(dtype))
+        return torch.stack(taps)
+
+    def port_signals(self, m: torch.Tensor) -> torch.Tensor:
+        dm = (m - self.m0)[:, :, 0, 2]
+        w = self._tap_masks
+        return (w * dm).sum(dim=(1, 2)) / w.sum(dim=(1, 2)).clamp_min(1e-30)
+
+    def relax(self, steps: int = 8000, alpha_relax: float = 0.5,
+              require_tol: float | None = None):
+        cfg = self.cfg
+        nx, ny = cfg.grid
+        X, Y = self._X, self._Y
+        m = torch.zeros(nx, ny, 1, 3, dtype=self.h_zero.dtype)
+        # Bus and guides start along the bus axis: shape anisotropy puts a long
+        # strip's ground state along its own length.
+        m[:, :, 0, 0] = 1.0
+        for k, (cx, cy) in enumerate(cfg.centres()):
+            dX, dY = X - cx, Y - cy
+            r = torch.sqrt(dX**2 + dY**2).clamp_min(1e-18)
+            mz = cfg.polarity * torch.exp(-(r / cfg.core_width) ** 2)
+            ip = torch.sqrt((1 - mz**2).clamp_min(0.0))
+            sel = self.disk_masks[k] > 0
+            c = cfg.chiralities()[k]
+            m[:, :, 0, 0] = torch.where(sel, -c * ip * dY / r, m[:, :, 0, 0])
+            m[:, :, 0, 1] = torch.where(sel, c * ip * dX / r, m[:, :, 0, 1])
+            m[:, :, 0, 2] = torch.where(sel, mz, m[:, :, 0, 2])
+        m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12) * self.mask
+        self.m0 = self.rollout.relax(m, self.h_zero, steps, alpha_relax)
+        if require_tol is not None:
+            probe = self.rollout.relax(self.m0.clone(), self.h_zero, 20,
+                                       alpha_relax)
+            drift = float((probe - self.m0).norm()
+                          / max(float(self.m0.norm()), 1e-30))
+            if drift > require_tol:
+                raise RuntimeError(
+                    f"relaxation still drifting: {drift:.2e} > "
+                    f"{require_tol:.0e} after {steps} steps.")
+        return self.m0

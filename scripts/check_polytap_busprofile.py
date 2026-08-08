@@ -32,14 +32,16 @@ p.add_argument("--lags", type=float, nargs="+", default=[5, 8, 11, 14])
 p.add_argument("--amp-mT", type=float, default=30.0)
 p.add_argument("--freq", type=float, default=12.0)
 p.add_argument("--steps", type=int, default=3000)
+p.add_argument("--gap", type=float, default=0.0)
 p.add_argument("--outdir", default="runs/polytap_impulse")
 a = p.parse_args()
 
 mnn.set_precision("float32"); mnn.set_device("cpu")
 dtype = torch.float32
-cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags))
+cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
+                    coupling_gap=a.gap * 1e-9)
 arr = PolyTapArray(cfg, timesteps=a.steps + 8, dtype=dtype)
-m0c = Path(a.outdir) / f"m0_n{cfg.n_taps}.pt"
+m0c = Path(a.outdir) / f"m0_n{cfg.n_taps}_gap{int(a.gap)}.pt"
 arr.m0 = torch.load(m0c, weights_only=False).to(dtype)
 print(f"[m0] {m0c.name}")
 
@@ -87,7 +89,7 @@ for j, v in enumerate(probe_nm):
     rows.append({"x_nm": float(v), "rms": rms, "rel": rms / max(ref, 1e-30)})
     print(f"{v:>7.0f} {rms:>11.4e} {rms/max(ref,1e-30):>9.4f}  {marker}")
 Path(a.outdir).mkdir(parents=True, exist_ok=True)
-(Path(a.outdir) / "bus_profile.json").write_text(json.dumps(rows, indent=2))
+(Path(a.outdir) / f"bus_profile_gap{int(a.gap)}.json").write_text(json.dumps(rows, indent=2))
 
 # step at each tap vs decay between taps
 print("\nratio across each tap vs the bare-bus expectation over the same span:")
@@ -101,4 +103,4 @@ for t, xv in enumerate(tap_nm):
     bare = math.exp(-span / 951e-9)
     print(f"  tap {t+1}: {b:.3e} -> {af:.3e} = {af/max(b,1e-30):.3f}   "
           f"bare bus over {span*1e9:.0f} nm would give {bare:.3f}")
-print(f"\nwrote {Path(a.outdir)/'bus_profile.json'}")
+print(f"\nwrote {Path(a.outdir)}/bus_profile_gap{int(a.gap)}.json")

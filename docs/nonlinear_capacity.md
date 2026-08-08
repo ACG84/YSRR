@@ -419,3 +419,77 @@ and each tap's fresh feed is its own line, so near taps can couple weakly and fa
 taps strongly. But that is an assumption about a design not yet built, and the
 honest position is that the bus removes the objection that killed the chain
 without yet establishing that the replacement works.
+
+## The coupling-gap sweep: the trade has no operating point at this tap geometry
+
+The zero-gap build worked in one respect and failed in another. Tap 1 arrived at
+lag **4.90** against a designed 5.0 — the bus delay calibration transfers
+exactly, so tap placement is a solved problem. But delivered amplitude fell 314×
+across the four taps, and probing the bus showed why: each tap drains the line,
+so the loaded bus falls 566× end to end where the bare strip falls 17×.
+
+`coupling_gap` was added to test the obvious fix — couple each tap weakly so it
+passes the wave on. Two points, 0 and 30 nm, on the identical geometry:
+
+| | gap 0 (galvanic) | gap 30 nm |
+|---|---|---|
+| tap 1 received | 1.495e−03 | 7.309e−04 |
+| tap 2 | 1.371e−04 | 3.875e−05 |
+| tap 3 | 1.821e−05 | 7.972e−06 |
+| tap 4 | 4.767e−06 | 4.049e−06 |
+| spread tap1/tap4 | 314× | 181× |
+| balance vs fresh drive | 0.104 → 0.002 | 0.056 → 0.002 |
+| **tap 1 measured lag** | **4.90 (designed 5.0)** | **1.50 — wrong** |
+
+**The gap does exactly what it was designed to do, and it is not enough.** Bus
+through-loss at each tap, against what the bare strip would lose over the same
+span:
+
+| | gap 0 | gap 30 | bare bus |
+|---|---|---|---|
+| tap 1 | 0.431 | **0.912** | 0.729 |
+| tap 2 | 0.288 | 0.473 | 0.810 |
+| tap 3 | 0.551 | 0.549 | 0.810 |
+| tap 4 | 0.606 | 0.421 | 0.729 |
+
+At tap 1 the draining is *fixed*: 0.431 → 0.912, essentially no excess loss over
+the bare guide. The mechanism is confirmed. But tap 1's received signal halves in
+the process, and its measured arrival collapses from lag 4.90 to lag 1.50 —
+meaning the tap is now reading stray field rather than the guided wave that
+arrives four frames later.
+
+### Why no gap fixes this
+
+**Guided coupling and stray coupling are both near-field, and they scale together
+with distance.** Widening the gap attenuates the intended evanescent coupling and
+the unintended dipolar pickup at comparable rates, so the contrast between them
+barely moves while both fall. There is no gap that favours one over the other,
+which is why the sweep improves the spread (314× → 181×) and destroys the delay
+signature at the same time. A third intermediate point would interpolate between
+two failures rather than find a window between them.
+
+The taps beyond the first were never receiving a guided signal in either
+configuration — tap 4 changes by only 1.18× across a gap that halves tap 1,
+which is the signature of a stray-dominated reading that the coupling geometry
+does not control at all.
+
+### What the measurements point at instead
+
+A perpendicular stub is the wrong coupler. The standard way to discriminate
+guided from stray is a **directional coupler**: run the tap's feed guide
+*parallel* to the bus over a coupling length, phase-matched, instead of butting
+it in perpendicular. Guided coupling then accumulates coherently along that
+length while stray pickup does not, so coupling strength becomes a function of
+length — a parameter that trades against nothing — rather than of proximity,
+which trades against contrast.
+
+That is a genuinely different tap geometry, not a parameter change, and it is the
+honest next step rather than a third gap. What survives from this build and
+should be carried into it: the bus itself (951 nm attenuation length, 945 m/s,
+16× better transport than the chain), the tap-position calibration (189 nm per
+frame, confirmed to 2% at tap 1), the checkpointed relax, and the geometry
+checker, which caught two build-breaking bugs before any physics ran.
+
+What this build does not support is the claim it was made to test. Four taps
+were meant to supply long-separation products at four different delays; three of
+them never received a delayed signal at all.

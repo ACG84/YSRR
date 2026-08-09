@@ -96,10 +96,11 @@ def main():
                         "instead of butting into it perpendicular. Coupling then\n"
                         "scales with length rather than proximity.")
     p.add_argument("--relax-steps", type=int, default=8000)
+    p.add_argument("--device", default="cpu")
     p.add_argument("--outdir", default="runs/polytap_impulse")
     a = p.parse_args()
 
-    mnn.set_precision("float32"); mnn.set_device("cpu")
+    mnn.set_precision("float32"); mnn.set_device(a.device)
     dtype = torch.float32
     outdir = Path(a.outdir); outdir.mkdir(parents=True, exist_ok=True)
     if a.coupler_len > 0:

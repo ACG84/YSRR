@@ -45,10 +45,11 @@ p.add_argument("--amp-mT", type=float, default=30.0)
 p.add_argument("--freq", type=float, default=12.0)
 p.add_argument("--burst", type=int, default=200)
 p.add_argument("--quiet", type=int, default=2600)
+p.add_argument("--device", default="cpu")
 p.add_argument("--outdir", default="runs/polytap_impulse")
 a = p.parse_args()
 
-mnn.set_precision("float32"); mnn.set_device("cpu")
+mnn.set_precision("float32"); mnn.set_device(a.device)
 dtype = torch.float32
 if a.coupler_len > 0:
     cfg = DirCouplerConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
@@ -64,11 +65,13 @@ else:
     arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     tag = f"n{cfg.n_taps}_gap{int(a.gap)}"
 arr.m0 = torch.load(Path(a.outdir) / f"m0_{tag}.pt", weights_only=False).to(dtype)
+m0_used = f"m0_{tag}.pt"
 # The ground state is an energy minimum and does not depend on damping, so the
 # cached m0 for this geometry is valid at any tap_alpha_mult.
 if a.tap_alpha_mult != 1.0:
     tag = f"{tag}_ta{a.tap_alpha_mult:g}"
-print(f"[m0] m0_{tag}.pt   burst {a.burst} steps")
+print(f"[m0] {m0_used}   burst {a.burst} steps   "
+      f"tap alpha x{a.tap_alpha_mult:g}")
 
 unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
 unit[:, :, 0, 2] = arr.inject_mask

@@ -641,3 +641,47 @@ paper omitted, three times so far. And the spacings are microns: 24 taps at 12.5
 um is a 300 um bus, which is enormous next to the 4 um structures simulated here
 and would take a mesh this approach cannot afford. Verification would need a
 coarser cell size or a different solver, not more of the same runs.
+
+## Differential damping, measured: the mechanism is real and does not reach the design
+
+The design equation says tap spacing scales with alpha_tap/alpha_bus, which means
+the principle is testable at whatever spacing already exists rather than needing
+the 300 um device. At the 567 nm spacing already built, a tap must respond within
+0.60 ns to be resolved -- alpha_tap > 0.022, only 2.8x permalloy's. So raise the
+damping on the tap disk bodies alone and re-measure the delays.
+
+| tap alpha | tap 1 | tap 2 | tap 3 | tap 4 | measured spacings (designed +3.0) |
+|---|---|---|---|---|---|
+| 1x | 12.87 | 12.13 | 13.00 | 12.43 | −0.73, +0.87, −0.57 |
+| **10x** | **10.84** | **11.95** | **13.00** | 1.09 | **+1.11, +1.05**, −11.91 |
+| 30x | 10.14 | 10.91 | 1.09 | 1.08 | +0.77, −9.81, −0.01 |
+
+**At 10x the first three taps come out monotonically ordered in delay — the first
+time any build in this project has done so.** Every earlier geometry returned the
+same ~12.5 frames at every tap regardless of position. The mechanism is real and
+it points the way the theory says it should.
+
+It also does not reach the design. The measured spacing is ~1.1 frames against a
+designed 3.0, and pushing to 30x makes it *worse*, not better: tap 3 falls out at
+30x and the ordering survives only across two taps. That is not the theory
+failing but a second constraint biting — the tap response gets shorter and the
+tap signal gets weaker together, and by 30x taps 3 and 4 are at 6.1e-6 and 2.7e-6,
+too weak for the estimator to place at all.
+
+### The two knobs are not independent
+
+This is the part worth carrying forward. Damping sets whether a tap can *resolve*
+a delay; coupling sets whether it *receives* enough to be measured. Testing them
+one at a time — which is what the gap sweep, the coupler, and this damping sweep
+each did — cannot find the window, because the useful region is where a tap rings
+briefly AND still receives usable amplitude, and the 314x spread at galvanic
+coupling means the far taps were never measurable at any damping.
+
+The next experiment is therefore two-dimensional, over coupling geometry against
+tap damping, which is 20-30 runs. That is a poor fit for this machine and a
+natural one for a GPU, now that the array runners take the graph-capturable path
+rather than breaking the CUDA graph on a Python callable every substep.
+
+What should not be run yet is a 600-frame task benchmark on this array. An array
+whose taps cannot be told apart will produce a clean, meaningless number, and
+this project has already paid for that lesson three times.

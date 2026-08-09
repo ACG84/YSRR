@@ -146,6 +146,20 @@ TASKS = {
         "python scripts/check_polytap_delay.py --gap 0 --tap-alpha-mult 10 "
         "--device cuda"
     ),
+    # THE job for a GPU: coupling against tap damping, 20 points. Damping and
+    # coupling govern different halves of one requirement -- whether a tap can
+    # resolve a delay, and whether it receives enough to be measured -- and
+    # every one-dimensional sweep so far was defeated by the other axis.
+    #
+    # Cost is dominated by five ground-state relaxes, one per GEOMETRY; the
+    # damping column is free because damping does not move an energy minimum.
+    # Note the relax does NOT go through graph_stepper, so it will speed up by
+    # ordinary tensor throughput rather than the graph-capture factor the burst
+    # loops get. Results are written per point, so a reclaimed runtime resumes.
+    "polytap-sweep": (
+        "python scripts/sweep_polytap.py --device cuda "
+        "--outdir runs/polytap_sweep_gpu"
+    ),
     "polytap-damping-sweep": (
         "for m in 1 3 5 10 20; do python scripts/check_polytap_delay.py "
         "--gap 0 --tap-alpha-mult $m --device cuda; done"

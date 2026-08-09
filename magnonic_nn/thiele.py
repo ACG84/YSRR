@@ -54,6 +54,8 @@ from dataclasses import dataclass, field
 
 import torch
 
+from ._compat import get_device
+
 __all__ = ["ThieleConfig", "ThieleDisks"]
 
 GAMMA_T = 1.760859630e11  # gyromagnetic ratio, rad/(s*T)
@@ -184,8 +186,18 @@ class ThieleDisks:
 
     K_B = 1.380649e-23
 
-    def __init__(self, cfg: ThieleConfig, dtype=torch.float64, device="cpu",
+    def __init__(self, cfg: ThieleConfig, dtype=torch.float64, device=None,
                  noise_seed: int = 0):
+        # Follow the AMBIENT default device rather than pinning to CPU.
+        #
+        # set_device() sets torch's global default, so under CUDA a caller's
+        # `torch.zeros(1)` is a CUDA tensor while this object's own state,
+        # created with an explicit device="cpu", stayed on the host. The two met
+        # in _force at `F[:, 0] += ... * drive * osc` and raised "Expected all
+        # tensors to be on the same device". Caught by the GPU test suite on
+        # first execution of the CUDA path; an explicit device= still overrides.
+        if device is None:
+            device = get_device()
         self.noise_gen = torch.Generator(device=device).manual_seed(noise_seed)
         self.cfg = cfg
         d = cfg.derived()

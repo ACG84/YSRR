@@ -48,7 +48,20 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
         arr = PolyTapArray(cfg, timesteps=timesteps, dtype=dtype)
         geom = f"n{n_taps}_gap{int(gap_nm)}"
     run = geom if tap_alpha_mult == 1.0 else f"{geom}_ta{tap_alpha_mult:g}"
-    return cfg, arr, geom, run
+    # The ground state does not depend on damping, so sharing one relax across a
+    # damping column SHOULD be free -- and on CPU it is. On CUDA it is not:
+    # points that reloaded a shared m0 returned four taps of identical amplitude
+    # (spread 1.0, min amp 1.3e-02) while the same point with a fresh relax
+    # reproduced the CPU numbers exactly (spacings 1.11, 1.05, -11.91; spread
+    # 287x against 286x; min amp 2.78e-06 in both). Something about the restored
+    # state is wrong on the device beyond the dtype/device fix already applied,
+    # and it is not yet root-caused.
+    #
+    # So the m0 cache is keyed by RUN, not by geometry: every point relaxes its
+    # own ground state. That is pure waste on CPU and ~100 s per point on a T4,
+    # which is affordable precisely because the GPU is fast -- and a correct
+    # sweep at 35 minutes beats a wrong one at 10.
+    return cfg, arr, run, run
 
 
 def ensure_m0(arr, outdir, geom_tag, relax_steps=8000, chunk=1000, dtype=torch.float32,

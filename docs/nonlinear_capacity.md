@@ -493,3 +493,89 @@ checker, which caught two build-breaking bugs before any physics ran.
 What this build does not support is the claim it was made to test. Four taps
 were meant to supply long-separation products at four different delays; three of
 them never received a delayed signal at all.
+
+## Correction: tap position never set tap delay, in any poly-tap build
+
+Two earlier sections of this document report that the zero-gap build validated
+the delay calibration — "tap 1 arrives at lag 4.90 against a designed 5.0, so
+the bus delay calibration transfers exactly" and "tap placement is a solved
+problem." **Both statements are wrong.** They rest on an arrival estimator that
+cannot support them, and the correct measurement says the opposite.
+
+The estimator was the first crossing of 10% of a tap's own envelope peak. It
+fires on whatever arrives first, so a small instantaneous precursor reads as
+"no delay" even when most of the energy arrives late — and conversely, a tap
+whose precursor happens to sit just under 10% reads as a clean delayed arrival.
+The 4.90 was the second case: a coincidence, not a measurement.
+
+Cross-correlating each tap's envelope against the injected burst removes the
+ambiguity. Envelope rather than carrier, because the 12 GHz period is 0.42
+frames and a carrier-level correlation is ambiguous modulo the period. Ring-up
+still biases the absolute number late, but that bias is common to all taps, so
+the trustworthy quantity is the **difference** between taps — designed 3 frames
+apart throughout.
+
+| tap | designed | galvanic stub | directional coupler |
+|---|---|---|---|
+| 1 | 5.0 | 12.87 | 12.31 |
+| 2 | 8.0 | 12.13 | 13.00 |
+| 3 | 11.0 | 13.00 | 12.87 |
+| 4 | 14.0 | 12.43 | 3.33 |
+| **spacing errors** | **+3.0 each** | −3.73, −2.13, −3.57 | −2.31, −3.13, −12.54 |
+| within tolerance | | **0 / 3** | **0 / 3** |
+
+Every tap in both geometries responds at the same ~12.5 frames regardless of
+where it sits on the bus. Tap position is not setting tap delay and never was.
+All three poly-tap builds were assessed with an instrument incapable of
+detecting the thing under test.
+
+This does **not** show the architecture fails. It shows the gate was
+uninformative. The chain's stage delays were real and were resolved — by memory
+functions on a 600-frame task run, not by an impulse.
+
+## The limit that explains all three failures at once
+
+The ~12.5 frames is the disks' own ring-up and ring-down, not bus transit, and
+that is what makes the delay differences invisible: a detector that rings for
+12 frames cannot timestamp a 3-frame spacing.
+
+Which turns into a hard constraint once the two measured bus constants are put
+side by side, because they are not independent:
+
+    attenuation length  L = 951 nm
+    group velocity      v = 945 m/s
+    so the guide's own decay time is L / v = 1.01 ns
+
+**A wave decays over exactly the distance it travels in one decay time.** That
+is not a coincidence of this material — it is what an attenuation length *is*.
+So the distance a tap must be separated by to be resolvable (at least one
+detector response time of travel) is necessarily comparable to the distance
+over which the signal decays.
+
+With the measured 12.5-frame tap response, resolvable spacing is 2363 nm = 2.5
+attenuation lengths, so **each additional resolvable tap costs e^2.5 ≈ 12× in
+amplitude**:
+
+| resolvable taps | dynamic range across the array |
+|---|---|
+| 4 | 1.7 × 10³ |
+| 6 | 2.5 × 10⁵ |
+| 10 | 5.1 × 10⁹ |
+
+Against a usefully-nonlinear-and-still-stable drive window of ~2.3× per disk.
+
+That is the whole story of the three coupling failures, and it was never about
+the coupler. Galvanic stub, 30 nm gap, and 400 nm directional coupler all land
+in the same place — spreads of 314×, 181× and 157× — because the spread is set
+by the ratio of two material constants, not by how the taps attach. No coupler
+geometry moves it, which is why the gap sweep and the coupler sweep produced
+the same numbers by different routes.
+
+**A delay line tapped at many points is not viable in a medium this lossy.** The
+requirement was ~40 independent long-separation product dimensions; the array
+cannot deliver even ten resolvable taps without a 10⁹ dynamic range.
+
+What would change it is a material or frequency with a longer decay time
+relative to its response time — a lower-damping film, or a drive frequency where
+the group velocity is higher so the same decay time buys more distance. Both are
+outside what this project has characterised, and neither is a geometry fix.

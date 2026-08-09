@@ -39,6 +39,8 @@ p.add_argument("--n-taps", type=int, default=4)
 p.add_argument("--lags", type=float, nargs="+", default=[5, 8, 11, 14])
 p.add_argument("--coupler-len", type=float, default=0.0)
 p.add_argument("--gap", type=float, default=0.0)
+p.add_argument("--tap-alpha-mult", type=float, default=1.0,
+               help="local damping multiplier on the tap disk bodies")
 p.add_argument("--amp-mT", type=float, default=30.0)
 p.add_argument("--freq", type=float, default=12.0)
 p.add_argument("--burst", type=int, default=200)
@@ -51,15 +53,21 @@ dtype = torch.float32
 if a.coupler_len > 0:
     cfg = DirCouplerConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
                            coupler_len=a.coupler_len * 1e-9,
-                           coupler_gap=(a.gap or 20.0) * 1e-9)
+                           coupler_gap=(a.gap or 20.0) * 1e-9,
+                           tap_alpha_mult=a.tap_alpha_mult)
     arr = DirCouplerArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     tag = f"n{cfg.n_taps}_cpl{int(a.coupler_len)}"
 else:
     cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
-                        coupling_gap=a.gap * 1e-9)
+                        coupling_gap=a.gap * 1e-9,
+                        tap_alpha_mult=a.tap_alpha_mult)
     arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     tag = f"n{cfg.n_taps}_gap{int(a.gap)}"
 arr.m0 = torch.load(Path(a.outdir) / f"m0_{tag}.pt", weights_only=False).to(dtype)
+# The ground state is an energy minimum and does not depend on damping, so the
+# cached m0 for this geometry is valid at any tap_alpha_mult.
+if a.tap_alpha_mult != 1.0:
+    tag = f"{tag}_ta{a.tap_alpha_mult:g}"
 print(f"[m0] m0_{tag}.pt   burst {a.burst} steps")
 
 unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)

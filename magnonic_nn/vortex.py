@@ -916,6 +916,21 @@ class PolyTapConfig(PortedVortexConfig):
     # less of it themselves. That trade is the design's central free parameter
     # and this is the knob for sweeping it.
     coupling_gap: float = 0.0
+    # Local damping multiplier on the TAP DISK BODIES only.
+    #
+    # The bus and the tap are not competing for the same alpha, and that is the
+    # whole point. Attenuation length and ring-down are both 1/(alpha*omega), so
+    # lowering alpha UNIFORMLY stretches each equally and buys nothing: cost per
+    # resolvable tap stays at e = 2.72 from alpha 8e-3 to 1e-5. Only the RATIO
+    # moves it -- taps within a dynamic range R is about ln(R)*(a_tap/a_bus).
+    #
+    # A tap does not need memory. Its job is to multiply a fresh sample against
+    # a delayed one; the memory lives in the bus. So a tap that rings briefly is
+    # the correct tap. At the 567 nm spacing already built, a tap must respond
+    # in under 0.60 ns to be resolved, which needs alpha_tap > 0.022 -- only
+    # 2.8x permalloy's. Physically this is a Pt or Pd cap raising alpha by spin
+    # pumping while the uncapped bus keeps its own.
+    tap_alpha_mult: float = 1.0
     bus_width: float = 80e-9
     bus_absorb: float = 400e-9        # absorbing taper at each bus end
     inject_at: float = 600e-9         # from the left bus end
@@ -1033,7 +1048,19 @@ def polytap_alpha(cfg: PolyTapConfig, device=None, dtype=torch.float64):
     ramp = torch.maximum(ramp, torch.where(on_bus,
                                            torch.maximum(bl, br),
                                            torch.zeros_like(bl)))
-    return (cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp).reshape(nx, ny, 1, 1)
+    a = cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp
+    a = _tap_damped(cfg, X, Y, a)
+    return a.reshape(nx, ny, 1, 1)
+
+
+def _tap_damped(cfg, X, Y, a):
+    """Raise alpha on the tap disk BODIES, leaving bus and guides alone."""
+    if cfg.tap_alpha_mult == 1.0:
+        return a
+    for cx, cy in cfg.centres():
+        body = ((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius ** 2
+        a = torch.where(body, a * cfg.tap_alpha_mult, a)
+    return a
 
 
 class PolyTapArray:
@@ -1270,7 +1297,9 @@ def dircoupler_alpha(cfg: DirCouplerConfig, device=None, dtype=torch.float64):
     ramp = torch.maximum(ramp, torch.where(on_bus,
                                            torch.maximum(bl, br),
                                            torch.zeros_like(bl)))
-    return (cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp).reshape(nx, ny, 1, 1)
+    a = cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp
+    a = _tap_damped(cfg, X, Y, a)
+    return a.reshape(nx, ny, 1, 1)
 
 
 class DirCouplerArray(PolyTapArray):

@@ -30,7 +30,7 @@ Colab runtime or a rebooted container loses at most the point in flight.
     python scripts/sweep_polytap.py --quick        # 4 points, for smoke-testing
 """
 from __future__ import annotations
-import argparse, json, sys, time
+import argparse, json, subprocess, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -61,6 +61,9 @@ def main():
                    help="tiny grid and short rollout; checks the plumbing, not "
                         "the physics")
     p.add_argument("--outdir", default="runs/polytap_sweep")
+    p.add_argument("--worker", type=float, nargs=3, default=None,
+                   metavar=("GAP", "COUPLER", "TAP_ALPHA"),
+                   help="internal: run exactly ONE point and exit")
     a = p.parse_args()
 
     if a.quick:
@@ -80,38 +83,64 @@ def main():
     print(f"{total} points: {len(geometries)} geometries x "
           f"{len(a.tap_alphas)} damping values, device={a.device}\n")
 
+    # ONE POINT PER PROCESS.
+    #
+    # magnum.np keeps process-global state, so constructing a second array in
+    # the same interpreter leaves tensors from the two geometries on different
+    # devices: the sweep died at the second point with "Expected all tensors to
+    # be on the same device" in h_eff, in BOTH the compiled and the eager path,
+    # while the identical geometry run alone in a fresh process completed in
+    # 14 s. That is a property of the library, not something this script can
+    # tidy around, so the parent spawns a worker per point and each worker
+    # writes its own result file. Per-point files also mean no read-modify-write
+    # on a shared json, so a killed worker cannot corrupt the sweep.
+    pts = outdir / "points"; pts.mkdir(exist_ok=True)
+
+    if a.worker is not None:
+        gap_nm, cpl_nm, ta = a.worker
+        cfg, arr, geom, run = make_array(a.n_taps, a.lags, gap_nm, cpl_nm, ta,
+                                         steps, dtype)
+        t0 = time.time()
+        ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
+                  log=lambda s: print(f"    {s}", flush=True))
+        sig, drive = burst_response(arr, cfg, a.amp_mT, a.freq, a.burst,
+                                    a.quiet, bus=True, fresh=False, dtype=dtype)
+        rows = delay_by_xcorr(sig, drive, cfg.n_taps, arr.n_readout, a.freq)
+        sc = score_point(rows, list(cfg.tap_lags[:cfg.n_taps]))
+        (pts / f"{run}.json").write_text(json.dumps(
+            {"gap_nm": gap_nm, "coupler_len_nm": cpl_nm, "tap_alpha_mult": ta,
+             "taps": rows, **sc, "seconds": round(time.time() - t0, 1)}, indent=2))
+        print(f"{run}: spacings "
+              f"{[round(float(x),2) for x in sc['spacing_measured']]}, "
+              f"mono {sc['n_monotonic']}/{cfg.n_taps-1}, "
+              f"spread {sc['amp_spread']:.0f}x, min amp {sc['amp_min']:.2e}")
+        return 0
+
     n = 0
     for gap_nm, cpl_nm in geometries:
         for ta in a.tap_alphas:
             n += 1
-            try:
-                cfg, arr, geom, run = make_array(
-                    a.n_taps, a.lags, gap_nm, cpl_nm, ta, steps, dtype)
-            except ValueError as e:
-                print(f"[{n}/{total}] skipped: {e}")
+            run = ((f"n{a.n_taps}_cpl{int(cpl_nm)}" if cpl_nm > 0
+                    else f"n{a.n_taps}_gap{int(gap_nm)}")
+                   + ("" if ta == 1.0 else f"_ta{ta:g}"))
+            if (pts / f"{run}.json").exists():
+                print(f"[{n}/{total}] {run}: cached"); continue
+            cmd = [sys.executable, __file__, "--worker", str(gap_nm),
+                   str(cpl_nm), str(ta), "--device", a.device,
+                   "--outdir", str(outdir), "--n-taps", str(a.n_taps),
+                   "--lags", *[str(x) for x in a.lags],
+                   "--amp-mT", str(a.amp_mT), "--freq", str(a.freq),
+                   "--burst", str(a.burst), "--quiet", str(a.quiet),
+                   "--relax-steps", str(a.relax_steps)]
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode != 0:
+                tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
+                print(f"[{n}/{total}] {run}: FAILED -- " + " | ".join(tail))
                 continue
-            if run in results:
-                print(f"[{n}/{total}] {run}: cached")
-                continue
-            t0 = time.time()
-            ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
-                      log=lambda s: print(f"    {s}", flush=True))
-            sig, drive = burst_response(arr, cfg, a.amp_mT, a.freq,
-                                        a.burst, a.quiet, bus=True, fresh=False,
-                                        dtype=dtype)
-            rows = delay_by_xcorr(sig, drive, cfg.n_taps, arr.n_readout, a.freq)
-            sc = score_point(rows, list(cfg.tap_lags[:cfg.n_taps]))
-            results[run] = {"gap_nm": gap_nm, "coupler_len_nm": cpl_nm,
-                            "tap_alpha_mult": ta, "taps": rows, **sc,
-                            "seconds": round(time.time() - t0, 1)}
-            results_path.write_text(json.dumps(results, indent=2))
-            print(f"[{n}/{total}] {run}: "
-                  f"spacings {[round(float(x),2) for x in sc['spacing_measured']]} "
-                  f"(designed {sc['spacing_designed']}), "
-                  f"mono {sc['n_monotonic']}/{cfg.n_taps-1}, "
-                  f"spread {sc['amp_spread']:.0f}x, "
-                  f"min amp {sc['amp_min']:.2e}  [{results[run]['seconds']:.0f}s]",
-                  flush=True)
+            print(f"[{n}/{total}] " + r.stdout.strip().splitlines()[-1], flush=True)
+
+    results = {f.stem: json.loads(f.read_text()) for f in sorted(pts.glob("*.json"))}
+    results_path.write_text(json.dumps(results, indent=2))
 
     if not results:
         print("no points completed")

@@ -24,6 +24,7 @@ import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import PolyTapConfig, PolyTapArray
+from magnonic_nn._compat import get_device
 
 p = argparse.ArgumentParser(description=__doc__,
                             formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -42,7 +43,7 @@ cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
                     coupling_gap=a.gap * 1e-9)
 arr = PolyTapArray(cfg, timesteps=a.steps + 8, dtype=dtype)
 m0c = Path(a.outdir) / f"m0_n{cfg.n_taps}_gap{int(a.gap)}.pt"
-arr.m0 = torch.load(m0c, weights_only=False).to(dtype)
+arr.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
 print(f"[m0] {m0c.name}")
 
 nx, ny = cfg.grid

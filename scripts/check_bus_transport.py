@@ -45,6 +45,7 @@ import magnonic_nn as mnn
 from magnonic_nn.config import MU_0, MeshConfig, SolverConfig
 from magnonic_nn.solver import LLGRollout
 from magnonic_nn.vortex import VortexConfig
+from magnonic_nn._compat import get_device
 
 
 def build(cfg, length, width, absorb, dtype):
@@ -112,7 +113,7 @@ def main():
 
     m0c = outdir / f"m0_{int(a.length)}_{int(a.width)}.pt"
     if m0c.exists():
-        m0 = torch.load(m0c, weights_only=False).to(dtype)
+        m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
         print(f"[m0] restored from {m0c.name}")
     else:
         # Shape anisotropy puts the ground state along the strip.

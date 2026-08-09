@@ -43,6 +43,7 @@ import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.reservoir import fit_eval, narma10
 from magnonic_nn.vortex import ChainPortedConfig, ChainPortedArray
+from magnonic_nn._compat import get_device
 
 
 def lag_matrix(u, n_lags):
@@ -250,7 +251,7 @@ def main():
     m0_cache = outdir / f"m0_{tag}.pt"
     if m0_cache.exists():
         try:
-            arr.m0 = torch.load(m0_cache, weights_only=False).to(dtype)
+            arr.m0 = torch.load(m0_cache, weights_only=False).to(device=get_device(), dtype=dtype)
             print(f"[m0] restored from {m0_cache.name}", flush=True)
         except Exception as e:
             print(f"[m0] {m0_cache.name} unreadable ({type(e).__name__}); "

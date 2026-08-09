@@ -38,6 +38,7 @@ import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import ChainPortedConfig, ChainPortedArray
+from magnonic_nn._compat import get_device
 
 
 def eff_rank(X, frac=0.99):
@@ -92,7 +93,7 @@ def main():
     arr = ChainPortedArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     m0p = Path(a.m0)
     if m0p.exists():
-        arr.m0 = torch.load(m0p, weights_only=False).to(dtype)
+        arr.m0 = torch.load(m0p, weights_only=False).to(device=get_device(), dtype=dtype)
         print(f"[m0] restored from {m0p}")
     else:
         t0 = time.time(); arr.relax(steps=10000, require_tol=2e-3)

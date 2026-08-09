@@ -40,6 +40,7 @@ import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import (PolyTapConfig, PolyTapArray,
                                 DirCouplerConfig, DirCouplerArray)
+from magnonic_nn._compat import get_device
 
 
 @torch.no_grad()
@@ -135,7 +136,7 @@ def main():
     prog = outdir / f"m0_{tag}.steps"
     done = 0
     if m0c.exists():
-        arr.m0 = torch.load(m0c, weights_only=False).to(dtype)
+        arr.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
         done = int(prog.read_text().strip()) if prog.exists() else a.relax_steps
         print(f"[m0] restored from {m0c.name} at {done}/{a.relax_steps} steps")
     CHUNK = 1000

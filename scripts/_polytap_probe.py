@@ -14,6 +14,7 @@ import numpy as np, torch
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import (PolyTapConfig, PolyTapArray,
                                 DirCouplerConfig, DirCouplerArray)
+from magnonic_nn._compat import get_device
 
 FRAME_STEPS = 200
 
@@ -63,7 +64,7 @@ def ensure_m0(arr, outdir, geom_tag, relax_steps=8000, chunk=1000, dtype=torch.f
     m0c, prog = outdir / f"m0_{geom_tag}.pt", outdir / f"m0_{geom_tag}.steps"
     done = 0
     if m0c.exists():
-        arr.m0 = torch.load(m0c, weights_only=False).to(dtype)
+        arr.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
         done = int(prog.read_text().strip()) if prog.exists() else relax_steps
         log(f"[m0] {m0c.name} at {done}/{relax_steps}")
     while done < relax_steps:

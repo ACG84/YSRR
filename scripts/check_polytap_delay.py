@@ -32,6 +32,7 @@ import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import (PolyTapConfig, PolyTapArray,
                                 DirCouplerConfig, DirCouplerArray)
+from magnonic_nn._compat import get_device
 
 p = argparse.ArgumentParser(description=__doc__,
                             formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -64,7 +65,7 @@ else:
                         tap_alpha_mult=a.tap_alpha_mult)
     arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     tag = f"n{cfg.n_taps}_gap{int(a.gap)}"
-arr.m0 = torch.load(Path(a.outdir) / f"m0_{tag}.pt", weights_only=False).to(dtype)
+arr.m0 = torch.load(Path(a.outdir) / f"m0_{tag}.pt", weights_only=False).to(device=get_device(), dtype=dtype)
 m0_used = f"m0_{tag}.pt"
 # The ground state is an energy minimum and does not depend on damping, so the
 # cached m0 for this geometry is valid at any tap_alpha_mult.

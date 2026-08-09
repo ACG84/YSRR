@@ -34,6 +34,7 @@ import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import CoupledPortedConfig, CoupledPortedArray
+from magnonic_nn._compat import get_device
 
 
 @torch.no_grad()
@@ -98,7 +99,7 @@ def main():
             tag = f"{int(sep)}_{'linked' if linked else 'nolink'}"
             m0c = outdir / f"m0_{tag}.pt"
             if m0c.exists():
-                arr.m0 = torch.load(m0c, weights_only=False).to(dtype)
+                arr.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
             else:
                 arr.relax(steps=a.relax_steps, require_tol=a.require_tol)
                 torch.save(arr.m0.cpu(), m0c)

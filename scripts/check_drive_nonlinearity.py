@@ -45,6 +45,7 @@ import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
+from magnonic_nn._compat import get_device
 
 
 @torch.no_grad()
@@ -107,7 +108,7 @@ def main():
     disk = PortedVortexDisk(cfg, timesteps=a.settle + a.meas + 8, dtype=dtype)
     m0c = outdir / "m0.pt"
     if m0c.exists():
-        disk.m0 = torch.load(m0c, weights_only=False).to(dtype)
+        disk.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
         print(f"[m0] restored from {m0c.name}")
     else:
         t0 = time.time()

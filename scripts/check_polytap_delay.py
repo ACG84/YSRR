@@ -74,6 +74,8 @@ unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
 unit[:, :, 0, 2] = arr.inject_mask
 amp = a.amp_mT * 1e-3 / MU_0
 w = 2 * math.pi * a.freq * 1e9
+stepper, graphed = arr.rollout.graph_stepper()
+hz = arr.h_zero
 m = arr.m0.clone()
 out, drive = [], []
 t0 = time.time()
@@ -82,11 +84,15 @@ with torch.no_grad():
         tk = k * cfg.dt
         on = k < a.burst
         drive.append(1.0 if on else 0.0)
-        def h(theta, tk=tk, on=on):
-            if not on:
-                return torch.zeros_like(unit)
-            return unit * (amp * math.sin(w * (tk + theta * cfg.dt)))
-        m = arr.rollout.rk4_step(m, arr.h_zero, h)
+        a0 = amp if on else 0.0
+        h0 = hz + unit * (a0 * math.sin(w * tk))
+        hh = hz + unit * (a0 * math.sin(w * (tk + 0.5 * cfg.dt)))
+        h1 = hz + unit * (a0 * math.sin(w * (tk + cfg.dt)))
+        if graphed:
+            torch.compiler.cudagraph_mark_step_begin()
+            m = stepper(m, h0, hh, hh, h1).clone()
+        else:
+            m = stepper(m, h0, hh, hh, h1)
         out.append(arr.port_signals(m).double().cpu().numpy().copy())
         if (k + 1) % 800 == 0:
             print(f"  step {k+1}/{a.burst+a.quiet} ({time.time()-t0:.0f}s)", flush=True)

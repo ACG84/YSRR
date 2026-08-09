@@ -132,6 +132,28 @@ TASKS = {
         "python scripts/run_narma_coupled.py --outdir runs/narma_coupled "
         "--device cpu"
     ),
+    # The array runners NOW use the graph-capturable stepper, which is what
+    # made the earlier "1.0-1.5x, run it on CPU" verdict correct at the time and
+    # wrong going forward: those runs called rk4_step with a Python callable, so
+    # every substep broke the graph and the device spent its time on launch
+    # overhead rather than work. Measure before believing any of this -- the
+    # CUDA path is still unexercised, and `--stage verify` exists for that.
+    #
+    # Order matters here. Do NOT spend GPU hours on polytap-narma until the
+    # differential-damping probe says the taps resolve at all; an array whose
+    # taps cannot be told apart will produce a clean, meaningless 600-frame run.
+    "polytap-damping": (
+        "python scripts/check_polytap_delay.py --gap 0 --tap-alpha-mult 10 "
+        "--device cuda"
+    ),
+    "polytap-damping-sweep": (
+        "for m in 1 3 5 10 20; do python scripts/check_polytap_delay.py "
+        "--gap 0 --tap-alpha-mult $m --device cuda; done"
+    ),
+    "chain3-narma": (
+        "python scripts/run_narma_chain.py --n-disks 3 --frames 600 "
+        "--splits 150 300 75 --seed 0 --outdir runs/chain3_gpu --device cuda"
+    ),
     "narma-coupled-nolink": (
         "python scripts/run_narma_coupled.py --no-link "
         "--outdir runs/narma_coupled --device cpu"

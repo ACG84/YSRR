@@ -127,6 +127,16 @@ def run_reservoir(arr, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
     for st in drive_stages:
         unit[:, :, 0, 0] += arr.disk_masks[st].to(dtype)
 
+    # Graph-capturable stepper, for the same reason run_narma_modal uses one:
+    # rk4_step takes a Python callable and evaluates it per substep, which forces
+    # a graph break every time. Measured on the single disk that is 0.63 ms/step
+    # captured against 9.65 eager. It also explains why the GPU was previously
+    # written off for the array runs at "1.0-1.5x" -- those runs never used this
+    # path, so they were paying ~4 us of launch overhead on ~4.8 us of work, 520
+    # kernels per step. Off CUDA this returns the eager function and the loop is
+    # identical, so nothing changes on CPU.
+    stepper, graphed = arr.rollout.graph_stepper()
+    hz = arr.h_zero
     m = arr.m0.clone() if m_resume is None else m_resume.clone().to(dtype)
     start = len(done) if m_resume is not None else 0
     n_ports_total = arr.port_signals(m).shape[0]
@@ -140,11 +150,16 @@ def run_reservoir(arr, u, steps_per_frame, carrier, amp_lo, amp_hi, dtype,
         accQ = torch.zeros(len(ws), n_ports_total, dtype=torch.float64)
         for k in range(steps_per_frame):
             tk = (j * steps_per_frame + k) * cfg.dt
-
-            def h_drive(theta, tk=tk, amp=amp):
-                return unit * (amp * math.sin(ws[0] * (tk + theta * cfg.dt)))
-
-            m = arr.rollout.rk4_step(m, arr.h_zero, h_drive)
+            # h at theta = 0, 1/2, 1/2, 1; the two half-step fields coincide.
+            s0 = amp * math.sin(ws[0] * tk)
+            sh = amp * math.sin(ws[0] * (tk + 0.5 * cfg.dt))
+            s1 = amp * math.sin(ws[0] * (tk + cfg.dt))
+            h0, hh, h1 = hz + unit * s0, hz + unit * sh, hz + unit * s1
+            if graphed:
+                torch.compiler.cudagraph_mark_step_begin()
+                m = stepper(m, h0, hh, hh, h1).clone()
+            else:
+                m = stepper(m, h0, hh, hh, h1)
             p = arr.port_signals(m).double()
             for i, wi in enumerate(ws):
                 accI[i] += p * math.cos(wi * tk)

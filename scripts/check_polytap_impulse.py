@@ -53,18 +53,24 @@ def pulse(arr, cfg, dtype, amp, freq, n_burst, n_quiet, bus=True, fresh=True):
         # into each disk body, in plane, scaled to track the bus decay
         for k, s in enumerate(cfg.fresh_scale()):
             unit[:, :, 0, 0] += float(s) * arr.disk_masks[k]
+    stepper, graphed = arr.rollout.graph_stepper()
+    hz = arr.h_zero
     m = arr.m0.clone()
     out = []
     for k in range(n_burst + n_quiet):
         tk = k * cfg.dt
         on = k < n_burst
 
-        def h(theta, tk=tk, on=on):
-            if not on:
-                return torch.zeros_like(unit)
-            return unit * (amp * math.sin(2 * math.pi * freq * (tk + theta * cfg.dt)))
-
-        m = arr.rollout.rk4_step(m, arr.h_zero, h)
+        w = 2 * math.pi * freq
+        a0 = amp if on else 0.0
+        h0 = hz + unit * (a0 * math.sin(w * tk))
+        hh = hz + unit * (a0 * math.sin(w * (tk + 0.5 * cfg.dt)))
+        h1 = hz + unit * (a0 * math.sin(w * (tk + cfg.dt)))
+        if graphed:
+            torch.compiler.cudagraph_mark_step_begin()
+            m = stepper(m, h0, hh, hh, h1).clone()
+        else:
+            m = stepper(m, h0, hh, hh, h1)
         out.append(arr.port_signals(m).double().cpu().numpy().copy())
     return np.asarray(out)
 

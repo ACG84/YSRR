@@ -64,7 +64,9 @@ class FilmResponse:
     @classmethod
     def load(cls, path) -> "FilmResponse":
         blob = torch.load(path, map_location="cpu", weights_only=False)
-        return cls(blob["u_grid"].numpy(), blob["P"].numpy())
+        # map_location already forces host tensors; .cpu() keeps that true
+        # if the load ever stops specifying it.
+        return cls(blob["u_grid"].cpu().numpy(), blob["P"].cpu().numpy())
 
     def __call__(self, u: np.ndarray) -> np.ndarray:
         """(n_samples,) -> (n_samples, n_channels), clipped to the sweep range."""
@@ -213,7 +215,12 @@ class ReservoirRunner:
         for n, p_row in enumerate(P):
             drive.copy_(torch.from_numpy(p_row[: self.thiele_cfg.n_disks]))
             feats = disks.run_frame(drive, self.steps_per_frame)
-            rows.append(feats.flatten().numpy())
+            # .cpu() is not redundant: under set_device('cuda') the whole
+            # rollout runs on the device, and .numpy() on a device tensor
+            # raises rather than silently copying. The GPU suite caught
+            # this on the CUDA path's first execution, after a static
+            # audit had reported no unguarded .numpy() calls.
+            rows.append(feats.flatten().detach().cpu().numpy())
             if progress_every and (n + 1) % progress_every == 0:
                 print(f"  frame {n + 1}/{len(P)}", flush=True)
         F = np.stack(rows)

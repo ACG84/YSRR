@@ -591,7 +591,53 @@ the same numbers by different routes.
 requirement was ~40 independent long-separation product dimensions; the array
 cannot deliver even ten resolvable taps without a 10⁹ dynamic range.
 
-What would change it is a material or frequency with a longer decay time
-relative to its response time — a lower-damping film, or a drive frequency where
-the group velocity is higher so the same decay time buys more distance. Both are
-outside what this project has characterised, and neither is a geometry fix.
+### The fix is differential damping, not lower damping
+
+The obvious response to that table — use a lower-damping film — **does not
+work, and the reason is worth stating because it is exactly counter to the
+instinct this project has been following.** Both quantities in the ratio are
+1/(alpha*omega): the guide's decay time and the disk's ring-down come from the
+same damping at the same frequency. Lowering alpha stretches both equally and
+the cost per tap does not move at all:
+
+| alpha | tau (ns) | attenuation length | resolvable spacing | cost per tap |
+|---|---|---|---|---|
+| 8e-3 (permalloy, here) | 1.66 | 1.57 um | 1.57 um | **2.72** |
+| 1e-3 | 13.3 | 12.5 um | 12.5 um | **2.72** |
+| 1e-4 | 133 | 125 um | 125 um | **2.72** |
+| 1e-5 | 1326 | 1253 um | 1253 um | **2.72** |
+
+A hundredfold better film buys a hundredfold bigger device and not one extra
+tap. That is the correction to the recommendation made above, which named a
+lower-damping film as the way out; it is not.
+
+What breaks the tie is making the two times DIFFERENT — a low-loss bus with
+deliberately lossy taps. The tap's job is to multiply a fresh sample against a
+delayed one, not to remember; the memory lives in the bus. So a tap that rings
+briefly is not a compromised tap, it is the correct tap, and a short ring-down
+is what lets taps sit close enough to be resolved:
+
+| alpha_tap / alpha_bus | resolvable spacing | cost per tap | taps within a 10x spread |
+|---|---|---|---|
+| 1 | 125 um | 2.72 | 3 |
+| 5 | 25 um | 1.22 | 12 |
+| **10** | **12.5 um** | **1.11** | **24** |
+| 30 | 4.2 um | 1.03 | 70 |
+
+At alpha_tap = 10 x alpha_bus, twenty-four resolvable taps fit inside a 10x
+amplitude spread — against the four taps and 314x spread measured here. That is
+the first configuration in this project whose arithmetic clears the ~40
+independent long-separation product dimensions the task needs.
+
+Locally raising damping is standard practice rather than an exotic ask: a heavy
+metal cap (Pt, Pd) on the tap disks raises alpha by spin pumping, typically
+several-fold, while the uncapped bus keeps its own. The bus wants a low-damping
+film; the taps want that film plus a cap.
+
+Two caveats before this is treated as a plan. Everything above is arithmetic on
+measured constants, not a simulation of such a device -- and this project's
+record is that architectures which look sound on paper fail on a mechanism the
+paper omitted, three times so far. And the spacings are microns: 24 taps at 12.5
+um is a 300 um bus, which is enormous next to the 4 um structures simulated here
+and would take a mesh this approach cannot afford. Verification would need a
+coarser cell size or a different solver, not more of the same runs.

@@ -515,14 +515,28 @@ still biases the absolute number late, but that bias is common to all taps, so
 the trustworthy quantity is the **difference** between taps — designed 3 frames
 apart throughout.
 
-| tap | designed | galvanic stub | directional coupler |
-|---|---|---|---|
-| 1 | 5.0 | 12.87 | 12.31 |
-| 2 | 8.0 | 12.13 | 13.00 |
-| 3 | 11.0 | 13.00 | 12.87 |
-| 4 | 14.0 | 12.43 | 3.33 |
-| **spacing errors** | **+3.0 each** | −3.73, −2.13, −3.57 | −2.31, −3.13, −12.54 |
-| within tolerance | | **0 / 3** | **0 / 3** |
+| tap | designed | galvanic stub | 30 nm gap | directional coupler |
+|---|---|---|---|---|
+| 1 | 5.0 | 12.87 | 12.96 | 12.31 |
+| 2 | 8.0 | 12.13 | 13.00 | 13.00 |
+| 3 | 11.0 | 13.00 | 1.17 | 12.87 |
+| 4 | 14.0 | 12.43 | 3.83 | 3.33 |
+| **spacing errors** | **+3.0 each** | −3.73, −2.13, −3.57 | −2.96, −14.84, −0.33 | −2.31, −3.13, −12.54 |
+| within tolerance | | **0 / 3** | **1 / 3** | **0 / 3** |
+
+One of nine spacing deltas across three geometries lands within tolerance, and
+that one (the 30 nm gap's 3→4 pair) sits between two taps whose absolute lags
+are 1.17 and 3.83 — both outliers on weak, broad correlations — so it is best
+read as chance rather than as a tap pair that worked.
+
+*Caveat on the estimator, since this section exists because of estimator
+trouble.* Cross-correlating a 200-step burst against a response that rings for
+~1600 steps gives a broad correlation whose argmax is noisy, and it is biased
+toward the tail's centroid rather than the arrival. That is why some taps
+return outliers. The robust part of the argument is not any single absolute
+number but the DIFFERENCES: those are designed to cancel whatever common bias
+the estimator carries, and they miss 3.0 frames by −0.33 to −14.84 in every
+geometry.
 
 Every tap in both geometries responds at the same ~12.5 frames regardless of
 where it sits on the bus. Tap position is not setting tap delay and never was.
@@ -540,7 +554,9 @@ that is what makes the delay differences invisible: a detector that rings for
 12 frames cannot timestamp a 3-frame spacing.
 
 Which turns into a hard constraint once the two measured bus constants are put
-side by side, because they are not independent:
+side by side, because they are not independent — and neither is separable from
+the disk's ring-down, since the guide's decay time and the resonator's are both
+~1/(alpha*omega) in one material at one frequency:
 
     attenuation length  L = 951 nm
     group velocity      v = 945 m/s

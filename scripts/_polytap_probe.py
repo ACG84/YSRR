@@ -99,9 +99,18 @@ def burst_response(arr, cfg, amp_mT, freq_ghz, n_burst, n_quiet,
     amp = amp_mT * 1e-3 / MU_0
     w = 2 * math.pi * freq_ghz * 1e9
     stepper, graphed = arr.rollout.graph_stepper()
+    eager = arr.rollout.rk4_step_fields
     hz = arr.h_zero
     m = arr.m0.clone()
     out, drive = [], []
+    # graph_stepper() already falls back if torch.compile refuses up front, but
+    # the failure seen on the GPU happens on the first CALL, not at compile
+    # request: a sweep builds several geometries in one process, and recompiling
+    # for the second mesh shape raised "Unhandled FakeTensor Device Propagation"
+    # inside dynamo. The same run with TORCHDYNAMO_DISABLE=1 completes and gives
+    # correct numbers, so this is a tracing failure rather than a tensor that is
+    # genuinely on the wrong device. Fall back for the rest of the rollout and
+    # say so, rather than losing the sweep to it.
     for k in range(n_burst + n_quiet):
         tk = k * cfg.dt
         a0 = amp if k < n_burst else 0.0
@@ -110,8 +119,15 @@ def burst_response(arr, cfg, amp_mT, freq_ghz, n_burst, n_quiet,
         hh = hz + unit * (a0 * math.sin(w * (tk + 0.5 * cfg.dt)))
         h1 = hz + unit * (a0 * math.sin(w * (tk + cfg.dt)))
         if graphed:
-            torch.compiler.cudagraph_mark_step_begin()
-            m = stepper(m, h0, hh, hh, h1).clone()
+            try:
+                torch.compiler.cudagraph_mark_step_begin()
+                m = stepper(m, h0, hh, hh, h1).clone()
+            except Exception as e:
+                if log:
+                    log(f"  compiled step failed ({type(e).__name__}); "
+                        f"falling back to eager for this geometry")
+                graphed, stepper = False, eager
+                m = stepper(m, h0, hh, hh, h1)
         else:
             m = stepper(m, h0, hh, hh, h1)
         out.append(arr.port_signals(m).double().cpu().numpy().copy())

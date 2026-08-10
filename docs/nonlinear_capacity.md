@@ -909,3 +909,46 @@ configuration at all, and if not, what bias field, width, or drive frequency
 puts a genuinely propagating mode on the bus. That is measurable here -- a
 dispersion sweep on the bare strip, frequency against wavevector -- and it is
 the prerequisite for any delay-line architecture, not a refinement of this one.
+
+## The dispersion question, and what geometry predicts before it is measured
+
+The near-field result left one prior question: whether the bus supports a
+travelling wave at 12 GHz at all. Geometry gives a sharp prediction, and it is
+worth writing down before the measurement rather than after.
+
+The bus is a bare 80 x 20 nm permalloy strip with NO applied field. Shape
+anisotropy puts the ground state along the strip (measured: mean m_x = 0.998),
+so the drive wavevector runs ALONG the magnetisation. That is the
+backward-volume geometry, whose magnetostatic band lies BELOW the k = 0
+resonance rather than above it. Note this is not the geometry
+`magnonic_nn/dispersion.py` implements -- that module is Damon-Eshbach, k
+perpendicular to M, and does not apply to the bus.
+
+For an infinite bar of rectangular cross-section w x t magnetised along its
+length, the transverse demagnetising factors are about Ny = t/(w+t) and
+Nz = w/(w+t), and Kittel with no applied field gives
+
+    f0 = (gamma/2pi) * sqrt((H + Ny*Ms)(H + Nz*Ms))
+
+| bias along x | k=0 resonance |   | strip width | k=0 resonance |
+|---|---|---|---|---|
+| 0 mT | **11.27 GHz** | | 80 nm | **11.27 GHz** |
+| 20 mT | 11.96 GHz | | 160 nm | 8.85 GHz |
+| 50 mT | 12.98 GHz | | 240 nm | 7.51 GHz |
+| 100 mT | 14.62 GHz | | 400 nm | 6.00 GHz |
+
+**The drive sits 0.7 GHz above the band top.** If this is right, 12 GHz has no
+real wavevector to couple to on this strip and can only produce a localised,
+non-propagating response -- which is exactly what the tap array measured, at a
+frequency chosen years of runs ago for reasons that had nothing to do with the
+bus.
+
+Three consequences follow, and each is a prediction the measurement can kill:
+
+1. There should be a propagating band BELOW ~11.3 GHz, with a real ridge in the
+   (k, f) map and decay lengths of microns rather than hundreds of nm.
+2. Bias along the strip RAISES the band top, so ~20 mT should bring 12 GHz
+   inside it and ~50 mT should put it comfortably in.
+3. A WIDER strip moves the band the wrong way -- 240 nm drops the top to 7.5
+   GHz. Widening the bus, which was on the list of things to try, would have
+   made this worse.

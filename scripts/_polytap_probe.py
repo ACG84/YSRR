@@ -163,6 +163,38 @@ def _env(x, win):
     return np.sqrt(np.convolve(x ** 2, np.ones(win) / win, mode="same"))
 
 
+def check_record_length(cfg, n_steps, v_g=706.0, response_frames=13.0):
+    """Refuse a rollout that ends before the wave reaches the farthest tap.
+
+    This is the error that invalidated the delay half of every poly-tap run in
+    this project. The default record was burst 200 + quiet 2600 = 2.81 ns. At
+    the MEASURED local group velocity at 12 GHz -- 706 m/s, from the phase slope
+    of the loaded bus -- the wave needs 3.75 ns to reach the lag-14 tap and 6.42
+    ns to reach the lag-24 tap. It never arrived. Every one of those runs was
+    reporting the injection near field, which is instantaneous, and reporting it
+    as though it were the delayed copy.
+
+    Nothing in the output looked wrong: amplitudes were plausible, the estimator
+    returned finite lags, and the lags were consistent from run to run. They
+    were consistently the disk's own response time, which is the same at every
+    tap because it has nothing to do with distance.
+
+    v_g defaults to the LOCAL group velocity at the 12 GHz drive, not the 948
+    m/s broadband fit -- an envelope travels at the local one, and the
+    difference is 34%.
+    """
+    far = max(cfg.tap_lags[:cfg.n_taps]) * cfg.frame_nm
+    need = far / v_g / cfg.dt + response_frames * FRAME_STEPS
+    if n_steps < need:
+        raise SystemExit(
+            f"record is {n_steps} steps ({n_steps*cfg.dt*1e9:.2f} ns) but the "
+            f"farthest tap is\n{far*1e9:.0f} nm out, which the wave reaches "
+            f"only after {far/v_g*1e9:.2f} ns. Allowing "
+            f"{response_frames:.0f} frames\nfor the disk to respond, this needs "
+            f"at least {need:.0f} steps. Raise --quiet.")
+    return need
+
+
 def delay_by_xcorr(sig, drive, n_taps, n_readout, freq_ghz):
     """Per-tap arrival by envelope cross-correlation against the burst.
 

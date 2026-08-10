@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import torch
 import magnonic_nn as mnn
 from _polytap_probe import (make_array, ensure_m0, burst_response,
-                            delay_by_xcorr, score_point)
+                            delay_by_xcorr, score_point, check_record_length)
 
 
 def main():
@@ -66,7 +66,14 @@ def main():
     p.add_argument("--amp-mT", type=float, default=30.0)
     p.add_argument("--freq", type=float, default=12.0)
     p.add_argument("--burst", type=int, default=200)
-    p.add_argument("--quiet", type=int, default=2600)
+    p.add_argument("--quiet", type=int, default=12000,
+                   help="steps of silence after the burst. Was 2600, which is\n"
+                        "2.6 ns -- SHORTER THAN THE TRANSIT. At the measured\n"
+                        "706 m/s the lag-14 tap is 3.75 ns away and the lag-24\n"
+                        "tap 6.42 ns, so the wave never arrived and every delay\n"
+                        "measured here was the disk's own response time to the\n"
+                        "injection near field. check_record_length() now\n"
+                        "refuses a record that ends before the wave lands.")
     p.add_argument("--relax-steps", type=int, default=8000)
     p.add_argument("--device", default="cpu")
     p.add_argument("--quick", action="store_true",
@@ -115,6 +122,7 @@ def main():
         cfg, arr, geom, run = make_array(
             a.n_taps, a.lags, gap_nm, cpl_nm, ta, steps, dtype,
             bus_alpha_mult=ba, bus_guide_width_nm=None if bw < 0 else bw)
+        check_record_length(cfg, steps)
         t0 = time.time()
         ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
                   log=lambda s: print(f"    {s}", flush=True))

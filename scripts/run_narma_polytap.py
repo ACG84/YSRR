@@ -91,7 +91,8 @@ def save_ckpt(cache, feats, m):
 
 @torch.no_grad()
 def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
-                  cache=None, tones=(), drive="both", fresh_scale=None):
+                  cache=None, tones=(), drive="both", fresh_scale=None,
+                  quench_frac=0.0, quench_gain=1.0):
     """Drive frame by frame with no reset; return (n_frames, features)."""
     done, m_resume = [], None
     if cache is not None and cache.exists():
@@ -113,12 +114,36 @@ def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
     # launches a guided wave; the fresh sample is in-plane over each disk BODY,
     # never on a guide -- a drive on a readout guide injects straight into the
     # readout and the ports would be measuring the input rather than the state.
-    unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
+    # Split, because the two get different time envelopes. The bus is a
+    # transmission line and its drive must stay a clean carrier or the delayed
+    # copy is corrupted; the disk is a resonator and can be quenched.
+    unit_bus = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
+    unit_disk = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
     if drive in ("bus", "both"):
-        unit[:, :, 0, 2] += arr.inject_mask
+        unit_bus[:, :, 0, 2] += arr.inject_mask
     if drive in ("fresh", "both"):
         for k, s in enumerate(fresh_scale):
-            unit[:, :, 0, 0] += float(s) * arr.disk_masks[k]
+            unit_disk[:, :, 0, 0] += float(s) * arr.disk_masks[k]
+
+    # Anti-phase quench: the last `quench_frac` of each frame drives the disk
+    # bodies in antiphase, coherently cancelling the residual precession instead
+    # of waiting for it to dissipate.
+    #
+    # This exists because raising Gilbert damping is a blunt way to buy a short
+    # response time. Ring-down is 1/(alpha*omega) = 8.3 frames at alpha 0.008,
+    # and the nonlinearity therefore acts on an ~8-sample average rather than on
+    # single samples -- which is the leading explanation for why every product
+    # family reads 0.00. tap_alpha_mult=10 fixes the timescale by dropping
+    # Q = 1/(2*alpha) from 62.5 to 6.25, throwing away tenfold the stored energy
+    # to do it, and the coupling sweep measured that cost as halving what each
+    # tap receives.
+    #
+    # The quench sets the EFFECTIVE response time from the drive side, leaving
+    # alpha and therefore the amplitude alone. It also acts on whatever is
+    # ringing in the disk regardless of whether it arrived fresh or down the
+    # bus, which is the point: a tap should respond to the instantaneous SUM of
+    # its two inputs, not to a running average of them.
+    n_drive = int(round(spf * (1.0 - quench_frac)))
 
     stepper, graphed = arr.rollout.graph_stepper()
     eager = arr.rollout.rk4_step_fields
@@ -140,7 +165,12 @@ def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
             s0 = amp * math.sin(ws[0] * tk)
             sh = amp * math.sin(ws[0] * (tk + 0.5 * cfg.dt))
             s1 = amp * math.sin(ws[0] * (tk + cfg.dt))
-            h0, hh, h1 = hz + unit * s0, hz + unit * sh, hz + unit * s1
+            # One sign for the whole step: the boundary moves by at most one
+            # step of 1 ps against a 200-step frame.
+            q = 1.0 if k < n_drive else -quench_gain
+            h0 = hz + unit_bus * s0 + unit_disk * (s0 * q)
+            hh = hz + unit_bus * sh + unit_disk * (sh * q)
+            h1 = hz + unit_bus * s1 + unit_disk * (s1 * q)
             if graphed:
                 try:
                     torch.compiler.cudagraph_mark_step_begin()
@@ -181,6 +211,53 @@ def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
     return F
 
 
+@torch.no_grad()
+def probe_tau(arr, cfg, spf, carrier, amp, dtype, quench_frac, quench_gain,
+              n_quiet=3000):
+    """Ring-down time of the tap disks, in frames, under a given quench.
+
+    Drive the disk bodies for exactly one frame, then go silent, and fit the
+    decay of each disk's own readout. This is the number the whole argument
+    turns on -- a disk that integrates ~8 input samples cannot make a product of
+    two distinct ones -- so it is measured directly rather than taken from
+    1/(alpha*omega).
+    """
+    unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
+    for k in range(arr.disk_masks.shape[0]):
+        unit[:, :, 0, 0] += arr.disk_masks[k]
+    n_drive = int(round(spf * (1.0 - quench_frac)))
+    w = 2 * math.pi * carrier
+    m = arr.m0.clone()
+    hz = arr.h_zero
+    npr, out = arr.n_readout, []
+    for k in range(spf + n_quiet):
+        tk = k * cfg.dt
+        a0 = amp if k < spf else 0.0
+        q = 1.0 if (k < n_drive or k >= spf) else -quench_gain
+        s0 = a0 * q * math.sin(w * tk)
+        sh = a0 * q * math.sin(w * (tk + 0.5 * cfg.dt))
+        s1 = a0 * q * math.sin(w * (tk + cfg.dt))
+        m = arr.rollout.rk4_step_fields(m, hz + unit * s0, hz + unit * sh,
+                                        hz + unit * sh, hz + unit * s1)
+        out.append(arr.port_signals(m).double().cpu().numpy().copy())
+    sig = np.asarray(out)
+    win = max(4, int(round(1e3 / (carrier / 1e9))))
+    taus = []
+    for d in range(arr.disk_masks.shape[0]):
+        e = np.sqrt((sig[:, d * npr:(d + 1) * npr] ** 2).mean(axis=1))
+        e = np.sqrt(np.convolve(e ** 2, np.ones(win) / win, mode="same"))
+        tail = e[spf + win:]
+        pk = float(tail.max()) if tail.size else 0.0
+        good = tail > max(pk * 0.05, 1e-12)
+        n = int(good.sum())
+        if n < 50 or pk <= 0:
+            taus.append(float("nan")); continue
+        x = np.arange(n, dtype=float)
+        sl = np.polyfit(x, np.log(tail[:n]), 1)[0]
+        taus.append(float("inf") if sl >= 0 else -1.0 / sl / spf)
+    return taus
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -212,6 +289,20 @@ def main():
                         "WORSE at every tap once the record was long enough --\n"
                         "coupling goes as width, with no aperture null.")
     p.add_argument("--drive", choices=("bus", "fresh", "both"), default="both")
+    p.add_argument("--quench-frac", type=float, default=0.0,
+                   help="fraction of each frame spent driving the DISKS in\n"
+                        "antiphase, cancelling their residual precession rather\n"
+                        "than waiting for it to dissipate. Sets the effective\n"
+                        "response time from the drive side, leaving alpha -- and\n"
+                        "so Q = 1/(2*alpha) = 62.5, and the signal amplitude --\n"
+                        "alone. 0 disables it.")
+    p.add_argument("--quench-gain", type=float, default=1.0,
+                   help="amplitude of the antiphase segment relative to the\n"
+                        "drive segment")
+    p.add_argument("--probe-tau", action="store_true",
+                   help="measure the disk ring-down time and exit, instead of\n"
+                        "running the task. Verifies the quench does what it\n"
+                        "claims before a 600-frame run is spent on it.")
     p.add_argument("--fresh-scale", type=float, nargs="*", default=None,
                    help="per-tap fresh-drive amplitude. Default is the MEASURED\n"
                         "delayed amplitude at each tap, normalised to tap 1, so\n"
@@ -253,6 +344,27 @@ def main():
     ensure_m0(arr, outdir, run, relax_steps=a.relax_steps, dtype=dtype,
               log=lambda s: print(f"  {s}", flush=True))
 
+    if a.probe_tau:
+        amp = a.amp_hi_mT * 1e-3 / MU_0
+        print(f"\nring-down of the tap disks, in frames "
+              f"(1/(alpha*omega) predicts {1.0/(cfg.alpha*a.tap_alpha*2*math.pi*a.carrier_ghz*1e9)/(a.steps_per_frame*cfg.dt):.2f})")
+        print(f"{'quench':>18} " + " ".join(f"{'disk '+str(k+1):>9}"
+                                            for k in range(a.n_taps)))
+        for qf, qg in ((0.0, 1.0), (a.quench_frac, a.quench_gain)):
+            if qf == 0.0 and a.quench_frac == 0.0 and qg != 1.0:
+                continue
+            taus = probe_tau(arr, cfg, a.steps_per_frame, a.carrier_ghz * 1e9,
+                             amp, dtype, qf, qg)
+            lab = "off" if qf == 0.0 else f"frac {qf:g} gain {qg:g}"
+            print(f"{lab:>18} " + " ".join(f"{t:>9.2f}" for t in taus),
+                  flush=True)
+            if qf == 0.0 and a.quench_frac == 0.0:
+                break
+        print("\nA disk that rings for ~8 frames averages its input over ~8\n"
+              "samples, and cannot make a product of two distinct ones. Under\n"
+              "1 frame is the target.")
+        return 0
+
     fresh = a.fresh_scale
     if fresh is None:
         base = MEASURED_TAP_AMPS[:a.n_taps]
@@ -265,7 +377,8 @@ def main():
                       a.amp_lo_mT, a.amp_hi_mT, dtype,
                       cache=outdir / f"features_{tag}.pt",
                       tones=[t * 1e9 for t in a.tones_ghz],
-                      drive=a.drive, fresh_scale=fresh)
+                      drive=a.drive, fresh_scale=fresh,
+                      quench_frac=a.quench_frac, quench_gain=a.quench_gain)
     X = F.cpu().numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
     ac1 = float(np.nanmean([np.corrcoef(X[:-1, i], X[1:, i])[0, 1]

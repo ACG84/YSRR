@@ -35,24 +35,35 @@ from __future__ import annotations
 import argparse, json, math, os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import (PolyTapConfig, PolyTapArray,
                                 DirCouplerConfig, DirCouplerArray)
 from magnonic_nn._compat import get_device
+from _polytap_probe import check_record_length
 
 
 @torch.no_grad()
-def pulse(arr, cfg, dtype, amp, freq, n_burst, n_quiet, bus=True, fresh=True):
-    """Burst then silence; record every readout tap each step."""
+def pulse(arr, cfg, dtype, amp, freq, n_burst, n_quiet, bus=True, fresh=True,
+          fresh_uniform=False):
+    """Burst then silence; record every readout tap each step.
+
+    `fresh_uniform` drives every disk at scale 1 instead of cfg.fresh_scale().
+    That is what makes the fresh arm a clean per-tap MEASUREMENT: the ratio of
+    what a tap reports from the bus to what it reports from a unit fresh drive
+    is the number the co-drive scaling should be set from, and it cannot be read
+    off a fresh arm that has already been pre-scaled by a guess.
+    """
     unit = torch.zeros(*arr.mask.shape[:3], 3, dtype=dtype)
     if bus:
         # into the bus, out of plane, at the injection segment
         unit[:, :, 0, 2] += arr.inject_mask
     if fresh:
-        # into each disk body, in plane, scaled to track the bus decay
-        for k, s in enumerate(cfg.fresh_scale()):
+        # into each disk body, in plane
+        scales = ([1.0] * cfg.n_taps if fresh_uniform else cfg.fresh_scale())
+        for k, s in enumerate(scales):
             unit[:, :, 0, 0] += float(s) * arr.disk_masks[k]
     stepper, graphed = arr.rollout.graph_stepper()
     hz = arr.h_zero
@@ -88,7 +99,23 @@ def main():
     p.add_argument("--amp-mT", type=float, default=30.0)
     p.add_argument("--freq", type=float, default=12.0)
     p.add_argument("--burst", type=int, default=400)
-    p.add_argument("--quiet", type=int, default=2000)
+    p.add_argument("--quiet", type=int, default=12000,
+                   help="steps of silence after the burst. Was 2000, giving a\n"
+                        "2.4 ns record when the wave needs 3.75 ns to reach the\n"
+                        "lag-14 tap at the measured 706 m/s -- so the far taps\n"
+                        "were reporting injection near field, not the delayed\n"
+                        "copy, and the balance ratios computed from them were\n"
+                        "ratios of the wrong quantity.")
+    p.add_argument("--tap-alpha", type=float, default=1.0,
+                   help="damping multiplier on the tap disk bodies. The balance\n"
+                        "must be measured at the value the task run will use:\n"
+                        "ta=10 is where the disk settles inside a frame and its\n"
+                        "nonlinearity reaches the readout at all.")
+    p.add_argument("--bus-alpha", type=float, default=1.0)
+    p.add_argument("--fresh-uniform", action="store_true", default=True,
+                   help="drive every disk at scale 1 in the fresh arm, so the\n"
+                        "bus/fresh ratio is a measurement rather than a check on\n"
+                        "a previous guess")
     p.add_argument("--gap", type=float, default=0.0,
                    help="nm; coupling gap between bus and each tap guide")
     p.add_argument("--coupler-len", type=float, default=0.0,
@@ -116,8 +143,11 @@ def main():
                 f"adjacent arms would merge into one waveguide.")
     else:
         cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
-                            coupling_gap=a.gap * 1e-9)
+                            coupling_gap=a.gap * 1e-9,
+                            tap_alpha_mult=a.tap_alpha,
+                            bus_alpha_mult=a.bus_alpha)
         arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
+    check_record_length(cfg, a.burst + a.quiet)
     nx, ny = cfg.grid
     print(f"grid {nx}x{ny}, {cfg.n_taps} taps, designed lags "
           f"{list(cfg.tap_lags[:cfg.n_taps])}")
@@ -132,6 +162,13 @@ def main():
     # restart continues rather than repeating.
     tag = (f"n{cfg.n_taps}_cpl{int(a.coupler_len)}" if a.coupler_len > 0
            else f"n{cfg.n_taps}_gap{int(a.gap)}")
+    # Damping does not move an energy minimum, so the ground state is shared in
+    # principle -- but a shared m0 was already found to be silently wrong on
+    # CUDA in this project, so key the cache by the full run instead.
+    if a.tap_alpha != 1.0:
+        tag = f"{tag}_ta{a.tap_alpha:g}"
+    if a.bus_alpha != 1.0:
+        tag = f"{tag}_ba{a.bus_alpha:g}"
     m0c = outdir / f"m0_{tag}.pt"
     prog = outdir / f"m0_{tag}.steps"
     done = 0
@@ -167,7 +204,7 @@ def main():
     for name, (bus, fresh) in arms.items():
         t0 = time.time()
         sig = pulse(arr, cfg, dtype, amp, a.freq * 1e9, a.burst, a.quiet,
-                    bus=bus, fresh=fresh)
+                    bus=bus, fresh=fresh, fresh_uniform=a.fresh_uniform)
         rows = []
         print(f"\n--- {name} ({time.time()-t0:.0f}s) ---")
         print(f"{'tap':>4} {'designed':>9} {'arrive_ns':>10} {'meas_lag':>9} "
@@ -196,6 +233,23 @@ def main():
         print(f"{d+1:>4} {b:>11.4e} {f:>11.4e} {b/max(f,1e-30):>8.3f}")
     spread = max(bal) / max(min(bal), 1e-30)
     print(f"\nbalance ratio spread across taps: {spread:.1f}x")
+
+    # The number this script exists to produce.
+    #
+    # A tap's nonlinearity multiplies whatever is in its disk. The cross term is
+    # bilinear in the two operands, so it is the ratio of their contributions AT
+    # THE READOUT that has to be ~1 -- not the ratio of a drive amplitude to a
+    # readout amplitude, which is what the NARMA runs were scaled by and which
+    # compares two incommensurable quantities. Fresh response is linear in drive
+    # scale over this range, so setting the scale to bus/fresh equalises them.
+    print("\n=== recommended --fresh-scale for run_narma_polytap.py ===")
+    print("  " + " ".join(f"{x:.6f}" for x in bal))
+    print(f"\n(normalised to tap 1: "
+          + " ".join(f"{x/bal[0]:.4f}" for x in bal) + ")")
+    print("Measured at " + ("uniform unit" if a.fresh_uniform else "pre-scaled")
+          + f" fresh drive and {a.amp_mT:.0f} mT, tap alpha x{a.tap_alpha:g}.\n"
+          "Caveat: the disk compresses 24% between 10 and 30 mT, so this ratio\n"
+          "is amplitude-dependent and is measured at the top of the range.")
 
     print("\n=== delay check ===")
     ok = True

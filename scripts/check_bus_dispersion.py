@@ -225,6 +225,12 @@ def main():
 
     per_x = mask2d.sum(dim=1).clamp(min=1)
     rec = np.zeros((a.steps, nx), dtype=np.float32)
+    # In poly-tap mode also record what the DISKS report, through the same
+    # readout the reservoir uses. Bus field and tap signal from one rollout is
+    # what makes their ratio a coupling efficiency rather than a comparison
+    # across two runs with two ground states.
+    prec = (np.zeros((a.steps, arr.n_readout * a.n_taps), dtype=np.float32)
+            if a.polytap else None)
     m = m0.clone()
     t_start = time.time()
     with torch.no_grad():
@@ -237,6 +243,8 @@ def main():
             m = roll.rk4_step(m, h_static, h)
             dmz = (m - m0)[:, :, 0, 2] * mask2d
             rec[k] = (dmz.sum(dim=1) / per_x).float().cpu().numpy()
+            if prec is not None:
+                prec[k] = arr.port_signals(m).float().cpu().numpy()
             if (k + 1) % 1000 == 0:
                 print(f"  step {k+1}/{a.steps} ({time.time()-t_start:.0f}s)",
                       flush=True)
@@ -352,6 +360,87 @@ def main():
         print("NO frequency in the scanned range both resolves a ridge and\n"
               "carries a micron. On this strip, at this bias, there is no\n"
               "delay line to be had at any drive frequency.")
+
+    # The measurement that separates the bus from the tap.
+    #
+    # The array's tap amplitudes span 388x across 1701 nm. If the BUS field
+    # spans the same 388x at those same x positions, the delay line is the
+    # problem. If the bus is nearly flat across the taps while the taps are not,
+    # then the bus carries the wave and the loss is entirely in the coupling
+    # from bus to disk -- a different component, a different fix, and not one
+    # any damping or gap sweep so far has been aimed at.
+    if a.polytap:
+        j = int(np.argmin(np.abs(fx - 12.0)))
+        print(f"\n=== bus field at each tap's x, at 12 GHz ===")
+        print(f"{'tap':>4} {'x_nm':>8} {'bus |A|':>11} {'rel tap1':>9} "
+              f"{'phase_deg':>10}")
+        bus_amp, ph0 = [], None
+        for t, tx in enumerate(cfg.tap_x()):
+            idx = int(round(tx / dx)) - js
+            if not (0 <= idx < Fx.shape[1]):
+                print(f"{t+1:>4} {tx*1e9:>8.0f}   outside the analysis window")
+                continue
+            A = Fx[j, idx]
+            ph = float(np.angle(A, deg=True))
+            if ph0 is None:
+                ph0 = ph
+            bus_amp.append(abs(A))
+            print(f"{t+1:>4} {tx*1e9:>8.0f} {abs(A):>11.4e} "
+                  f"{abs(A)/bus_amp[0]:>9.4f} "
+                  f"{((ph - ph0 + 180) % 360) - 180:>10.1f}")
+        if len(bus_amp) > 1:
+            spread = max(bus_amp) / max(min(bus_amp), 1e-30)
+            print(f"\nbus field spread across the taps: {spread:.1f}x")
+            print("tap DISK signals over the same span, measured: 388x")
+            if spread < 20:
+                print(f"\nThe bus is carrying it. A {spread:.1f}x variation in "
+                      f"the field arriving at\nthe taps cannot produce a 388x "
+                      f"variation in what the taps report, so\nthe loss is in "
+                      f"the bus-to-disk coupling, not in the delay line.")
+            else:
+                print("\nThe bus itself loses the signal across the array, so "
+                      "the tap spread is\nthe delay line's and not the "
+                      "coupling's.")
+
+        # Coupling efficiency against frequency, and the aperture model.
+        #
+        # A tap samples the bus over a finite width W. If the wave's phase
+        # varies across that aperture the sample partly cancels, exactly as a
+        # finite antenna does on transmit -- weight |sinc(kW/2)|, first null at
+        # W = lambda. The tap guide is 80 nm and the 12 GHz wavelength is 82
+        # nm, so the aperture sits within 3% of its own null. That predicts a
+        # coupling minimum AT the operating frequency and recovery on either
+        # side, which no amount of gap or damping tuning would reach.
+        Fp = np.fft.rfft(prec * tw, axis=0)
+        npr = arr.n_readout
+        Wg = cfg.guide_width
+        print(f"\n=== coupling: what the disk reports per unit bus field ===")
+        print(f"tap aperture {Wg*1e9:.0f} nm")
+        print(f"{'f_GHz':>7} {'lambda_nm':>10} {'W/lambda':>9} "
+              f"{'sinc(kW/2)':>11} {'tap1 disk/bus':>14} {'tap2':>10}")
+        for f_t in np.arange(8.0, min(a.fmax, 30.0) + 0.01, 1.0):
+            r = min(rows, key=lambda q: abs(q["f_GHz"] - f_t))
+            kf = r["k_phase"]
+            if not np.isfinite(kf) or kf <= 0:
+                continue
+            lam = 2 * np.pi / kf
+            z = kf * Wg / 2
+            snc = abs(math.sin(z) / z) if z > 1e-12 else 1.0
+            j = int(np.argmin(np.abs(fx - f_t)))
+            vals = []
+            for t, tx in enumerate(cfg.tap_x()[:2]):
+                idx = int(round(tx / dx)) - js
+                if not (0 <= idx < Fx.shape[1]):
+                    vals.append(float("nan")); continue
+                bus = abs(Fx[j, idx])
+                disk = float(np.sqrt((np.abs(Fp[j, t*npr:(t+1)*npr]) ** 2).sum()))
+                vals.append(disk / max(bus, 1e-30))
+            print(f"{f_t:>7.1f} {lam*1e9:>10.1f} {Wg/lam:>9.2f} {snc:>11.4f} "
+                  f"{vals[0]:>14.4f} {vals[1]:>10.4f}")
+        print("\nIf the measured ratio dips where W/lambda passes 1 and "
+              "recovers on either\nside, the tap aperture is the limit and the "
+              "fix is geometric -- a narrower\ncoupling guide, or a drive "
+              "wavelength that is long against it.")
 
     at12 = min(rows, key=lambda r: abs(r["f_GHz"] - 12.0))
     print(f"\nAt the drive frequency actually used, 12 GHz: contrast "

@@ -1251,3 +1251,35 @@ amplitude ordering does not explain.
 
 Re-laying the taps at 141 nm per frame would put the designed 3.0 back on the
 measured delay, and is the obvious next geometry change.
+
+### Damping trades amplitude against timing, and the trade is now visible
+
+All three at a 12.2 ns record, gap 15, no tap damping.
+
+| run | aperture | lags | bus alpha | mono | spacings | spread | weakest tap |
+|---|---|---|---|---|---|---|---|
+| A as built | 80 nm | 5-14 | x1 | **3/3** | 3.46, 1.20, 3.76 | 29x | 3.93e-05 |
+| B | 40 nm | 5-14 | x0.1 | 2/3 | 14.15, -0.11, 19.35 | **2.8x** | **5.50e-04** |
+| C composed | 40 nm | 15-24 | x0.1 | 2/3 | 12.35, 0.84, -5.55 | 3.1x | 2.84e-04 |
+
+Lowering bus damping does exactly what the damping-limited-wave measurement said
+it would: the array gets fourteen times brighter and ten times flatter. It also
+destroys the timing, and damping cannot change group velocity, so those 12-19
+frame spacings are not transit. C's absolute lags make it plainest -- 46.7,
+59.0, 59.9, 54.3 frames, where the shifted tap 1 should land near 20 frames of
+transit plus ~13 of disk response.
+
+Two candidate mechanisms, both consistent with the size of the effect:
+
+  ring-down     `bus_alpha_mult` damps the coupling GUIDES as well as the bus,
+                so at x0.1 they ring about ten times longer and drag the
+                envelope peak late. B's lags sit ~11 frames behind A's.
+  termination   at x0.1 the wave crosses the 4 um bus at exp(-4000/11700) =
+                0.71, so 400 nm absorbers sized for full damping stop being
+                good terminations and reflections become comparable to the
+                direct signal.
+
+A damping ladder at x0.3 separates them: ring-down degrades smoothly with alpha,
+a termination failure stays fine until the bus stops attenuating and then breaks.
+The missing configuration -- the narrowed aperture AT FULL damping -- is in the
+same ladder, and on present evidence is the most likely best point of any tried.

@@ -1446,3 +1446,47 @@ The honest summary of the architecture: it is an excellent linear delay line and
 not a reservoir computer. Memory was never the binding constraint -- the chain
 had 15.62 and this has 16.78 with a far better lag profile -- and neither
 delivers the products the task needs.
+
+### Full-amplitude co-drive: the hypothesis is refuted
+
+Driving every disk at 10-30 mT, where the drive sweep measured 24% compression
+and 33 degrees of phase shift, produces no products at all.
+
+| | bus only | balanced co-drive | full amplitude |
+|---|---|---|---|
+| NMSE | 0.8322 | **0.3006** | 0.6463 |
+| effective rank | 29 | 17 | **40** |
+| deg1 capacity | 16.78 | **17.36** | 11.09 |
+| recall at lag 17 | 0.978 | 0.717 | **0.009** |
+| **all deg2/deg3 families** | **0.00** | **0.00** | **0.00** |
+| degree-1 share | 100% | 100% | 100% |
+
+Weak drive was not the cause. What full amplitude did do is reproduce the
+chain's failure exactly -- degree-1 capacity 17.36 -> 11.09 and the memory
+horizon collapsing from 20 to 16, against the chain's 8.91 -> 4.95 and 12 -> 7.
+The same lesson, on a completely different architecture.
+
+### The self-product is missing too, and that is the clue
+
+`P2(s[n-k])` is 0.00 at every lag in all three configurations. Not merely the
+CROSS-lag products -- the disk makes no u[n]^2 either, while a constant-amplitude
+sweep on the same disk over the same 10-30 mT range measures gain falling 0.980
+to 0.758 and phase advancing 3.2 to 32.9 degrees. A nonlinearity that large
+should be visible as degree-2 capacity, and it is not.
+
+The likely reason is a timescale mismatch rather than a missing nonlinearity.
+Ring-down is 1/(alpha*omega) = 1.66 ns at alpha 0.008 and 12 GHz, which is **8.3
+frames**. The envelope the disk's nonlinearity acts on is therefore an average
+over the last ~8 input samples, not a single one. A nonlinear function of a
+heavily low-passed signal distributes its products over many lag pairs with a
+small coefficient each, and thin enough spreads sit under the noise floor
+everywhere -- which is what a uniform 0.00 across every family looks like.
+
+That is testable and the prediction is specific: damp the tap disks until they
+respond inside one frame. tau < 0.2 ns needs alpha > 0.066, so
+`tap_alpha_mult >= 8.3`. The ta=10 point already exists in this codebase, built
+during the coupling sweeps for what turns out to have been the wrong reason.
+
+The cost is known and measured: ta=10 halves what each tap receives, which
+mattered when reception was marginal. It is much less marginal now -- the
+weakest tap reads 3.93e-05 against a 1e-5 bar.

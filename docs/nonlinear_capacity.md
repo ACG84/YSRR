@@ -810,3 +810,34 @@ back under the bar. No point in twenty-eight now reaches 3/3 monotonic. The
 architecture is still finished for this task -- but the reason is not the one
 committed a few hours ago, and a collaborator sent the earlier explanation would
 have been sent the wrong question.
+
+## The near-field test, predictions registered before the run
+
+The replacement hypothesis -- that taps 2-4 read injection near-field rather
+than the guided wave -- is testable without touching the code: move every tap
+ten frames further from the injection, keep the 3-frame tap spacing identical,
+and run at bus damping x0.03 where the guide is nearly lossless over the extra
+1890 nm. Whatever is feeding the taps has to survive that shift or not.
+
+Tap distances are lag x 189 nm, so lags 5/8/11/14 put the array at
+945-2646 nm and lags 15/18/21/24 put it at 2835-4536 nm. At bus x0.03 the
+attenuation length is 951/0.03 = 31.7 um.
+
+| feeding mechanism | tap 1 amplitude, shifted / baseline | array spread |
+|---|---|---|
+| guided wave | 0.94 | unchanged (~1.05) |
+| dipolar near field, 1/r^3 | 0.037 | 22x -> 4.1x |
+| evanescent pickup, kappa = 285 nm | 0.0013 | unchanged |
+
+The third row is the exponential fit that would ACCOUNT for the measured 388x
+spread: 1701 nm across the array needs kappa = 1701/ln(388) = 285 nm. It is
+listed because an exponential pickup is shift-invariant in spread, which is the
+one model that explains both the 388x and its indifference to bus damping. Note
+that neither near-field model is a comfortable fit -- dipolar 1/r^3 predicts
+only 22x where 388x was measured -- so the spread is not yet explained by the
+replacement hypothesis either. What the shift discriminates cleanly is tap 1's
+ABSOLUTE amplitude, where the three models are separated by a factor of 25 and
+by 700.
+
+Baseline tap 1 measured 5.43e-03 (min amp 1.40e-05 at spread 388x). Guided
+predicts 5.1e-03 after the shift, dipolar 2.0e-04, evanescent 7e-06.

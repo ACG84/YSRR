@@ -20,7 +20,8 @@ FRAME_STEPS = 200
 
 
 def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
-               timesteps, dtype=torch.float32, bus_alpha_mult=1.0):
+               timesteps, dtype=torch.float32, bus_alpha_mult=1.0,
+               bus_guide_width_nm=None):
     """Build the array for one point of the sweep.
 
     Returns (cfg, arr, geom_tag, run_tag). The two tags differ on purpose:
@@ -43,12 +44,16 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
         arr = DirCouplerArray(cfg, timesteps=timesteps, dtype=dtype)
         geom = f"n{n_taps}_cpl{int(coupler_len_nm)}"
     else:
+        kw = ({} if bus_guide_width_nm is None
+              else {"bus_guide_width": bus_guide_width_nm * 1e-9})
         cfg = PolyTapConfig(n_taps=n_taps, tap_lags=tuple(lags),
                             coupling_gap=gap_nm * 1e-9,
                             tap_alpha_mult=tap_alpha_mult,
-                            bus_alpha_mult=bus_alpha_mult)
+                            bus_alpha_mult=bus_alpha_mult, **kw)
         arr = PolyTapArray(cfg, timesteps=timesteps, dtype=dtype)
         geom = f"n{n_taps}_gap{int(gap_nm)}"
+        if bus_guide_width_nm is not None:
+            geom = f"{geom}_bw{int(bus_guide_width_nm)}"
     run = geom if tap_alpha_mult == 1.0 else f"{geom}_ta{tap_alpha_mult:g}"
     if bus_alpha_mult != 1.0:
         run = f"{run}_ba{bus_alpha_mult:g}"

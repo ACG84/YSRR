@@ -51,6 +51,14 @@ def main():
                    help="nm; directional-coupler lengths (gap fixed at 20 nm)")
     p.add_argument("--tap-alphas", type=float, nargs="+", default=[1, 3, 10, 30],
                    help="tap damping multipliers")
+    p.add_argument("--bus-guide-widths", type=float, nargs="*", default=[None],
+                   help="nm; width of the ONE guide coupling each disk to the\n"
+                        "bus, measured along the bus. It is a receiving\n"
+                        "aperture: at the 12 GHz drive the wave is 82.3 nm long\n"
+                        "and this guide is 80 nm, so it spans 0.97 of a\n"
+                        "wavelength and integrates the wave away (sinc 0.029).\n"
+                        "Coupled amplitude goes as W*sinc(kW/2), peaking near\n"
+                        "W = lambda/2, so 40-50 nm should beat 80 by ~11x.")
     p.add_argument("--bus-alphas", type=float, nargs="+", default=[1.0],
                    help="bus damping multipliers; <1 is a lower-loss film,\n"
                         "which lengthens the delay line rather than\n"
@@ -65,9 +73,10 @@ def main():
                    help="tiny grid and short rollout; checks the plumbing, not "
                         "the physics")
     p.add_argument("--outdir", default="runs/polytap_sweep")
-    p.add_argument("--worker", type=float, nargs=4, default=None,
-                   metavar=("GAP", "COUPLER", "TAP_ALPHA", "BUS_ALPHA"),
-                   help="internal: run exactly ONE point and exit")
+    p.add_argument("--worker", type=float, nargs=5, default=None,
+                   metavar=("GAP", "COUPLER", "TAP_ALPHA", "BUS_ALPHA", "BUSW"),
+                   help="internal: run exactly ONE point and exit. BUSW < 0 "
+                        "means 'leave the bus guide at its default width'")
     a = p.parse_args()
 
     if a.quick:
@@ -83,7 +92,8 @@ def main():
     # (gap_nm, coupler_len_nm) pairs. A coupler length of 0 selects the stub.
     geometries = [(g, 0.0) for g in a.gaps] + [(20.0, c) for c in a.couplers]
     steps = a.burst + a.quiet + 8
-    total = len(geometries) * len(a.tap_alphas) * len(a.bus_alphas)
+    total = (len(geometries) * len(a.tap_alphas) * len(a.bus_alphas)
+             * len(a.bus_guide_widths))
     print(f"{total} points: {len(geometries)} geometries x "
           f"{len(a.tap_alphas)} damping values, device={a.device}\n")
 
@@ -101,9 +111,10 @@ def main():
     pts = outdir / "points"; pts.mkdir(exist_ok=True)
 
     if a.worker is not None:
-        gap_nm, cpl_nm, ta, ba = a.worker
-        cfg, arr, geom, run = make_array(a.n_taps, a.lags, gap_nm, cpl_nm, ta,
-                                         steps, dtype, bus_alpha_mult=ba)
+        gap_nm, cpl_nm, ta, ba, bw = a.worker
+        cfg, arr, geom, run = make_array(
+            a.n_taps, a.lags, gap_nm, cpl_nm, ta, steps, dtype,
+            bus_alpha_mult=ba, bus_guide_width_nm=None if bw < 0 else bw)
         t0 = time.time()
         ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
                   log=lambda s: print(f"    {s}", flush=True))
@@ -113,7 +124,7 @@ def main():
         sc = score_point(rows, list(cfg.tap_lags[:cfg.n_taps]))
         (pts / f"{run}.json").write_text(json.dumps(
             {"gap_nm": gap_nm, "coupler_len_nm": cpl_nm, "tap_alpha_mult": ta,
-             "bus_alpha_mult": ba,
+             "bus_alpha_mult": ba, "bus_guide_width_nm": None if bw < 0 else bw,
              "taps": rows, **sc, "seconds": round(time.time() - t0, 1)}, indent=2))
         print(f"{run}: spacings "
               f"{[round(float(x),2) for x in sc['spacing_measured']]}, "
@@ -123,17 +134,20 @@ def main():
 
     n = 0
     for gap_nm, cpl_nm in geometries:
-      for ba in a.bus_alphas:
+      for bw in a.bus_guide_widths:
+       for ba in a.bus_alphas:
         for ta in a.tap_alphas:
             n += 1
             run = ((f"n{a.n_taps}_cpl{int(cpl_nm)}" if cpl_nm > 0
                     else f"n{a.n_taps}_gap{int(gap_nm)}")
+                   + ("" if bw is None else f"_bw{int(bw)}")
                    + ("" if ta == 1.0 else f"_ta{ta:g}")
                    + ("" if ba == 1.0 else f"_ba{ba:g}"))
             if (pts / f"{run}.json").exists():
                 print(f"[{n}/{total}] {run}: cached"); continue
             cmd = [sys.executable, __file__, "--worker", str(gap_nm),
-                   str(cpl_nm), str(ta), str(ba), "--device", a.device,
+                   str(cpl_nm), str(ta), str(ba),
+                   str(-1.0 if bw is None else bw), "--device", a.device,
                    "--outdir", str(outdir), "--n-taps", str(a.n_taps),
                    "--lags", *[str(x) for x in a.lags],
                    "--amp-mT", str(a.amp_mT), "--freq", str(a.freq),

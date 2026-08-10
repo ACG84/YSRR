@@ -488,15 +488,29 @@ class CoupledPortedConfig(PortedVortexConfig):
         return [(-self.separation / 2, 0.0), (self.separation / 2, 0.0)]
 
 
-def _radial_guides(X, Y, cx, cy, cfg):
-    """Disk at (cx, cy) plus its radial guides."""
+BUS_PORT = 4
+"""Index of the 270-degree guide in port_angles(): the one facing the bus."""
+
+
+def _radial_guides(X, Y, cx, cy, cfg, bus_port=None):
+    """Disk at (cx, cy) plus its radial guides.
+
+    `bus_port` names the guide that couples to the bus, so it can be given its
+    own width via cfg.bus_guide_width. That guide is an APERTURE onto a
+    travelling wave, and its width is measured along the direction the wave
+    travels, so it is subject to the same sinc weighting as any finite antenna.
+    Every other guide is a readout and its width is not a sampling question.
+    """
     dX, dY = X - cx, Y - cy
     m = (dX**2 + dY**2) <= cfg.radius**2
-    for th in cfg.port_angles():
+    bgw = getattr(cfg, "bus_guide_width", None)
+    for i, th in enumerate(cfg.port_angles()):
+        w = cfg.guide_width if (bus_port is None or i != bus_port
+                                or bgw is None) else bgw
         u = dX * math.cos(th) + dY * math.sin(th)
         v = -dX * math.sin(th) + dY * math.cos(th)
         m = m | ((u >= 0) & (u <= cfg.radius + cfg.guide_length)
-                 & (v.abs() <= cfg.guide_width / 2))
+                 & (v.abs() <= w / 2))
     return m
 
 
@@ -974,6 +988,26 @@ class PolyTapConfig(PortedVortexConfig):
     # neither damping knob was ever addressing the reason the array fails.
     bus_alpha_mult: float = 1.0
     bus_width: float = 80e-9
+    # Width of the ONE guide that couples the disk to the bus, measured along
+    # the bus -- which makes it a receiving aperture, not just a wire.
+    #
+    # A uniform aperture of width W samples a wave of wavevector k with weight
+    # |sinc(kW/2)| and nulls when W equals one wavelength: the aperture spans a
+    # full cycle and integrates it away. Measured on this bus at the 12 GHz
+    # drive, k = 7.63e7 (phase slope, R^2 = 1.000), so lambda = 82.3 nm against
+    # a guide 80 nm wide. W/lambda = 0.97 -- three percent from the null, at
+    # sinc = 0.029, which is 0.09% of the available power.
+    #
+    # That is the whole reason the tap array read an evanescent-looking field
+    # while the bus underneath it carried a wave 1354 nm. Every sweep in this
+    # project held the frequency fixed at 12 GHz, so every one of them sat on
+    # the null and tuned other things.
+    #
+    # Coupled amplitude goes as W * sinc(kW/2), not sinc alone -- a narrower
+    # aperture cancels less but also intercepts less -- so the optimum is near
+    # W = lambda/2 rather than at W -> 0: 80 nm scores 2.3, 40 nm scores 26,
+    # 20 nm scores 18, in units where the factor is W_nm * sinc.
+    bus_guide_width: float = 80e-9
     bus_absorb: float = 400e-9        # absorbing taper at each bus end
     inject_at: float = 600e-9         # from the left bus end
     inject_len: float = 100e-9
@@ -1049,7 +1083,7 @@ def polytap_mask(cfg: PolyTapConfig, device=None, dtype=torch.float64):
     m = (((Y - yb).abs() <= cfg.bus_width / 2)
          & (X >= x0) & (X <= x0 + cfg.bus_length()))
     for cx, cy in cfg.centres():
-        m = m | _radial_guides(X, Y, cx, cy, cfg)
+        m = m | _radial_guides(X, Y, cx, cy, cfg, bus_port=BUS_PORT)
     return m.to(dtype).reshape(nx, ny, 1, 1)
 
 
@@ -1117,7 +1151,7 @@ def _tap_damped(cfg, X, Y, a):
 class PolyTapArray:
     """A bus with N tap disks. Tap i contributes five readout ports."""
 
-    BUS_PORT = 4          # index of the 270-degree guide in port_angles()
+    BUS_PORT = globals()["BUS_PORT"]   # the module constant, not a second copy
 
     def __init__(self, cfg: PolyTapConfig, timesteps: int, device=None,
                  dtype=torch.float64):

@@ -1022,3 +1022,62 @@ to be in the array, and there are two candidates:
 
 These separate cleanly: run the identical measurement on the loaded bus driven
 by its own injector, and on the bare strip driven by a 100 nm source.
+
+## The fault is the tap aperture, and the fix is geometric
+
+Three suspects were measured out in turn. The band: 12 GHz is inside it, bare
+strip decay 3252 nm. The launcher: fine -- the real 100 nm injector gives 3095
+nm against 3252 nm for a 15 nm probe line. The loading: costs a factor of 2.4
+and no more, and on the LOADED bus driven by its own injector the 12 GHz phase
+slope has R^2 = 1.000, k within 1% of the map, decay 1354 nm.
+
+So the delay line works. Recording the bus field and the disk readouts in one
+rollout says where the signal is lost:
+
+| tap | x | bus field | rel tap 1 |
+|---|---|---|---|
+| 1 | 1545 nm | 1.81e-02 | 1.000 |
+| 2 | 2112 nm | 1.39e-02 | 0.768 |
+| 3 | 2679 nm | 8.31e-03 | 0.459 |
+| 4 | 3246 nm | 3.56e-03 | 0.196 |
+
+**The bus delivers the wave to every tap within 5.1x while the disks report
+388x.** A fivefold variation in what arrives cannot produce a 388-fold variation
+in what is read, so the loss is in the bus-to-disk coupling.
+
+There is a specific reason it should be. The coupling guide is 80 nm wide
+measured along the bus, which makes it a receiving aperture, and a uniform
+aperture of width W samples a wave with weight |sinc(kW/2)|, nulling when W
+equals one wavelength. At 12 GHz the measured k is 7.63e7, so lambda = 82.3 nm
+against a guide of 80 nm: **W/lambda = 0.97, three percent from the null.**
+Every sweep in this project held the drive at 12 GHz, so every one of them sat
+on that null and adjusted something else.
+
+### Predictions, registered before the sweep
+
+Coupled amplitude goes as W*sinc(kW/2), not sinc alone -- a narrower aperture
+cancels less but intercepts less too -- so the optimum is near W = lambda/2
+rather than at W -> 0.
+
+| W (nm) | W/lambda | sinc | W*sinc | vs 80 nm |
+|---|---|---|---|---|
+| 80 (as built) | 0.97 | 0.029 | 2.35 | 1.0x |
+| 60 | 0.73 | 0.329 | 19.7 | 8.4x |
+| 50 | 0.61 | 0.495 | 24.7 | 10.5x |
+| **40** | 0.49 | 0.655 | **26.2** | **11.2x** |
+| 25 | 0.30 | 0.855 | 21.4 | 9.1x |
+
+And one prediction that will look like a failure if it is read against the old
+design. Tap positions were laid out at 189 nm per frame, from a group velocity
+fitted across 12-20 GHz. That broadband figure is vindicated -- a linear fit to
+the loaded bus's phase slope over 12-20 GHz gives 948 m/s against the 945 m/s in
+the config -- but the envelope travels at the LOCAL group velocity, and at 12
+GHz that is 706 m/s, or 141 nm per frame. The taps are 567 nm apart, so a tap
+array actually fed by the wave should read
+
+    567 nm / 141 nm per frame = 4.02 frames of spacing, not the 3.00 designed.
+
+A measured spacing near 4.0 is the wave arriving. A measured spacing near 3.0
+would mean something else is setting the timing. `score_point` scores against
+the designed 3.0 and will report this as a +1.0 error; that error is the result,
+not a fault.

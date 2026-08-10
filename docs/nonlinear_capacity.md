@@ -952,3 +952,73 @@ Three consequences follow, and each is a prediction the measurement can kill:
 3. A WIDER strip moves the band the wrong way -- 240 nm drops the top to 7.5
    GHz. Widening the bus, which was on the list of things to try, would have
    made this worse.
+
+### Measured: the band is ABOVE the resonance, and 12 GHz is inside it
+
+The prediction got the edge FREQUENCY right and the SIDE wrong. There is a
+propagating band, its edge sits where Kittel says the k = 0 resonance sits, and
+the band lies above that edge rather than below it -- a forward branch, not the
+backward-volume one the geometry argument assumed.
+
+| configuration | predicted k=0 resonance | measured band bottom | decay at 12 GHz |
+|---|---|---|---|
+| 80 nm, no bias (as built) | 11.27 GHz | ~10.5 GHz | **3252 nm** |
+| 80 nm, 50 mT along x | 12.98 GHz | ~13 GHz | 371 nm |
+| 240 nm, no bias | 7.51 GHz | ~5.5 GHz | (fits degenerate) |
+
+The band edge is unmistakable in the map contrast rather than in any fitted
+number: on the as-built strip it runs 24, 36, 75 at 7, 8, 9 GHz and then 2113 at
+10 GHz. Below the edge the response is smeared across all k, which is what a
+field localised at the source looks like in a spatial transform; above it there
+is a ridge, and the ridge's k rises smoothly from 4.6e7 at 10 GHz to 2.1e8 at 40
+GHz.
+
+**At 12 GHz the as-built strip carries a wave 3.25 um, at k = 7.6e7 rad/m
+(lambda 82.6 nm) and v_g 585 m/s.** That is enough to feed a 1.7 um tap array,
+and it flatly contradicts what the array measured.
+
+Two things follow immediately. Bias is the wrong direction: at 50 mT the band
+bottom moves up past the drive and the decay at 12 GHz collapses to 371 nm,
+which is the evanescent scale again. And widening the bus, which was on the list
+of things to try, moves the edge DOWN and away -- so it would have helped, but
+for the opposite reason to the one that would have been given.
+
+### A retraction: the 1000-step run that "confirmed" the evanescent reading
+
+Before the 8192-step run there was a 1000-step CPU run reporting a 275 nm decay
+at 12 GHz. It was quoted as an independent confirmation of the near-field
+result. It is an artifact, and it should have been checked before it was quoted.
+
+With `--steps 1000` and the default `--t0-ps 1000`, the sinc source's main lobe
+lands on the LAST SAMPLE of the record, where the Hann window is essentially
+zero. The transform saw the pre-pulse and nothing else. Separately, 1 ns is too
+short for a 585 m/s wave to cross the 1.9 um analysis window at all, so the far
+half of the fit was measuring field that had not yet arrived -- the same
+mid-transient error already on record in `check_bus_transport.py`, which fitted
+an attenuation length 2x too short for exactly that reason.
+
+`check_bus_dispersion.py` now refuses to run when the record is shorter than
+three times the source delay.
+
+That the wrong number agreed so well with the array measurement (275 nm against
+the array's ~285 nm) is worth stating plainly: a broken estimator reproduced the
+expected answer, which is the circumstance in which a broken estimator is least
+likely to be caught.
+
+### What is actually left to explain
+
+The bare strip propagates at 12 GHz. The tap array does not. The difference has
+to be in the array, and there are two candidates:
+
+  the launcher   a uniform 100 nm segment has its first spectral zero at
+                 k = 2*pi/100nm = 6.28e7, and the mode wants k = 7.6e7 --
+                 just past the null, at sinc = 0.162 in amplitude, 2.6% in
+                 power. Suppressed, but not obviously by the ~400x observed.
+  the loading    each tap disk is 200 nm across and the mode's wavelength is
+                 82.6 nm, so every tap is a 2.4-wavelength obstacle sitting a
+                 15 nm gap from the guide. The zero-gap build already measured
+                 the bus falling 566x across the array where a bare strip fell
+                 17x over the same span.
+
+These separate cleanly: run the identical measurement on the loaded bus driven
+by its own injector, and on the bare strip driven by a 100 nm source.

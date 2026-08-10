@@ -100,56 +100,120 @@ def main():
                         "has none; this exists to test whether a bias moves the\n"
                         "band somewhere useful")
     p.add_argument("--relax-steps", type=int, default=3000)
+    p.add_argument("--polytap", action="store_true",
+                   help="measure the LOADED bus -- the actual tap array, driven\n"
+                        "by its own injector -- instead of a bare strip")
+    p.add_argument("--n-taps", type=int, default=4)
+    p.add_argument("--lags", type=float, nargs="+", default=[5, 8, 11, 14])
+    p.add_argument("--gap", type=float, default=15.0, help="nm, poly-tap only")
+    p.add_argument("--tap-alpha", type=float, default=1.0)
+    p.add_argument("--bus-alpha", type=float, default=1.0)
+    p.add_argument("--polytap-relax", type=int, default=8000)
     p.add_argument("--fmax", type=float, default=40.0, help="GHz, for the report")
     p.add_argument("--device", default="cpu")
     p.add_argument("--outdir", default="runs/bus_dispersion")
     a = p.parse_args()
 
+    # The record has to outlast BOTH the source and the transit.
+    #
+    # A first run at --steps 1000 with the default --t0-ps 1000 put the sinc's
+    # main lobe on the last sample of the record, where the Hann window is
+    # essentially zero, so the transform saw only the pre-pulse -- and reported
+    # a 275 nm decay at 12 GHz where the 8192-step run gives 3252 nm. It was
+    # quoted before it was checked. The same class of error is already on record
+    # in check_bus_transport.py, which measured its far taps mid-transient and
+    # fitted an attenuation length 2x too short.
+    span_ps = a.steps * 1e12 * VortexConfig.dt
+    if span_ps < 3 * a.t0_ps:
+        raise SystemExit(
+            f"record is {span_ps:.0f} ps but the source peaks at {a.t0_ps:.0f} "
+            f"ps.\nThe Hann window will destroy the excitation. Use "
+            f"--steps >= {int(3 * a.t0_ps / (1e12 * VortexConfig.dt))} or lower "
+            f"--t0-ps.")
+
     mnn.set_precision("float32"); mnn.set_device(a.device)
     dtype = torch.float32
     outdir = Path(a.outdir); outdir.mkdir(parents=True, exist_ok=True)
-    cfg = VortexConfig()
-    L, W, AB = a.length * 1e-9, a.width * 1e-9, a.absorb * 1e-9
 
-    mesh, mask, alpha, nx, ny, X = build(cfg, L, W, AB, dtype)
-    solver = SolverConfig(dt=cfg.dt, timesteps=a.steps + 8, checkpoint=False,
-                          renormalize=True, demag=True)
-    roll = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
-    roll.set_Ms(cfg.Ms * mask)
-
-    h_static = torch.zeros(nx, ny, 1, 3, dtype=dtype)
-    if a.bias_mT:
-        h_static[:, :, :, 0] = (a.bias_mT * 1e-3 / MU_0) * mask[:, :, :, 0]
-    tag = f"{int(a.length)}_{int(a.width)}_b{a.bias_mT:g}"
-    print(f"strip {a.length:.0f} x {a.width:.0f} nm, mesh {nx}x{ny}, "
-          f"bias {a.bias_mT:g} mT, dt {cfg.dt*1e12:.2f} ps, device {a.device}")
-
-    m0c = outdir / f"m0_{tag}.pt"
-    if m0c.exists():
-        m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
-        print(f"[m0] restored from {m0c.name}")
+    if a.polytap:
+        # The SAME measurement on the geometry that actually failed. The bare
+        # strip carries a wave at 12 GHz; the tap array behaved as though
+        # nothing propagated. Only one of those is the device, and running the
+        # bare-strip analysis on the loaded bus is what separates "no mode
+        # exists" from "the array destroys the mode it is trying to sample".
+        #
+        # Source is the array's OWN injector -- the real 100 nm segment, not the
+        # narrow probe line -- so this measures launcher and loading together.
+        # The bare strip at --src-len 100 isolates the launcher half.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from _polytap_probe import make_array, ensure_m0
+        pcfg, arr, geom, run = make_array(
+            a.n_taps, a.lags, a.gap, 0.0, a.tap_alpha, a.steps + 8, dtype,
+            bus_alpha_mult=a.bus_alpha)
+        cfg, dx = pcfg, pcfg.dx
+        nx, ny = pcfg.grid
+        tag = f"polytap_{run}"
+        print(f"poly-tap array, mesh {nx}x{ny}, gap {a.gap:g} nm, "
+              f"tap alpha x{a.tap_alpha:g}, bus alpha x{a.bus_alpha:g}, "
+              f"dt {dx and pcfg.dt*1e12:.2f} ps, device {a.device}")
+        ensure_m0(arr, outdir, tag, relax_steps=a.polytap_relax, dtype=dtype,
+                  log=lambda s: print(f"    {s}", flush=True))
+        m0, roll, h_static = arr.m0, arr.rollout, arr.h_zero
+        # Read the BUS only. The disks and their guides are the load under test,
+        # not the transmission line, and averaging them in would mix the two.
+        mask2d = arr.bus_mask
+        unit = torch.zeros(nx, ny, 1, 3, dtype=dtype)
+        unit[:, :, 0, 2] = arr.inject_mask
+        n_src = int(round(pcfg.inject_len / dx))
+        src_x = pcfg.inject_at + pcfg.inject_len / 2
+        lo_x, hi_x = pcfg.bus_absorb, pcfg.bus_length() - pcfg.bus_absorb
+        print(f"source {n_src} cells (the array's own {pcfg.inject_len*1e9:.0f} "
+              f"nm injector) at {src_x*1e9:.0f} nm, sinc flat to {a.fc:.0f} GHz")
     else:
-        m = torch.zeros(nx, ny, 1, 3, dtype=dtype)
-        m[:, :, 0, 0] = 1.0                    # shape anisotropy puts it here
-        m = m * mask
-        t0 = time.time()
-        m0 = roll.relax(m, h_static, a.relax_steps, 0.5)
-        torch.save(m0.cpu(), m0c)
-        print(f"relaxed in {time.time()-t0:.0f}s")
-    mx0 = float((m0[:, :, 0, 0] * mask[:, :, 0, 0]).sum() / mask.sum())
+        cfg = VortexConfig()
+        dx = cfg.dx
+        L, W, AB = a.length * 1e-9, a.width * 1e-9, a.absorb * 1e-9
+        mesh, mask, alpha, nx, ny, X = build(cfg, L, W, AB, dtype)
+        solver = SolverConfig(dt=cfg.dt, timesteps=a.steps + 8, checkpoint=False,
+                              renormalize=True, demag=True)
+        roll = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha, Ms_ref=cfg.Ms)
+        roll.set_Ms(cfg.Ms * mask)
+        h_static = torch.zeros(nx, ny, 1, 3, dtype=dtype)
+        if a.bias_mT:
+            h_static[:, :, :, 0] = (a.bias_mT * 1e-3 / MU_0) * mask[:, :, :, 0]
+        tag = f"{int(a.length)}_{int(a.width)}_b{a.bias_mT:g}"
+        print(f"strip {a.length:.0f} x {a.width:.0f} nm, mesh {nx}x{ny}, "
+              f"bias {a.bias_mT:g} mT, dt {cfg.dt*1e12:.2f} ps, device {a.device}")
+
+        m0c = outdir / f"m0_{tag}.pt"
+        if m0c.exists():
+            m0 = torch.load(m0c, weights_only=False).to(device=get_device(),
+                                                        dtype=dtype)
+            print(f"[m0] restored from {m0c.name}")
+        else:
+            m = torch.zeros(nx, ny, 1, 3, dtype=dtype)
+            m[:, :, 0, 0] = 1.0                # shape anisotropy puts it here
+            m = m * mask
+            t0 = time.time()
+            m0 = roll.relax(m, h_static, a.relax_steps, 0.5)
+            torch.save(m0.cpu(), m0c)
+            print(f"relaxed in {time.time()-t0:.0f}s")
+        # A narrow line source in the middle: narrow in x so the excitation is
+        # broad in k, out of plane because that is what the real injector does.
+        src_x = L / 2
+        seg = ((X >= src_x - a.src_len * 1e-9 / 2) &
+               (X <= src_x + a.src_len * 1e-9 / 2)).reshape(nx, ny, 1)
+        unit = torch.zeros(nx, ny, 1, 3, dtype=dtype)
+        unit[:, :, :, 2] = (seg * mask[:, :, :, 0].bool()).to(dtype)
+        mask2d = mask[:, :, 0, 0]
+        n_src = int(seg[:, 0, 0].sum())
+        lo_x, hi_x = AB, L - AB
+        print(f"source {n_src} cells wide at x = {src_x*1e9:.0f} nm, "
+              f"sinc flat to {a.fc:.0f} GHz")
+
+    mx0 = float((m0[:, :, 0, 0] * mask2d).sum() / mask2d.sum().clamp(min=1))
     print(f"ground state mean m_x = {mx0:.4f} "
           f"({'along the strip' if mx0 > 0.9 else 'NOT uniform -- check'})")
-
-    # A narrow line source in the middle. Narrow in x so the excitation is broad
-    # in k; out of plane because that is what the real injector does.
-    xc = L / 2
-    seg = ((X >= xc - a.src_len * 1e-9 / 2) &
-           (X <= xc + a.src_len * 1e-9 / 2)).reshape(nx, ny, 1)
-    unit = torch.zeros(nx, ny, 1, 3, dtype=dtype)
-    unit[:, :, :, 2] = (seg * mask[:, :, :, 0].bool()).to(dtype)
-    n_src = int(seg[:, 0, 0].sum())
-    print(f"source {n_src} cells wide at x = {xc*1e9:.0f} nm, "
-          f"sinc flat to {a.fc:.0f} GHz")
 
     amp = a.amp_mT * 1e-3 / MU_0
     wc = 2 * math.pi * a.fc * 1e9
@@ -159,7 +223,7 @@ def main():
         z = wc * (t - t0s)
         return amp * (1.0 if abs(z) < 1e-12 else math.sin(z) / z)
 
-    per_x = mask[:, :, 0, 0].sum(dim=1).clamp(min=1)
+    per_x = mask2d.sum(dim=1).clamp(min=1)
     rec = np.zeros((a.steps, nx), dtype=np.float32)
     m = m0.clone()
     t_start = time.time()
@@ -171,16 +235,15 @@ def main():
                 return unit * sinc_h(tk + theta * cfg.dt)
 
             m = roll.rk4_step(m, h_static, h)
-            dmz = (m - m0)[:, :, 0, 2] * mask[:, :, 0, 0]
+            dmz = (m - m0)[:, :, 0, 2] * mask2d
             rec[k] = (dmz.sum(dim=1) / per_x).float().cpu().numpy()
             if (k + 1) % 1000 == 0:
                 print(f"  step {k+1}/{a.steps} ({time.time()-t_start:.0f}s)",
                       flush=True)
 
     # --- 2D FFT over the interior, away from the absorbers ---------------
-    dx = cfg.dx
-    i0 = int(round((AB + 200e-9) / dx))
-    i1 = int(round((L - AB - 200e-9) / dx))
+    i0 = int(round((lo_x + 200e-9) / dx))
+    i1 = int(round((hi_x - 200e-9) / dx))
     seg_x = rec[:, i0:i1]
     nt, nxu = seg_x.shape
     wt = np.hanning(nt)[:, None]
@@ -195,27 +258,46 @@ def main():
     # --- decay length per frequency, independent of any peak finding -----
     # One-sided: from 200 nm past the source out to the absorber. A single
     # temporal DFT per x, so this shares no machinery with the map above.
-    js = int(round((xc + 200e-9) / dx))
-    je = int(round((L - AB - 100e-9) / dx))
-    xs = (np.arange(js, je) * dx - xc)                                # metres
+    js = int(round((src_x + 200e-9) / dx))
+    je = int(round((hi_x - 100e-9) / dx))
+    if je - js < 20:
+        raise SystemExit(
+            f"only {je-js} cells between the source and the absorber; the decay "
+            f"and\nphase fits need room. Use a longer strip.")
+    xs = (np.arange(js, je) * dx - src_x)                             # metres
     tw = np.hanning(a.steps)[:, None]
     Fx = np.fft.rfft(rec[:, js:je] * tw, axis=0)
     fx = np.fft.rfftfreq(a.steps, cfg.dt) / 1e9
 
-    def decay_len_at(f_ghz):
-        j = int(np.argmin(np.abs(fx - f_ghz)))
-        A = np.abs(Fx[j])
-        good = A > 0
-        if good.sum() < 10:
-            return float("nan"), 0.0
-        lg = np.log(A[good])
-        s, c = np.polyfit(xs[good], lg, 1)
-        pred = np.polyval((s, c), xs[good])
-        ss = 1.0 - ((lg - pred) ** 2).sum() / max(((lg - lg.mean()) ** 2).sum(), 1e-30)
-        return (float("inf") if s >= 0 else -1.0 / s), float(ss)
+    def _fit(x, y):
+        s, c = np.polyfit(x, y, 1)
+        pred = np.polyval((s, c), x)
+        r2 = 1.0 - ((y - pred) ** 2).sum() / max(((y - y.mean()) ** 2).sum(), 1e-30)
+        return float(s), float(r2)
 
-    print(f"\n{'f_GHz':>7} {'k_peak':>11} {'lambda_nm':>10} {'contrast':>9} "
-          f"{'decay_nm':>10} {'fit_R2':>7}")
+    def profile_at(f_ghz):
+        """Decay length AND phase slope at one frequency, from the same complex
+        profile. The phase is the discriminator the amplitude cannot be.
+
+        A travelling wave advances its phase linearly with distance, at a rate
+        that IS the wavevector; an evanescent field sits at fixed phase however
+        fast it decays, and a standing wave from an imperfect absorber steps its
+        phase rather than ramping it. All three can produce a plausible-looking
+        exponential amplitude fit, and this project has already been wrong once
+        by trusting an amplitude estimator on its own.
+        """
+        j = int(np.argmin(np.abs(fx - f_ghz)))
+        A = Fx[j]
+        if A.size < 10 or not np.any(np.abs(A) > 0):
+            return float("nan"), 0.0, float("nan"), 0.0
+        mag = np.abs(A)
+        s, r2 = _fit(xs, np.log(np.maximum(mag, 1e-300)))
+        kslope, kr2 = _fit(xs, np.unwrap(np.angle(A)))
+        return ((float("inf") if s >= 0 else -1.0 / s), r2,
+                abs(kslope), kr2)
+
+    print(f"\n{'f_GHz':>7} {'k_map':>10} {'k_phase':>10} {'phaseR2':>8} "
+          f"{'lambda_nm':>10} {'contrast':>9} {'decay_nm':>10} {'ampR2':>6}")
     rows = []
     for f_t in np.arange(2.0, a.fmax + 0.01, 1.0):
         j = int(np.argmin(np.abs(freqs - f_t)))
@@ -223,13 +305,13 @@ def main():
         ip = int(np.argmax(row))
         kp = float(kk[ip])
         contrast = float(row[ip] / max(np.median(row), 1e-30))
-        dl, r2 = decay_len_at(f_t)
+        dl, r2, kph, kr2 = profile_at(f_t)
         lam = float("inf") if abs(kp) < 1e-9 else 2 * np.pi / abs(kp) * 1e9
         rows.append({"f_GHz": float(f_t), "k_peak": kp, "lambda_nm": lam,
                      "contrast": contrast, "decay_nm": dl * 1e9, "fit_R2": r2,
-                     "power": float(row[ip])})
-        print(f"{f_t:>7.1f} {kp:>11.3e} {lam:>10.1f} {contrast:>9.1f} "
-              f"{dl*1e9:>10.1f} {r2:>7.3f}")
+                     "k_phase": kph, "phase_R2": kr2, "power": float(row[ip])})
+        print(f"{f_t:>7.1f} {kp:>10.2e} {kph:>10.2e} {kr2:>8.3f} "
+              f"{lam:>10.1f} {contrast:>9.1f} {dl*1e9:>10.1f} {r2:>6.2f}")
 
     (outdir / f"results_{tag}.json").write_text(json.dumps(
         {"args": vars(a), "rows": rows}, indent=2))
@@ -237,7 +319,12 @@ def main():
     # --- what the numbers mean -------------------------------------------
     # A propagating mode has to carry MICRONS to be a delay line; a decay
     # length under the tap spacing is not a weak wave, it is not a wave.
-    prop = [r for r in rows if r["decay_nm"] > 1000.0 and r["contrast"] > 3.0]
+    # Phase first: a linear phase ramp is what MAKES it a travelling wave. The
+    # amplitude decay says whether it travels far enough to be useful, and the
+    # map contrast says the mode is resolved -- but neither of those alone
+    # distinguishes a wave from a well-behaved evanescent tail.
+    prop = [r for r in rows if r["phase_R2"] > 0.9 and r["decay_nm"] > 1000.0
+            and r["contrast"] > 3.0]
     print()
     if prop:
         lo, hi = prop[0]["f_GHz"], prop[-1]["f_GHz"]

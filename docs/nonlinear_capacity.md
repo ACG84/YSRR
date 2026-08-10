@@ -1311,3 +1311,45 @@ spectrum rather than the value at the carrier. A NARMA input changes every frame
 and has the same bandwidth, so the broadband figure is the right one there too.
 
 `frame_nm = 189e-9` stays as it is.
+
+### The full ladder: as built is the best point, and the aperture theory is dead
+
+All at lags 5-14, gap 15, no tap damping, 12.2 ns record.
+
+| aperture | bus alpha | mono | spacings | mean | spread | weakest tap |
+|---|---|---|---|---|---|---|
+| **80 (as built)** | **x1** | **3/3** | 3.46, 1.20, 3.76 | **2.81** | 29x | 3.93e-05 |
+| 80 | x0.3 | 2/3 | 8.98, 1.32, -3.53 | 2.26 | 13x | 2.89e-04 |
+| 40 | x1 | 3/3 | 9.51, 2.32, 9.71 | 7.18 | 35x | 1.32e-05 |
+| 40 | x0.3 | 3/3 | 6.07, 7.71, 4.99 | 6.26 | 5x | 2.28e-04 |
+| 40 | x0.1 | 2/3 | 14.15, -0.11, 19.35 | 11.07 | 2.8x | 5.50e-04 |
+
+**The sinc-aperture theory is refuted.** At matched damping the 80 nm aperture
+beats 40 nm at every tap -- 3.93e-05 against 1.32e-05 at x1, 2.89e-04 against
+2.28e-04 at x0.3 -- and the per-tap ratios at x1 are 2.5, 1.1, 1.6, 3.0 for a
+width ratio of exactly 2. Coupling is proportional to aperture width, with no
+null, which is the plain coupling-area model this record earlier claimed was
+"excluded by the 25 nm point". It was excluded on a record that was measuring
+near field. W/lambda = 0.97 remains arithmetic; the wave does not care.
+
+The earlier out-of-sample "confirmation" -- 40 nm beating both 50 and 25 -- was
+confirming how NEAR-FIELD pickup varies with aperture width, which is a real
+curve and the wrong one.
+
+**Bus damping buys amplitude and costs timing.** Lower alpha raises the weakest
+tap sevenfold at bw80 (3.93e-05 to 2.89e-04) and flattens the array (29x to
+13x), exactly as the damping-limited-wave measurement said it would. It also
+scatters the spacings and drops monotonicity. Only the as-built point gives
+both 3/3 and a mean spacing near the designed 3.0.
+
+**Nothing tried beats the device as built** on the quantity the architecture
+needs, which is resolvable delays. Every modification is a loss on timing, a
+gain on brightness, or both.
+
+Not explained, and worth saying so rather than papering over: why the narrowed
+aperture inflates the mean spacing to 6-7 frames when its amplitudes are healthy
+(bw40 ba0.3 has a weakest tap of 2.28e-04 and still reads 6.26 frames per tap
+step against a designed 3.0). Dispersion is a candidate -- the packet is ~5 GHz
+wide and v_g runs 706 m/s at 12 GHz to 1267 at 20, so arrivals smear by about 3
+frames across the array -- but that should not depend on aperture width, and it
+does. This is the next thing to measure, not the next thing to assert.

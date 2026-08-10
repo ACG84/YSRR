@@ -1081,3 +1081,74 @@ A measured spacing near 4.0 is the wave arriving. A measured spacing near 3.0
 would mean something else is setting the timing. `score_point` scores against
 the designed 3.0 and will report this as a +1.0 error; that error is the result,
 not a fault.
+
+### Aperture sweep: the shape confirms, the magnitude does not
+
+| W (nm) | W/lambda | W*sinc predicted | spread | min amp | spacings |
+|---|---|---|---|---|---|
+| 80 (as built) | 0.97 | 2.3 | 405x | 2.83e-06 | 0.11, 0.00, -8.87 |
+| 50 | 0.61 | 24.7 | 197x | 3.09e-06 | 3.31, -11.77, 2.46 |
+| **40** | 0.49 | **26.2** | **141x** | **3.25e-06** | 3.35, -11.79, 2.44 |
+| 25 | 0.30 | 21.4 | 223x | 3.02e-06 | 2.18, -11.85, 2.51 |
+
+**The 11x amplitude prediction is refuted.** The weakest tap rose 15%, not
+1100%. A separate out-of-sample number from a two-point decomposition (bw25
+should land near 2.4e-06) also missed, at 3.02e-06.
+
+**The predicted SHAPE holds.** W*sinc(kW/2) peaks at W = lambda/2 rather than at
+W -> 0, and 40 nm is the best point on both spread and weakest tap, with 25 nm
+worse than 50 nm on both. A coupling-area model -- coupling simply proportional
+to W -- predicts monotonic improvement as W shrinks and is excluded by the 25 nm
+point. So the aperture is real and correctly located; it is not the dominant
+term.
+
+What actually moved was the spread, 405x -> 141x, and it moved because tap 1
+FELL 2.5x rather than because the far taps rose. Tap 1 is dominated by injection
+near field, which scales with aperture area, so narrowing the guide cuts the
+near field roughly in proportion while the wave contribution goes as
+W*sinc(kW/2). The two terms pull opposite ways at tap 4, which is why it barely
+moved.
+
+Spacings went from garbage (0.11, 0.00, -8.87) to two of three positive and
+near 2.4-3.4. Still not a delay line: the middle pair is stuck at -11.8 in every
+narrowed configuration, which is tap 3 sitting at the noise floor and the
+envelope estimator picking a spurious peak.
+
+### The wave is damping-limited; the near field never was
+
+    v_g / (alpha * omega) = 706 / (0.008 * 2pi * 12e9) = 1170 nm
+    measured decay on the loaded bus                   = 1354 nm
+
+Within 16%. This matters more than it looks, because it resolves what seemed
+like a contradiction with the earlier bus-damping sweep, where a thirtyfold
+change in alpha left the tap spread at 405, 458, 408, 388x. At W = 80 nm the
+taps were reading NEAR FIELD, which is geometric and indifferent to damping --
+so of course the sweep found nothing. With the aperture off its null the taps
+can see the wave, and the wave does respond to damping. At bus alpha x0.1 the
+decay would reach 11.7 um.
+
+### The configuration all of this points at
+
+Three measured facts now compose. The near field decays over ~400 nm and
+dominates tap 1. The wave decays over 1354 nm at full damping, 11.7 um at a
+tenth. The aperture wants W near lambda/2.
+
+So: move the array out until the near field has died, narrow the aperture, and
+lower the bus damping so the wave survives the longer path.
+
+  lags 15/18/21/24   puts tap 1 at 2835 nm, where the injection near field is
+                     down exp(-1890/400) = 0.9% of its value at tap 1 today
+  bus_guide_width 40 the measured optimum
+  bus alpha x0.1     decay 11.7 um, so the 1701 nm array span costs
+                     exp(1701/11700) = 1.16x rather than 3.5x
+
+Predictions, registered before the run:
+
+  spread     should collapse from 141x to of order 2x -- near field gone, wave
+             nearly lossless across the span
+  spacings   all three positive and near 4.0 frames, not the 3.0 designed
+  min amp    order 1e-5, uncertain to a factor of about 2
+
+The falsifier is sharp: if the spread stays above ~20x or the spacings stay
+broken, then the injection near field is not what has been keeping taps 2-4
+dark, and this whole line of reasoning is wrong.

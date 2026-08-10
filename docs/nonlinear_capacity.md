@@ -685,3 +685,70 @@ rather than breaking the CUDA graph on a Python callable every substep.
 What should not be run yet is a 600-frame task benchmark on this array. An array
 whose taps cannot be told apart will produce a clean, meaningless number, and
 this project has already paid for that lesson three times.
+
+## The 2D sweep, on GPU: the delay mechanism works, the bus cannot feed it
+
+Twenty points on a T4 -- five geometries (galvanic stub, 15 nm gap, 30 nm gap,
+300 nm and 450 nm directional couplers) against four tap-damping multipliers
+(1, 3, 10, 30). Bar fixed in advance: all three consecutive tap pairs monotonic,
+spacing near the designed 3.0 frames, and the weakest tap above ~1e-5 where the
+estimator can place it.
+
+**No point clears it. Two of the three criteria fail everywhere.**
+
+| | result across all 20 points |
+|---|---|
+| all three pairs monotonic | **never** (best 2 of 3) |
+| weakest tap above 1e-5 | **never** (range 2.3e-06 to 4.9e-06) |
+
+### What did work, and it is the thing the design rested on
+
+The FIRST tap pair resolves correctly, and only when both knobs are turned:
+
+| point | first-pair spacing (designed 3.0) | tap damping |
+|---|---|---|
+| gap 15 | 0.11 | 1x |
+| gap 15 | 2.62 | 10x |
+| **gap 15** | **3.07** | **30x** |
+| gap 30 | 0.04 | 1x |
+| gap 30 | 2.64 | 10x |
+| gap 30 | 2.65 | 30x |
+
+**3.07 against a designed 3.0 is the delay mechanism working, to 2%.** Undamped,
+the same geometries give 0.11 and 0.04 -- no resolution at all. So differential
+damping does exactly what the design equation said: shorten the tap's ring-down
+below the delay being resolved, and tap position starts setting tap delay. That
+claim was made from arithmetic on two measured constants and is now measured
+directly.
+
+It needs a gap as well as damping. The galvanic stub never exceeds 1.11 at any
+damping, because a stub that drains the line leaves nothing to time.
+
+### Why four taps still fail
+
+Every configuration collapses at the SECOND pair, which sits at ~-11.9 in every
+resolving point: tap 3 cannot be placed at all. The reason is in the last
+column and it does not move -- the weakest tap is 2.3e-06 to 2.8e-06 in all
+twenty configurations, against the ~1e-5 the estimator needs.
+
+Damping does compress the spread, and on the directional couplers it does so
+hard: 300x -> 49x at 300 nm, 163x -> 47x at 450 nm. But it compresses from the
+TOP. The weakest tap gets slightly *worse* as damping rises (2.6e-06 -> 2.3e-06),
+so the array levels down rather than up. A flat array of unreadable taps is not
+progress.
+
+### Verdict
+
+**Two taps are feasible on this material; four are not.** The delay mechanism is
+confirmed and the reception limit is exactly the one derived from the two bus
+constants -- each resolvable tap costs e^(d/L) in amplitude, and past tap 2 that
+puts the signal under the noise.
+
+Two taps supply two product separations. The task needs roughly forty
+independent long-separation product dimensions. **The poly-tap architecture is
+finished for NARMA-10**, not because the idea was wrong but because the material
+cannot carry a delay line far enough to tap it more than twice.
+
+What would change it is the one thing this project cannot fix by geometry: a
+larger ratio of attenuation length to tap response time. That is a material and
+frequency question, and it is the same question the handoff brief already asks.

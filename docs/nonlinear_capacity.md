@@ -1353,3 +1353,61 @@ step against a designed 3.0). Dispersion is a candidate -- the packet is ~5 GHz
 wide and v_g runs 706 m/s at 12 GHz to 1267 at 20, so arrivals smear by about 3
 frames across the array -- but that should not depend on aperture width, and it
 does. This is the next thing to measure, not the next thing to assert.
+
+## NARMA-10 on the poly-tap bus: best memory in the project, zero nonlinearity
+
+As built (80 nm aperture, gap 15, bus alpha x1, lags 5/8/11/14), 600 frames,
+splits 100/300/100, co-driven with the fresh sample scaled per tap to the
+measured delayed amplitude.
+
+| readout | dim | NARMA-10 test NMSE |
+|---|---|---|
+| input_only | 1 | 1.3366 |
+| linear_10lag | 10 | 0.9661 |
+| linear_15lag | 15 | **0.1822** |
+| linear_20lag | 20 | 0.1901 |
+| **poly-tap, co-driven** | **200** | **0.3006** |
+
+The device loses, 0.3006 against 0.1822. In relative terms that is where the
+3-stage chain stood (0.2008 against 0.1243, a ratio of 1.62 against 1.65 here),
+so resolved delays did not by themselves change the answer.
+
+The decomposition says why, and it is stark.
+
+| family | capacity |
+|---|---|
+| deg1 P1(s[n-k]) | **17.36** |
+| deg2 P2(s[n-k]) | 0.00 |
+| deg2 s[n]*s[n-k] | 0.00 |
+| deg2 s[n-5]*s[n-k] | 0.00 |
+| deg3 P3(s[n-k]) | 0.00 |
+| **degree-1 share** | **100% of measured** |
+
+Effective rank 17, and every last unit of it is linear. Recall holds above 0.93
+out to lag 10 and 0.74-0.83 out to lag 19 -- **the best memory this project has
+produced**, against the chain's 15.62 with a horizon of 17. At lag 9, the exact
+pairing NARMA-10 needs, the linear term reads 0.939 and the product reads 0.000.
+
+The delay line works. The architecture built on it does not, and it now has
+LESS nonlinear capacity than the chain it was meant to replace (100% degree-1
+against 98-99%).
+
+### A cause I introduced
+
+The fresh sample is scaled per tap to match the delayed copy: 1.0000, 0.1235,
+0.0616, 0.0343. At 10-30 mT drive that puts taps 2, 3 and 4 at roughly 1-4 mT.
+The drive-nonlinearity sweep measured gain 0.980 at 10 mT with compression only
+appearing above it, so **three of the four disks were sitting in linear
+response**.
+
+That scaling came from the chain's failure, where a full-amplitude fresh sample
+drowned a delayed copy ~100x smaller and cut degree-1 capacity from 8.91 to
+4.95. Applying that lesson here produced the opposite failure: operands that
+balance, in an element too weakly driven to multiply them.
+
+The test is `--fresh-scale 1 1 1 1`, which puts every disk at 10-30 mT where the
+nonlinearity is measurable. It risks exactly what killed the chain -- at tap 4
+the fresh sample would be 29x the delayed copy -- but there is far more memory to
+spend now: 17.36 of degree-1 capacity with a horizon of 20, against the chain's
+8.91 falling to 4.95. Losing half of it would still leave more than the chain
+ever had.

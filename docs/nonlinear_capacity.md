@@ -752,3 +752,61 @@ cannot carry a delay line far enough to tap it more than twice.
 What would change it is the one thing this project cannot fix by geometry: a
 larger ratio of attenuation length to tap response time. That is a material and
 frequency question, and it is the same question the handoff brief already asks.
+
+## Testing the materials answer in simulation: half the prediction, and the wrong half is the informative one
+
+The sweep's verdict handed the reception failure to materials -- a longer
+attenuation length relative to tap response time. That is simulable rather than
+only askable, by lowering the BUS damping while leaving the taps where they are.
+The prediction was recorded before the run: a tenth the bus damping lifts the
+weakest tap about 12x, from 2.7e-06 to ~3e-05, and collapses the tap-to-tap
+spread from ~400x to roughly 1.2x.
+
+| bus damping | weakest tap, predicted | measured | spread |
+|---|---|---|---|
+| x1 | 2.7e-06 | 2.8e-06 | 405x |
+| x0.3 | 1.9e-05 | 7.7e-06 | 458x |
+| **x0.1** | 3.3e-05 | **1.19e-05** | 408x |
+| **x0.03** | 4.0e-05 | **1.40e-05** | 388x |
+
+**Reception is fixable.** At a tenth and a thirtieth the bus damping the weakest
+tap clears the 1e-5 bar for the first time in the project, at 1.19e-05 and
+1.40e-05. It arrives at about a third of the predicted size, but it arrives.
+
+**The spread does not move at all** -- 405x, 458x, 408x, 388x across a
+thirtyfold change in bus damping. That refutes the model the prediction came
+from, and the correction matters more than the confirmation.
+
+### What that invalidates
+
+The limit derived earlier -- that each resolvable tap costs e^(d/L) in
+amplitude, so N taps need e^(N-1) of dynamic range -- assumes the tap-to-tap
+ratio is set by propagation loss along the bus. If it were, a thirtyfold longer
+attenuation length would have flattened the array. It did not, so **propagation
+loss is not what sets the spread in this array**, and that derivation does not
+describe it. The likely candidate is that taps 2-4 read near-field from the
+injection rather than the guided wave -- which falls with distance geometrically
+and is indifferent to damping -- consistent with those taps never having shown a
+delayed arrival in any geometry.
+
+The derivation may still be right about resolvable spacing in general. It is
+wrong as the explanation for THIS array's spread, and it was committed as the
+explanation.
+
+### The verdict is unchanged and now better supported
+
+Resolution and reception remain anti-correlated, and the low-loss bus does not
+break the tie:
+
+| configuration | first-pair spacing (want 3.0) | weakest tap |
+|---|---|---|
+| bus x0.1, no tap damping | 0.09 (no resolution) | **1.19e-05** (clears) |
+| bus x0.1, tap damping 10x | 2.13 (resolves) | 5.88e-06 (fails) |
+| bus x0.03, no tap damping | 0.09 (no resolution) | **1.40e-05** (clears) |
+| bus x0.03, tap damping 10x | 2.12 (resolves) | 6.53e-06 (fails) |
+
+Turning on the damping that buys resolution halves the weakest tap and puts it
+back under the bar. No point in twenty-eight now reaches 3/3 monotonic. The
+architecture is still finished for this task -- but the reason is not the one
+committed a few hours ago, and a collaborator sent the earlier explanation would
+have been sent the wrong question.

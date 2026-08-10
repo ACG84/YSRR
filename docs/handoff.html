@@ -121,11 +121,11 @@
 <header>
   <div class="eyebrow">YSRR · micromagnetic reservoir computing · handoff brief</div>
   <h1>A magnonic reservoir that remembers but does not compute</h1>
-  <p class="lede">Simulation has taken the reservoir as far as it usefully can, and has just
-  answered the question that was going to be asked of you. The proposed rescue — a delay bus
-  with taps — failed because <strong>nothing propagates on the bus at 12 GHz</strong>. What
-  remains is one prior question about dispersion that decides whether any delay-line
-  architecture is worth building here.</p>
+  <p class="lede">The reservoir has ample memory and no nonlinear capacity, and loses to a linear
+  filter. The rescue — a spin-wave delay bus tapped at many distances — spent four campaigns
+  failing. <strong>It was never broken.</strong> Every run ended before the wave reached the far
+  taps; with a long enough rollout the unmodified array resolves all four delays and clears the
+  detection threshold fourfold.</p>
 </header>
 
 <section>
@@ -139,14 +139,16 @@
     <p>It therefore loses to a 20-tap linear filter: <strong>0.1905 against 0.1243</strong>. Five
     mechanisms and three coupling architectures have been tried and measured out.</p>
     <p>The rescue was to build the missing products explicitly: a spin-wave bus carrying the input
-    past a row of taps, each multiplying a fresh sample against a delayed one. That is now
-    measured out too, and for a prior reason — <strong>the bus does not propagate</strong>.</p>
+    past a row of taps, each multiplying a fresh sample against a delayed one. That now
+    <strong>works in simulation</strong> — four taps at 3.46, 1.20 and 3.76 frames of separation
+    against a designed 3.00, all monotonic. Whether resolved taps actually supply the
+    long-separation products the task needs is untested.</p>
   </div>
   <div class="figs">
     <div class="fig"><b>0.1243</b><span>best linear filter — the bar to beat</span></div>
     <div class="fig"><b>0.1905</b><span>best device result, 3-stage chain</span></div>
-    <div class="fig"><b>~5</b><span>nonlinear state dimensions available (≈40 needed)</span></div>
-    <div class="fig"><b>562×</b><span>how far a guided wave missed the measured tap amplitude</span></div>
+    <div class="fig"><b>3/3</b><span>tap delays now resolved, first time in the project</span></div>
+    <div class="fig"><b>2.81 ns</b><span>the rollout that hid it; the wave needs 3.75</span></div>
   </div>
 </section>
 
@@ -159,15 +161,17 @@
   (0.2 ns) per frame.</p>
   <div class="scroll">
     <table>
-      <caption>Constants measured in this project, not taken from literature. The two struck
-      through are the ones the delay-line design rested on, and are the ones the near-field test
-      calls into question.</caption>
+      <caption>Constants measured in this project, not taken from literature. The dispersion
+      block is new and supersedes the transport fit that the delay-line geometry was laid out
+      from.</caption>
       <thead><tr><th>Quantity</th><th class="num">Value</th><th>How measured</th></tr></thead>
       <tbody>
-        <tr><td>Bus decay length, in the array</td><td class="num">~400 nm</td><td>8 taps over 3.6 µm, unchanged by 30× damping</td></tr>
-        <tr><td>Tap-to-tap arrival spread</td><td class="num">0.04 frames</td><td>over 1701 nm, where propagation needs 9.0</td></tr>
-        <tr><td class="susp">Bus attenuation length</td><td class="num susp">951 nm</td><td>bare 80 nm strip — <b>see caveat 2</b></td></tr>
-        <tr><td class="susp">Group velocity</td><td class="num susp">945 m/s</td><td>arrival vs distance, same strip — <b>see caveat 2</b></td></tr>
+        <tr><td>Band bottom, 80 nm strip</td><td class="num">~10.5 GHz</td><td>(k, f) map; drive sits 1.5 GHz inside</td></tr>
+        <tr><td>Wavelength at 12 GHz</td><td class="num good">82.3 nm</td><td>phase slope, R² = 1.000</td></tr>
+        <tr><td>Wave decay, loaded bus</td><td class="num">1354 nm</td><td>vs 1170 nm from v<sub>g</sub>/(αω) — damping-limited</td></tr>
+        <tr><td>Near-field decay</td><td class="num">~400 nm</td><td>below-band response; damping-independent</td></tr>
+        <tr><td>Group velocity, 12–20 GHz</td><td class="num">948 m/s</td><td>phase-slope fit; confirms the earlier 945</td></tr>
+        <tr><td>Group velocity, local at 12 GHz</td><td class="num">706 m/s</td><td>the one an envelope actually travels at</td></tr>
         <tr><td>Gilbert damping</td><td class="num">0.008</td><td>model input (permalloy)</td></tr>
         <tr><td>Disk tap response time</td><td class="num">~13 frames</td><td>envelope cross-correlation, 3 geometries</td></tr>
         <tr><td>Readout effective rank</td><td class="num">21</td><td>unchanged at 180 or 240 feature columns</td></tr>
@@ -200,93 +204,145 @@
         <tr><td>Directional coupler</td><td>long-lag products</td><td class="bad">157× spread; delays not resolved</td></tr>
         <tr><td>Differential damping</td><td>resolve the taps</td><td class="bad">orders taps, halves reception; net loss</td></tr>
         <tr><td>Low-loss bus (α×0.03)</td><td>reach the far taps</td><td class="bad">reception clears 1e-5; spread unmoved</td></tr>
+        <tr><td>Narrower tap aperture</td><td>hear the wave</td><td class="bad">worse at every tap once measured properly</td></tr>
+        <tr><td><b>Longer rollout</b></td><td>let the wave arrive</td><td class="good"><b>3/3 delays resolved; weakest tap 14× up</b></td></tr>
       </tbody>
     </table>
   </div>
 </section>
 
 <section>
-  <h2>Why every tap architecture failed the same way</h2>
-  <p>They didn't fail on coupling, and they didn't fail on damping. <strong>The bus is not a
-  delay line.</strong> At 12 GHz in this geometry nothing propagates along it; the taps are
-  reading an evanescent field that falls off over a few hundred nanometres and arrives
-  everywhere at once.</p>
-  <p>The test that settled it: keep the four taps at their 3-frame spacing and move the whole
-  array ten frames further from the injection, at a bus damping where a real guided wave would
-  lose 6% over the extra 1.89 µm. Three predictions were registered before the run.</p>
+  <h2>Why every tap architecture failed: the run ended before the wave arrived</h2>
+  <p>Four suspects were measured and cleared — the band contains 12 GHz, the launcher works, the
+  loaded bus carries the wave past every tap with phase R² = 1.000, and the bus field varies only
+  5.1× across the array where the taps reported 405×. That last gap looked like a coupling
+  failure. It was not.</p>
+  <div class="verdict flagged">
+    <div class="eyebrow">The actual cause</div>
+    <p>Every poly-tap run used a rollout of <strong>2.81 ns</strong>. At the measured group
+    velocity the wave needs <strong>3.75 ns</strong> to reach tap 3 and <strong>6.42 ns</strong>
+    to reach tap 4. The simulation ended before the signal arrived, so the taps were reading
+    injection near field — which is instantaneous, which is why all four reported the same arrival
+    time, and why that time was the disk's own response rather than anything to do with
+    distance.</p>
+    <p>Nothing in the output looked wrong. Amplitudes were plausible, the estimator returned
+    finite lags, and those lags were reproducible across runs and geometries. That reproducibility
+    read as reliability. It was the signature of a quantity that did not depend on the thing being
+    varied.</p>
+  </div>
   <div class="scroll">
     <table>
-      <caption>The evanescent number is not a fit to this data. Its decay length was derived from
-      the amplitude spread <em>within</em> the unshifted array, and then predicted an absolute
-      amplitude 1.89 µm away in a separately built and separately relaxed mesh.</caption>
-      <thead><tr><th>If the taps read…</th><th class="num">tap 1 after the shift</th><th class="num">wrong by</th></tr></thead>
+      <caption>Same geometry, same 80 nm aperture, same damping, same gap. Only the record length
+      differs. Arrival advances monotonically with distance for the first time in the project, and
+      the weakest tap clears the 1e-5 placement bar by a factor of four.</caption>
+      <thead><tr><th>As-built array</th><th class="num">2.81 ns record</th><th class="num">12.2 ns record</th></tr></thead>
       <tbody>
-        <tr><td>a guided wave</td><td class="num">5.11e-03</td><td class="num bad">562×</td></tr>
-        <tr><td>a dipolar near field, 1/r³</td><td class="num">2.01e-04</td><td class="num bad">22×</td></tr>
-        <tr><td>an evanescent field, κ = 285 nm</td><td class="num">7.20e-06</td><td class="num good">0.79×</td></tr>
-        <tr><td><b>measured</b></td><td class="num"><b>9.09e-06</b></td><td class="num">—</td></tr>
+        <tr><td>arrival lags (frames)</td><td class="num">12.91, 13.00, 13.00, 12.95</td><td class="num good">13.13, 16.59, 17.80, 21.55</td></tr>
+        <tr><td>spacings (designed 3.00)</td><td class="num">0.11, 0.00, −8.87</td><td class="num good">3.46, 1.20, 3.76</td></tr>
+        <tr><td>monotonic pairs</td><td class="num">1 / 3</td><td class="num good">3 / 3</td></tr>
+        <tr><td>weakest tap</td><td class="num">2.83e-06</td><td class="num good">3.93e-05</td></tr>
       </tbody>
     </table>
   </div>
-  <div class="verdict flagged">
-    <div class="eyebrow">The observation that closes it</div>
-    <p>Attenuation makes a wave <em>small</em>. It does not make it <em>punctual</em>. Across the
-    array the four arrival times are 12.91, 13.00, 13.00, 12.95 frames — <strong>flat to 0.04
-    frames over 1701 nm, where 945 m/s demands that tap 4 lag tap 1 by 9.0</strong>. A loaded or
-    lossy bus would still deliver the signal late. This one delivers it on time everywhere, so it
-    did not travel.</p>
+  <p>The delay line works, and always did. Four campaigns of couplers, gaps and damping ratios
+  were aimed at a device whose output was being truncated before it arrived.</p>
+</section>
+
+<section>
+  <h2>What the ladder says about improving it</h2>
+  <p>With a valid record, every modification we tried is a loss on timing, a gain on brightness,
+  or both. Nothing beats the device as built on the quantity the architecture actually needs.</p>
+  <div class="scroll">
+    <table>
+      <caption>Bus damping buys amplitude and costs timing, exactly in line with the wave being
+      damping-limited (v<sub>g</sub>/αω = 1170 nm predicted against 1354 nm measured). Only the
+      as-built point gives both 3/3 monotonic and a mean spacing near the designed 3.0.</caption>
+      <thead><tr><th class="num">aperture</th><th class="num">bus α</th><th class="num">mono</th><th class="num">mean spacing</th><th class="num">spread</th><th class="num">weakest tap</th></tr></thead>
+      <tbody>
+        <tr><td class="num">80 (as built)</td><td class="num">×1</td><td class="num good">3/3</td><td class="num good">2.81</td><td class="num">29×</td><td class="num">3.93e-05</td></tr>
+        <tr><td class="num">80</td><td class="num">×0.3</td><td class="num">2/3</td><td class="num">2.26</td><td class="num">13×</td><td class="num">2.89e-04</td></tr>
+        <tr><td class="num">40</td><td class="num">×1</td><td class="num good">3/3</td><td class="num bad">7.18</td><td class="num">35×</td><td class="num">1.32e-05</td></tr>
+        <tr><td class="num">40</td><td class="num">×0.3</td><td class="num good">3/3</td><td class="num bad">6.26</td><td class="num">5×</td><td class="num">2.28e-04</td></tr>
+        <tr><td class="num">40</td><td class="num">×0.1</td><td class="num">2/3</td><td class="num bad">11.07</td><td class="num good">2.8×</td><td class="num good">5.50e-04</td></tr>
+      </tbody>
+    </table>
   </div>
-  <p>Every knob turned over the last several sweeps — coupling gap, directional couplers, tap
-  damping ratio, bus damping — was adjusting how much of a signal that never propagated reached
-  the taps.</p>
+  <p>An earlier draft of this brief blamed the tap's coupling aperture, on the arithmetic that an
+  80 nm guide sampling an 82.3 nm wave sits on its own sinc null. <strong>That is refuted.</strong>
+  At matched damping the 80 nm aperture beats 40 nm at every tap, with per-tap ratios of 2.5, 1.1,
+  1.6 and 3.0 for a width ratio of exactly 2 — coupling proportional to width, no null. The
+  supporting evidence for the null (a non-monotonic optimum at W ≈ λ/2, confirmed out of sample)
+  was measured on the truncated record: it was the response curve of <em>near-field</em> pickup
+  against aperture width, which is a real curve and the wrong one.</p>
 </section>
 
 <section>
   <h2>What we need from you</h2>
-  <p>One question, and it comes before any architecture.</p>
+  <p>The delay line works, so the questions are about whether it scales and whether our numbers
+  are believable.</p>
   <div class="ask">
-    <div class="eyebrow">The question — dispersion</div>
-    <p>Is <strong>12 GHz inside the propagating spin-wave band</strong> of a 20 nm × 80 nm
-    permalloy strip in this configuration at all? And if not, what combination of bias field,
-    strip width, and drive frequency puts a genuinely propagating mode on a bus at a group
-    velocity that gives useful delay per unit length?</p>
-    <p>The competing explanation we cannot separate from our own data: the strip may propagate
-    fine and our <em>launcher</em> may be at fault — a 100 nm out-of-plane field segment may
-    simply couple to nothing that carries. Either answer is decisive, and they point at different
-    fixes.</p>
+    <div class="eyebrow">Question 1 — sanity-check the delay line</div>
+    <p>On an unbiased 80 × 20 nm permalloy strip at 12 GHz we measure <strong>λ = 82.3 nm</strong>
+    (phase slope, R² = 1.000), a band bottom near 10.5 GHz, local v<sub>g</sub> = 706 m/s rising
+    to 1267 at 20 GHz, and a propagation length of 1354 nm on the loaded bus against
+    v<sub>g</sub>/αω = 1170 nm. Are those the right order for this geometry, and is an
+    exchange-dominated forward branch what you would expect with <strong>k ∥ M</strong> and no
+    applied field?</p>
   </div>
   <div class="ask">
-    <div class="eyebrow">Why we are not asking what we were going to ask</div>
-    <p>The previous version of this brief asked whether a 10:1 Gilbert damping ratio between
-    capped and bare film was realistic, on the strength of a design equation for how many taps fit
-    within a given dynamic range. <strong>That equation is refuted</strong> — it assumed the
-    tap-to-tap spread came from propagation loss, and a thirtyfold longer attenuation length left
-    the spread at 405×, 458×, 408×, 388×. Differential damping does do the one thing it was
-    claimed to do, ordering taps that were previously unordered, but on a bus with nothing
-    travelling on it that buys nothing. The materials question was the wrong question.</p>
+    <div class="eyebrow">Question 2 — how many taps does this scale to?</div>
+    <p>Four taps span 1.7 µm at 567 nm spacing, with a 29× amplitude spread end to end and a
+    propagation length of 1.35 µm. The task needs of order <strong>40 independent product
+    dimensions</strong>. Lowering bus damping flattens the array beautifully (29× → 2.8×) but
+    scatters the timing. <strong>Is there a principled operating point that keeps both</strong> —
+    or is the honest answer that a magnonic delay line tops out at a handful of resolvable
+    taps?</p>
+  </div>
+  <div class="ask">
+    <div class="eyebrow">Question 3 — the dispersion penalty</div>
+    <p>The packet is ~5 GHz wide (one sample per 0.2 ns frame) and v<sub>g</sub> varies from 706
+    to 1267 m/s across that span, so arrivals should smear by roughly 3 frames over the array.
+    We see spacings scatter (3.46, 1.20, 3.76 where 3.00 was designed) and cannot yet attribute
+    it. <strong>Does dispersive spreading put a hard floor on tap density here</strong>, and is
+    there a standard mitigation?</p>
+  </div>
+  <div class="ask">
+    <div class="eyebrow">Questions we are no longer asking, and why</div>
+    <p>Earlier drafts of this brief asked, in turn, whether a <strong>10:1 Gilbert damping
+    ratio</strong> was fabricable, whether <strong>12 GHz was in the band</strong>, and how to
+    <strong>couple to an 82 nm wave through a stub sitting on its sinc null</strong>. All three
+    were wrong questions built on the same broken measurement, and all three are kept in the
+    record below rather than quietly dropped.</p>
   </div>
 </section>
 
 <section>
   <h2>Caveats, stated plainly</h2>
   <ul>
-    <li>The evanescent decay is <strong>not one clean exponential</strong>. Fitted span by span it
-    runs 196, 354, 386, 438, 638, 539, 1283 nm — softening with distance, as a short-range field
-    plus a weak long-range remainder would. A single exponential over all eight taps gives
-    κ = 426 nm with a 3.7× worst residual. The scale is solid; the functional form is not.</li>
-    <li>Two published constants of this project are now <strong>suspect and struck through
-    above</strong>: the 951 nm bus attenuation length and the 945 m/s group velocity. Both came
-    from the same kind of measurement on the same kind of field, and the velocity came from the
-    threshold arrival estimator that has already produced one false delay here. Note the direction
-    of the inconsistency — the decay measured inside the array is ~400 nm at a <em>thirtieth</em>
-    the damping, shorter than the 951 nm measured at full damping. Propagation loss cannot do
-    that.</li>
-    <li>Three claims in the project record were wrong and have been corrected: that the device
-    operated in linear response (it does not — the disk is strongly nonlinear across the whole
-    operating window); that tap position set tap delay (it never did; that rested on an arrival
-    estimator that fires on the first thing above threshold); and that tap-to-tap amplitude spread
-    followed from the damping ratio (refuted by the bus-damping sweep, and this brief previously
-    carried that claim as its central design equation).</li>
+    <li>The device's field is <strong>two superposed components</strong>, and nearly all of this
+    project's confusion came from measuring their sum too early. Injection near field: ~400 nm
+    decay, geometric, damping-independent, instantaneous. The guided wave: 1354 nm decay on the
+    loaded bus, damping-limited, arriving 1.3–3.8 ns later. Truncated runs saw only the first.</li>
+    <li>The <strong>945 m/s group velocity is vindicated</strong>, twice over. A phase-slope fit
+    over 12–20 GHz gives 948 m/s, and the measured arrivals imply 1010 m/s — mean spacing 2.81
+    frames against 3.00 designed, a 6% error. An earlier draft struck this constant through, and a
+    later one claimed the taps were 34% too far apart because the envelope should travel at the
+    local 706 m/s. Both were wrong: subtracting transit at 948 m/s leaves a constant 7.8-frame
+    disk response across all four taps, while 706 m/s leaves a systematically falling residual.
+    The burst is one frame wide, so it spans ~5 GHz and travels at the broadband velocity.</li>
+    <li>The 951 nm attenuation length is still unreconciled — the dispersion run gives 3252 nm on
+    a bare strip at 5 mT against 951 nm from a CW fit at 30 mT, where the disk is known to
+    compress 24%.</li>
+    <li>Five claims in the project record were wrong and are corrected in place rather than
+    removed: that the device operated in linear response; that tap position set tap delay; that
+    tap spread followed from the damping ratio; that nothing propagated at 12 GHz; and that the
+    tap aperture sat on a sinc null that explained the failure. The last three all trace to the
+    same truncated rollout.</li>
+    <li>Two of those failures share a shape worth naming. The 1000-step dispersion record returned
+    275 nm where the correct run gives 3252 nm — and 275 nm agreed beautifully with the ~285 nm
+    the tap array was showing. The aperture sweep produced a non-monotonic optimum exactly where
+    theory predicted it. In both cases a broken measurement reproduced the expected answer, which
+    is the circumstance in which a broken measurement is least likely to be caught.</li>
     <li>NARMA-10's difficulty is <em>not</em> the <code>u[n−9]·u[n]</code> term everyone quotes.
     Adding it to a linear filter changes 0.1243 to 0.1242. The value is in the whole family of
     long-separation products.</li>

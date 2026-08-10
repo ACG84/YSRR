@@ -940,6 +940,9 @@ class PolyTapConfig(PortedVortexConfig):
     # attenuation length should have flattened it. The bus-damping sweep left
     # the spread at 405x, 458x, 408x, 388x. Whatever sets the spread here, it
     # is not bus attenuation, and the ratio does not govern it.
+    #
+    # What does set it: see bus_alpha_mult below. The taps read an evanescent
+    # field, not a wave, so RESOLUTION as defined here has nothing to resolve.
     tap_alpha_mult: float = 1.0
     # Damping multiplier on the BUS and guides, the other half of the ratio.
     #
@@ -959,6 +962,16 @@ class PolyTapConfig(PortedVortexConfig):
     # ~1.2x) failed outright: see tap_alpha_mult above. Reception and
     # resolution stay anti-correlated, because turning the tap damping back on
     # to recover resolution halves the weakest tap again (5.88e-06, 6.53e-06).
+    #
+    # WHY the spread prediction failed, measured afterwards by shifting the
+    # whole array ten frames further from the injection at bus x0.03. Tap 1 fell
+    # from 5.42e-03 to 9.09e-06. A guided wave over that extra 1890 nm would
+    # have fallen 6%; an evanescent field with the ~285 nm decay length implied
+    # by the baseline spread predicts 7.2e-06, and that number was registered
+    # before the run. Arrival lags across the baseline array are flat to 0.04
+    # frames over 1701 nm where 945 m/s demands 9.0 -- attenuation would make a
+    # wave small, not punctual. Nothing propagates to these taps at 12 GHz, so
+    # neither damping knob was ever addressing the reason the array fails.
     bus_alpha_mult: float = 1.0
     bus_width: float = 80e-9
     bus_absorb: float = 400e-9        # absorbing taper at each bus end

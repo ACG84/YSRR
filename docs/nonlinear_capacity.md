@@ -841,3 +841,71 @@ by 700.
 
 Baseline tap 1 measured 5.43e-03 (min amp 1.40e-05 at spread 388x). Guided
 predicts 5.1e-03 after the shift, dipolar 2.0e-04, evanescent 7e-06.
+
+### Result: the bus is not delivering a propagating wave
+
+| model | predicted tap 1 after the shift | miss |
+|---|---|---|
+| guided wave | 5.11e-03 | **562x** |
+| dipolar near field, 1/r^3 | 2.01e-04 | 22x |
+| evanescent pickup, kappa = 285 nm | 7.20e-06 | **0.79x** |
+| MEASURED | **9.09e-06** | -- |
+
+The pre-registered evanescent number is a hit, and it is not a fitted one: its
+kappa came from the SPREAD ACROSS TAPS inside the baseline array, and it then
+predicted an absolute amplitude 1890 nm away, in a separately built and
+separately relaxed mesh, to within 26%. The guided prediction is wrong by nearly
+three orders of magnitude.
+
+Two more things fall out of the same two runs.
+
+**The two arrays lie on one curve.** Baseline tap 4 at 2646 nm reads 1.398e-05
+and shifted tap 1 at 2835 nm reads 9.087e-06, a 438 nm decay length across the
+189 nm that separates them -- continuous with the 354 and 386 nm measured
+between baseline taps. The meshes differ in size (127,836 against 187,938
+cells) and were relaxed independently, so that continuity is a real check, not
+bookkeeping.
+
+| span (nm) | 945-1512 | 1512-2079 | 2079-2646 | 2646-2835 | 2835-3402 | 3402-3969 | 3969-4536 |
+|---|---|---|---|---|---|---|---|
+| kappa (nm) | 196 | 354 | 386 | 438 | 638 | 539 | 1283 |
+
+A single exponential over all eight points gives kappa = 426 nm with a 3.7x
+worst residual, so the decay is not one clean exponential -- it softens with
+distance, as a short-range field plus a weak long-range remainder would. What is
+not in doubt is the scale: a few hundred nm, against the 31.7 um the bus damping
+implies for a propagating wave.
+
+**No tap shows a propagation delay.** Across the baseline array the arrival lags
+are 12.91, 13.00, 13.00, 12.95 -- flat to 0.04 frames over 1701 nm, where the
+measured 945 m/s group velocity demands tap 4 lag tap 1 by **9.0 frames**. This
+is the argument that closes the case, because it separates the two remaining
+explanations. If the taps were loading a propagating bus, the wave would arrive
+attenuated but still late. It arrives on time everywhere, so it did not travel.
+
+(The shifted array's lags -- 13.00, 12.96, 8.73, 4.59, running backwards -- are
+the estimator failing below the placement bar, not physics: every tap there is
+at or under 9.1e-06.)
+
+### What this costs, and what it is worth
+
+The poly-tap architecture is dead for a reason unrelated to anything the last
+several sweeps were adjusting. It needs a delay line; the bus is not one at 12
+GHz in this geometry. Coupling gap, directional couplers, tap damping ratio,
+bus damping -- all four were tuning how much of a signal that never propagated
+reached the taps.
+
+It also puts the two earlier bus-transport constants in question. The 951 nm
+"attenuation length" on the bare strip is the same kind of measurement on the
+same kind of field, and the 945 m/s "group velocity" came from arrival-vs-
+distance under the threshold estimator that has already produced one false
+delay in this project. Note the direction of the inconsistency: the decay here
+is ~400 nm at a THIRTIETH the damping, shorter than the 951 nm measured at full
+damping. Propagation loss cannot do that.
+
+The open question is therefore dispersion, not materials: whether 12 GHz sits
+inside the propagating band of a 20 nm x 80 nm permalloy strip in this magnetic
+configuration at all, and if not, what bias field, width, or drive frequency
+puts a genuinely propagating mode on the bus. That is measurable here -- a
+dispersion sweep on the bare strip, frequency against wavevector -- and it is
+the prerequisite for any delay-line architecture, not a refinement of this one.

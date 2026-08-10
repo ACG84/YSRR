@@ -1411,3 +1411,38 @@ the fresh sample would be 29x the delayed copy -- but there is far more memory t
 spend now: 17.36 of degree-1 capacity with a horizon of 20, against the chain's
 8.91 falling to 4.95. Losing half of it would still leave more than the chain
 ever had.
+
+### The bus-only control: an excellent delay line, and nothing else
+
+| readout | dim | NARMA-10 test NMSE |
+|---|---|---|
+| bus only | 200 | 0.8322 |
+| co-driven | 200 | 0.3006 |
+| best linear (15 lags) | 15 | **0.1822** |
+
+Bus-only recall, which is the cleanest picture of what the delay line does:
+
+| lag | 0 | 1 | 2 | 3 | 4 | 5 | 9 | 14 | 20 |
+|---|---|---|---|---|---|---|---|---|---|
+| r^2 | 0.000 | 0.122 | 0.224 | 0.633 | 0.879 | 0.868 | 0.984 | 0.972 | 0.949 |
+
+Blind to lags 0-2 and then **0.87-0.98 from lag 4 to lag 20**. The array holds
+the input for twenty frames with almost no loss, which is what a delay line is
+supposed to do and better than anything else in this project has managed.
+Capacity 16.78, rank 29, and again **100% degree-1** with every product family
+at 0.00.
+
+Co-driving fills the short lags the delay line cannot see -- lag 0 goes 0.000 to
+0.953 -- and that accounts for the whole 0.8322 to 0.3006 improvement. It is
+purely linear information, not products. It also collapses effective rank from
+29 to 17, because driving all four disks with the SAME fresh sample makes them
+partly redundant: the identical-disks-are-redundant result from the parallel
+input layer (CC = 1.000), showing up again in a different architecture.
+
+So the two arms agree on the only thing that matters. **Zero nonlinear capacity,
+at every lag, in both modes.**
+
+The honest summary of the architecture: it is an excellent linear delay line and
+not a reservoir computer. Memory was never the binding constraint -- the chain
+had 15.62 and this has 16.78 with a far better lag profile -- and neither
+delivers the products the task needs.

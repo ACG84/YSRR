@@ -931,6 +931,18 @@ class PolyTapConfig(PortedVortexConfig):
     # 2.8x permalloy's. Physically this is a Pt or Pd cap raising alpha by spin
     # pumping while the uncapped bus keeps its own.
     tap_alpha_mult: float = 1.0
+    # Damping multiplier on the BUS and guides, the other half of the ratio.
+    #
+    # tap_alpha_mult alone sets alpha_tap/alpha_bus by raising the tap. This
+    # lowers the bus instead, which is what a low-damping film would do, and the
+    # two are not interchangeable: the ratio governs whether a tap can RESOLVE a
+    # delay, while the bus alpha alone governs how far the delay line CARRIES.
+    # The 20-point sweep resolved the first tap pair (3.07 against a designed
+    # 3.0) and still failed at taps 3 and 4 because the weakest tap never rose
+    # above 2.8e-06. Attenuation length is 951 nm at alpha 0.008, so the lag-14
+    # tap at 2646 nm sees exp(-2.78) = 0.062 of the injection; at a tenth the
+    # bus damping it sees 0.757, a 12x gain that should put it near 3e-05.
+    bus_alpha_mult: float = 1.0
     bus_width: float = 80e-9
     bus_absorb: float = 400e-9        # absorbing taper at each bus end
     inject_at: float = 600e-9         # from the left bus end
@@ -1048,18 +1060,27 @@ def polytap_alpha(cfg: PolyTapConfig, device=None, dtype=torch.float64):
     ramp = torch.maximum(ramp, torch.where(on_bus,
                                            torch.maximum(bl, br),
                                            torch.zeros_like(bl)))
-    a = cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp
+    base = cfg.alpha * cfg.bus_alpha_mult
+    a = base + (cfg.absorb_alpha - base) * ramp
     a = _tap_damped(cfg, X, Y, a)
     return a.reshape(nx, ny, 1, 1)
 
 
 def _tap_damped(cfg, X, Y, a):
-    """Raise alpha on the tap disk BODIES, leaving bus and guides alone."""
-    if cfg.tap_alpha_mult == 1.0:
+    """Set alpha on the tap disk BODIES, leaving bus, guides and absorbers alone.
+
+    ABSOLUTE, not a multiplier on whatever is already there: the bus may have
+    been scaled by bus_alpha_mult, and the tap's damping should not inherit
+    that. Bus alpha is cfg.alpha * bus_alpha_mult, tap alpha is
+    cfg.alpha * tap_alpha_mult, and the ratio between them -- the quantity the
+    design equation is written in -- is tap_alpha_mult / bus_alpha_mult.
+    """
+    if cfg.tap_alpha_mult == 1.0 and cfg.bus_alpha_mult == 1.0:
         return a
+    tap_a = cfg.alpha * cfg.tap_alpha_mult
     for cx, cy in cfg.centres():
         body = ((X - cx) ** 2 + (Y - cy) ** 2) <= cfg.radius ** 2
-        a = torch.where(body, a * cfg.tap_alpha_mult, a)
+        a = torch.where(body, torch.full_like(a, tap_a), a)
     return a
 
 
@@ -1297,7 +1318,8 @@ def dircoupler_alpha(cfg: DirCouplerConfig, device=None, dtype=torch.float64):
     ramp = torch.maximum(ramp, torch.where(on_bus,
                                            torch.maximum(bl, br),
                                            torch.zeros_like(bl)))
-    a = cfg.alpha + (cfg.absorb_alpha - cfg.alpha) * ramp
+    base = cfg.alpha * cfg.bus_alpha_mult
+    a = base + (cfg.absorb_alpha - base) * ramp
     a = _tap_damped(cfg, X, Y, a)
     return a.reshape(nx, ny, 1, 1)
 

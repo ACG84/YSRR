@@ -51,6 +51,10 @@ def main():
                    help="nm; directional-coupler lengths (gap fixed at 20 nm)")
     p.add_argument("--tap-alphas", type=float, nargs="+", default=[1, 3, 10, 30],
                    help="tap damping multipliers")
+    p.add_argument("--bus-alphas", type=float, nargs="+", default=[1.0],
+                   help="bus damping multipliers; <1 is a lower-loss film,\n"
+                        "which lengthens the delay line rather than\n"
+                        "sharpening the taps")
     p.add_argument("--amp-mT", type=float, default=30.0)
     p.add_argument("--freq", type=float, default=12.0)
     p.add_argument("--burst", type=int, default=200)
@@ -61,8 +65,8 @@ def main():
                    help="tiny grid and short rollout; checks the plumbing, not "
                         "the physics")
     p.add_argument("--outdir", default="runs/polytap_sweep")
-    p.add_argument("--worker", type=float, nargs=3, default=None,
-                   metavar=("GAP", "COUPLER", "TAP_ALPHA"),
+    p.add_argument("--worker", type=float, nargs=4, default=None,
+                   metavar=("GAP", "COUPLER", "TAP_ALPHA", "BUS_ALPHA"),
                    help="internal: run exactly ONE point and exit")
     a = p.parse_args()
 
@@ -79,7 +83,7 @@ def main():
     # (gap_nm, coupler_len_nm) pairs. A coupler length of 0 selects the stub.
     geometries = [(g, 0.0) for g in a.gaps] + [(20.0, c) for c in a.couplers]
     steps = a.burst + a.quiet + 8
-    total = len(geometries) * len(a.tap_alphas)
+    total = len(geometries) * len(a.tap_alphas) * len(a.bus_alphas)
     print(f"{total} points: {len(geometries)} geometries x "
           f"{len(a.tap_alphas)} damping values, device={a.device}\n")
 
@@ -97,9 +101,9 @@ def main():
     pts = outdir / "points"; pts.mkdir(exist_ok=True)
 
     if a.worker is not None:
-        gap_nm, cpl_nm, ta = a.worker
+        gap_nm, cpl_nm, ta, ba = a.worker
         cfg, arr, geom, run = make_array(a.n_taps, a.lags, gap_nm, cpl_nm, ta,
-                                         steps, dtype)
+                                         steps, dtype, bus_alpha_mult=ba)
         t0 = time.time()
         ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
                   log=lambda s: print(f"    {s}", flush=True))
@@ -109,6 +113,7 @@ def main():
         sc = score_point(rows, list(cfg.tap_lags[:cfg.n_taps]))
         (pts / f"{run}.json").write_text(json.dumps(
             {"gap_nm": gap_nm, "coupler_len_nm": cpl_nm, "tap_alpha_mult": ta,
+             "bus_alpha_mult": ba,
              "taps": rows, **sc, "seconds": round(time.time() - t0, 1)}, indent=2))
         print(f"{run}: spacings "
               f"{[round(float(x),2) for x in sc['spacing_measured']]}, "
@@ -118,15 +123,17 @@ def main():
 
     n = 0
     for gap_nm, cpl_nm in geometries:
+      for ba in a.bus_alphas:
         for ta in a.tap_alphas:
             n += 1
             run = ((f"n{a.n_taps}_cpl{int(cpl_nm)}" if cpl_nm > 0
                     else f"n{a.n_taps}_gap{int(gap_nm)}")
-                   + ("" if ta == 1.0 else f"_ta{ta:g}"))
+                   + ("" if ta == 1.0 else f"_ta{ta:g}")
+                   + ("" if ba == 1.0 else f"_ba{ba:g}"))
             if (pts / f"{run}.json").exists():
                 print(f"[{n}/{total}] {run}: cached"); continue
             cmd = [sys.executable, __file__, "--worker", str(gap_nm),
-                   str(cpl_nm), str(ta), "--device", a.device,
+                   str(cpl_nm), str(ta), str(ba), "--device", a.device,
                    "--outdir", str(outdir), "--n-taps", str(a.n_taps),
                    "--lags", *[str(x) for x in a.lags],
                    "--amp-mT", str(a.amp_mT), "--freq", str(a.freq),

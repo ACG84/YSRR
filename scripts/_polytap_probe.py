@@ -20,7 +20,7 @@ FRAME_STEPS = 200
 
 
 def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
-               timesteps, dtype=torch.float32):
+               timesteps, dtype=torch.float32, bus_alpha_mult=1.0):
     """Build the array for one point of the sweep.
 
     Returns (cfg, arr, geom_tag, run_tag). The two tags differ on purpose:
@@ -33,7 +33,8 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
         cfg = DirCouplerConfig(n_taps=n_taps, tap_lags=tuple(lags),
                                coupler_len=coupler_len_nm * 1e-9,
                                coupler_gap=(gap_nm or 20.0) * 1e-9,
-                               tap_alpha_mult=tap_alpha_mult)
+                               tap_alpha_mult=tap_alpha_mult,
+                               bus_alpha_mult=bus_alpha_mult)
         if cfg.coupler_len > cfg.max_coupler_len():
             raise ValueError(
                 f"coupler_len {coupler_len_nm:.0f} nm exceeds the "
@@ -44,10 +45,13 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
     else:
         cfg = PolyTapConfig(n_taps=n_taps, tap_lags=tuple(lags),
                             coupling_gap=gap_nm * 1e-9,
-                            tap_alpha_mult=tap_alpha_mult)
+                            tap_alpha_mult=tap_alpha_mult,
+                            bus_alpha_mult=bus_alpha_mult)
         arr = PolyTapArray(cfg, timesteps=timesteps, dtype=dtype)
         geom = f"n{n_taps}_gap{int(gap_nm)}"
     run = geom if tap_alpha_mult == 1.0 else f"{geom}_ta{tap_alpha_mult:g}"
+    if bus_alpha_mult != 1.0:
+        run = f"{run}_ba{bus_alpha_mult:g}"
     # The ground state does not depend on damping, so sharing one relax across a
     # damping column SHOULD be free -- and on CPU it is. On CUDA it is not:
     # points that reloaded a shared m0 returned four taps of identical amplitude

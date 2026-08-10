@@ -1204,3 +1204,50 @@ every run the aperture argument was built on. The aperture null is still a
 measured fact -- W/lambda = 0.97, and the non-monotonic optimum at W = lambda/2
 was confirmed out of sample -- but its role in the delay failure is no longer
 established.
+
+## The as-built array works. The failure was the record length.
+
+Same geometry, same 80 nm aperture, same full damping, same gap. Only the
+rollout is long enough for the wave to arrive.
+
+| | 2.81 ns record | 12.2 ns record |
+|---|---|---|
+| arrival lags (frames) | 12.91, 13.00, 13.00, 12.95 | **13.13, 16.59, 17.80, 21.55** |
+| spacings | 0.11, 0.00, -8.87 | **3.46, 1.20, 3.76** |
+| monotonic pairs | 1/3 | **3/3** |
+| amplitude spread | 405x | 29x |
+| weakest tap | 2.83e-06 | **3.93e-05** |
+| amps | -- | 1.15e-03, 1.42e-04, 7.06e-05, 3.93e-05 |
+
+Arrival advances monotonically with distance for the first time in the project,
+and the weakest tap clears the 1e-5 placement bar by a factor of four against a
+previous best of 2.83e-06.
+
+Two conclusions of mine that this overturns.
+
+**The aperture was not the cause.** W/lambda = 0.97 is a measured fact and the
+non-monotonic optimum at W = lambda/2 was confirmed out of sample, so the
+aperture effect is real. But the failure it was invoked to explain -- taps
+reading no delay -- was the record length. This run sits the aperture squarely
+on its null and resolves all three pairs anyway. The aperture is a real second-
+order effect that was promoted to first-order because the first-order cause was
+invisible.
+
+**Four campaigns were aimed at a device that was not broken.** Coupling gap,
+directional couplers, differential damping, bus damping: every one of them was
+tuning a working delay line whose output was being truncated before it arrived.
+The bus-damping sweep's headline finding -- spread immovable across a thirtyfold
+change in alpha -- now has a mundane explanation. It was measuring near field,
+which damping cannot touch, because the wave had not landed yet.
+
+### The corrected group velocity is supported
+
+Taps are laid out at 189 nm per frame, from the broadband 12-20 GHz fit. The
+envelope travels at the LOCAL group velocity, 706 m/s or 141 nm per frame, so
+taps 567 nm apart should read 567/141.2 = 4.02 frames rather than the 3.00
+designed. Measured: 3.46, 1.20, 3.76. Two of the three sit between the two
+figures and nearer the prediction; the middle pair is an outlier that the
+amplitude ordering does not explain.
+
+Re-laying the taps at 141 nm per frame would put the designed 3.0 back on the
+measured delay, and is the obvious next geometry change.

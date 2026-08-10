@@ -1,0 +1,303 @@
+<title>YSRR — magnonic reservoir: where it stands</title>
+<style>
+  :root {
+    --paper:      #f6f7f9;
+    --card:       #ffffff;
+    --ink:        #16202b;
+    --ink-soft:   #4a5a6a;
+    --ink-faint:  #7a8898;
+    --rule:       #d9e0e7;
+    --signal:     #0e7c86;
+    --signal-dim: #d8ecee;
+    --flag:       #a2570b;
+    --flag-dim:   #f6ead8;
+    --measure:    68ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #10161d;
+      --card:       #161f28;
+      --ink:        #e4ebf1;
+      --ink-soft:   #9fb0bf;
+      --ink-faint:  #6d7f8e;
+      --rule:       #26333f;
+      --signal:     #4fc3ce;
+      --signal-dim: #123037;
+      --flag:       #e0a256;
+      --flag-dim:   #33250f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:      #10161d;
+    --card:       #161f28;
+    --ink:        #e4ebf1;
+    --ink-soft:   #9fb0bf;
+    --ink-faint:  #6d7f8e;
+    --rule:       #26333f;
+    --signal:     #4fc3ce;
+    --signal-dim: #123037;
+    --flag:       #e0a256;
+    --flag-dim:   #33250f;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.62 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 3.5rem 1.5rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--measure); margin: 0 auto; display: flex; flex-direction: column; gap: 2.75rem; }
+
+  h1, h2, h3 { font-family: "Iowan Old Style", Charter, Georgia, "Times New Roman", serif; text-wrap: balance; margin: 0; font-weight: 600; }
+  h1 { font-size: clamp(1.85rem, 1.2rem + 2.2vw, 2.6rem); line-height: 1.15; letter-spacing: -0.015em; }
+  h2 { font-size: 1.42rem; line-height: 1.25; }
+  h3 { font-size: 1.06rem; line-height: 1.35; }
+  p  { margin: 0; }
+  a  { color: var(--signal); }
+  strong { font-weight: 650; }
+
+  .eyebrow {
+    font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600;
+  }
+  .lede { font-size: 1.09rem; color: var(--ink-soft); }
+
+  header { display: flex; flex-direction: column; gap: 0.85rem;
+           border-bottom: 2px solid var(--ink); padding-bottom: 1.6rem; }
+
+  section { display: flex; flex-direction: column; gap: 0.95rem; }
+  section > h2 { padding-top: 0.4rem; border-top: 1px solid var(--rule); }
+
+  .verdict {
+    background: var(--card); border: 1px solid var(--rule);
+    border-left: 4px solid var(--signal);
+    padding: 1.15rem 1.3rem; display: flex; flex-direction: column; gap: 0.6rem;
+  }
+  .verdict.flagged { border-left-color: var(--flag); }
+
+  .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 1px;
+          background: var(--rule); border: 1px solid var(--rule); }
+  .fig { background: var(--card); padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.2rem; }
+  .fig b { font: 600 1.5rem/1.1 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+           font-variant-numeric: tabular-nums; color: var(--signal); }
+  .fig span { font-size: 0.76rem; color: var(--ink-soft); line-height: 1.4; }
+
+  .scroll { overflow-x: auto; border: 1px solid var(--rule); background: var(--card); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 0.5rem 0.85rem; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th { font-size: 0.7rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+                   font-variant-numeric: tabular-nums; }
+  td.good { color: var(--signal); font-weight: 600; }
+  td.bad  { color: var(--flag);   font-weight: 600; }
+  td.susp { color: var(--ink-faint); text-decoration: line-through solid var(--flag); }
+  td.susp.num { text-decoration: line-through solid var(--flag); }
+  caption { caption-side: bottom; text-align: left; padding: 0.6rem 0.85rem;
+            font-size: 0.78rem; color: var(--ink-faint); line-height: 1.5; }
+
+  ul, ol { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  li::marker { color: var(--ink-faint); }
+
+  .eq { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        background: var(--signal-dim); color: var(--ink); padding: 0.85rem 1rem;
+        font-size: 0.92rem; overflow-x: auto; }
+
+  .ask { background: var(--card); border: 1px solid var(--rule); padding: 1.05rem 1.2rem;
+         display: flex; flex-direction: column; gap: 0.4rem; }
+  .ask .eyebrow { color: var(--flag); }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 1.2rem;
+           font-size: 0.82rem; color: var(--ink-faint); }
+  code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">YSRR · micromagnetic reservoir computing · handoff brief</div>
+  <h1>A magnonic reservoir that remembers but does not compute</h1>
+  <p class="lede">Simulation has taken the reservoir as far as it usefully can, and has just
+  answered the question that was going to be asked of you. The proposed rescue — a delay bus
+  with taps — failed because <strong>nothing propagates on the bus at 12 GHz</strong>. What
+  remains is one prior question about dispersion that decides whether any delay-line
+  architecture is worth building here.</p>
+</header>
+
+<section>
+  <h2>The bottom line</h2>
+  <div class="verdict">
+    <p>A vortex-disk magnonic reservoir was built and benchmarked on NARMA-10. It has
+    <strong>ample linear memory</strong> — recall of the input out to lag 15, memory capacity 15.7 —
+    and <strong>essentially no nonlinear capacity</strong>: 98–99% of measured information
+    processing capacity is degree-1, and the cross-lag product the task actually needs sits at
+    exactly 0.000.</p>
+    <p>It therefore loses to a 20-tap linear filter: <strong>0.1905 against 0.1243</strong>. Five
+    mechanisms and three coupling architectures have been tried and measured out.</p>
+    <p>The rescue was to build the missing products explicitly: a spin-wave bus carrying the input
+    past a row of taps, each multiplying a fresh sample against a delayed one. That is now
+    measured out too, and for a prior reason — <strong>the bus does not propagate</strong>.</p>
+  </div>
+  <div class="figs">
+    <div class="fig"><b>0.1243</b><span>best linear filter — the bar to beat</span></div>
+    <div class="fig"><b>0.1905</b><span>best device result, 3-stage chain</span></div>
+    <div class="fig"><b>~5</b><span>nonlinear state dimensions available (≈40 needed)</span></div>
+    <div class="fig"><b>562×</b><span>how far a guided wave missed the measured tap amplitude</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>The device</h2>
+  <p>Permalloy, 20 nm thick, 5 nm cells, LLG integrated with RK4 (magnum.np). A 200 nm vortex
+  disk with six 80 nm radial waveguide ports; readout is a per-port lock-in at five tones plus a
+  cross-port DFT, which is physically the azimuthal mode decomposition. Input is amplitude
+  modulation of a 12 GHz carrier between 10 and 30 mT, one frame per sample, 200 steps
+  (0.2 ns) per frame.</p>
+  <div class="scroll">
+    <table>
+      <caption>Constants measured in this project, not taken from literature. The two struck
+      through are the ones the delay-line design rested on, and are the ones the near-field test
+      calls into question.</caption>
+      <thead><tr><th>Quantity</th><th class="num">Value</th><th>How measured</th></tr></thead>
+      <tbody>
+        <tr><td>Bus decay length, in the array</td><td class="num">~400 nm</td><td>8 taps over 3.6 µm, unchanged by 30× damping</td></tr>
+        <tr><td>Tap-to-tap arrival spread</td><td class="num">0.04 frames</td><td>over 1701 nm, where propagation needs 9.0</td></tr>
+        <tr><td class="susp">Bus attenuation length</td><td class="num susp">951 nm</td><td>bare 80 nm strip — <b>see caveat 2</b></td></tr>
+        <tr><td class="susp">Group velocity</td><td class="num susp">945 m/s</td><td>arrival vs distance, same strip — <b>see caveat 2</b></td></tr>
+        <tr><td>Gilbert damping</td><td class="num">0.008</td><td>model input (permalloy)</td></tr>
+        <tr><td>Disk tap response time</td><td class="num">~13 frames</td><td>envelope cross-correlation, 3 geometries</td></tr>
+        <tr><td>Readout effective rank</td><td class="num">21</td><td>unchanged at 180 or 240 feature columns</td></tr>
+        <tr><td>Drive nonlinearity, 10→30 mT</td><td class="num">gain 0.98→0.76</td><td>constant-amplitude response sweep</td></tr>
+        <tr><td>Vortex core expelled at</td><td class="num">40 mT</td><td>same sweep, mean m<sub>z</sub> collapse</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>What has been ruled out</h2>
+  <p>Three campaigns. The first sought more memory; the second sought the nonlinear mixing that
+  memory turned out not to supply; the third tried to build that mixing explicitly out of a delay
+  bus, and is the subject of the next section.</p>
+  <div class="scroll">
+    <table>
+      <caption>Every row is a measured negative except depth, which worked and then saturated.
+      The chain reached lag 17 of memory and still could not use it. The last five rows are all
+      the same failure seen five ways, which is what the next section is about.</caption>
+      <thead><tr><th>Mechanism</th><th>Intent</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Lower damping</td><td>extend memory</td><td class="bad">4× change bought +0.34 frames</td></tr>
+        <tr><td>Radiative loss</td><td>extend memory</td><td class="bad">non-monotonic, no gain</td></tr>
+        <tr><td>Wider readout</td><td>extend memory</td><td class="bad">whole state ≈ 0.97× of six ports</td></tr>
+        <tr><td>Wider input layer</td><td>enrich state</td><td class="bad">identical disks perfectly redundant (CC = 1.000)</td></tr>
+        <tr><td>Depth (serial chain)</td><td>extend memory</td><td class="good">worked: lag 7 → 17; saturated at 3 stages</td></tr>
+        <tr><td>Galvanic tap</td><td>long-lag products</td><td class="bad">drains the bus; 314× tap spread</td></tr>
+        <tr><td>30 nm gap tap</td><td>long-lag products</td><td class="bad">181× spread; delays not resolved</td></tr>
+        <tr><td>Directional coupler</td><td>long-lag products</td><td class="bad">157× spread; delays not resolved</td></tr>
+        <tr><td>Differential damping</td><td>resolve the taps</td><td class="bad">orders taps, halves reception; net loss</td></tr>
+        <tr><td>Low-loss bus (α×0.03)</td><td>reach the far taps</td><td class="bad">reception clears 1e-5; spread unmoved</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Why every tap architecture failed the same way</h2>
+  <p>They didn't fail on coupling, and they didn't fail on damping. <strong>The bus is not a
+  delay line.</strong> At 12 GHz in this geometry nothing propagates along it; the taps are
+  reading an evanescent field that falls off over a few hundred nanometres and arrives
+  everywhere at once.</p>
+  <p>The test that settled it: keep the four taps at their 3-frame spacing and move the whole
+  array ten frames further from the injection, at a bus damping where a real guided wave would
+  lose 6% over the extra 1.89 µm. Three predictions were registered before the run.</p>
+  <div class="scroll">
+    <table>
+      <caption>The evanescent number is not a fit to this data. Its decay length was derived from
+      the amplitude spread <em>within</em> the unshifted array, and then predicted an absolute
+      amplitude 1.89 µm away in a separately built and separately relaxed mesh.</caption>
+      <thead><tr><th>If the taps read…</th><th class="num">tap 1 after the shift</th><th class="num">wrong by</th></tr></thead>
+      <tbody>
+        <tr><td>a guided wave</td><td class="num">5.11e-03</td><td class="num bad">562×</td></tr>
+        <tr><td>a dipolar near field, 1/r³</td><td class="num">2.01e-04</td><td class="num bad">22×</td></tr>
+        <tr><td>an evanescent field, κ = 285 nm</td><td class="num">7.20e-06</td><td class="num good">0.79×</td></tr>
+        <tr><td><b>measured</b></td><td class="num"><b>9.09e-06</b></td><td class="num">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="verdict flagged">
+    <div class="eyebrow">The observation that closes it</div>
+    <p>Attenuation makes a wave <em>small</em>. It does not make it <em>punctual</em>. Across the
+    array the four arrival times are 12.91, 13.00, 13.00, 12.95 frames — <strong>flat to 0.04
+    frames over 1701 nm, where 945 m/s demands that tap 4 lag tap 1 by 9.0</strong>. A loaded or
+    lossy bus would still deliver the signal late. This one delivers it on time everywhere, so it
+    did not travel.</p>
+  </div>
+  <p>Every knob turned over the last several sweeps — coupling gap, directional couplers, tap
+  damping ratio, bus damping — was adjusting how much of a signal that never propagated reached
+  the taps.</p>
+</section>
+
+<section>
+  <h2>What we need from you</h2>
+  <p>One question, and it comes before any architecture.</p>
+  <div class="ask">
+    <div class="eyebrow">The question — dispersion</div>
+    <p>Is <strong>12 GHz inside the propagating spin-wave band</strong> of a 20 nm × 80 nm
+    permalloy strip in this configuration at all? And if not, what combination of bias field,
+    strip width, and drive frequency puts a genuinely propagating mode on a bus at a group
+    velocity that gives useful delay per unit length?</p>
+    <p>The competing explanation we cannot separate from our own data: the strip may propagate
+    fine and our <em>launcher</em> may be at fault — a 100 nm out-of-plane field segment may
+    simply couple to nothing that carries. Either answer is decisive, and they point at different
+    fixes.</p>
+  </div>
+  <div class="ask">
+    <div class="eyebrow">Why we are not asking what we were going to ask</div>
+    <p>The previous version of this brief asked whether a 10:1 Gilbert damping ratio between
+    capped and bare film was realistic, on the strength of a design equation for how many taps fit
+    within a given dynamic range. <strong>That equation is refuted</strong> — it assumed the
+    tap-to-tap spread came from propagation loss, and a thirtyfold longer attenuation length left
+    the spread at 405×, 458×, 408×, 388×. Differential damping does do the one thing it was
+    claimed to do, ordering taps that were previously unordered, but on a bus with nothing
+    travelling on it that buys nothing. The materials question was the wrong question.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Caveats, stated plainly</h2>
+  <ul>
+    <li>The evanescent decay is <strong>not one clean exponential</strong>. Fitted span by span it
+    runs 196, 354, 386, 438, 638, 539, 1283 nm — softening with distance, as a short-range field
+    plus a weak long-range remainder would. A single exponential over all eight taps gives
+    κ = 426 nm with a 3.7× worst residual. The scale is solid; the functional form is not.</li>
+    <li>Two published constants of this project are now <strong>suspect and struck through
+    above</strong>: the 951 nm bus attenuation length and the 945 m/s group velocity. Both came
+    from the same kind of measurement on the same kind of field, and the velocity came from the
+    threshold arrival estimator that has already produced one false delay here. Note the direction
+    of the inconsistency — the decay measured inside the array is ~400 nm at a <em>thirtieth</em>
+    the damping, shorter than the 951 nm measured at full damping. Propagation loss cannot do
+    that.</li>
+    <li>Three claims in the project record were wrong and have been corrected: that the device
+    operated in linear response (it does not — the disk is strongly nonlinear across the whole
+    operating window); that tap position set tap delay (it never did; that rested on an arrival
+    estimator that fires on the first thing above threshold); and that tap-to-tap amplitude spread
+    followed from the damping ratio (refuted by the bus-damping sweep, and this brief previously
+    carried that claim as its central design equation).</li>
+    <li>NARMA-10's difficulty is <em>not</em> the <code>u[n−9]·u[n]</code> term everyone quotes.
+    Adding it to a linear filter changes 0.1243 to 0.1242. The value is in the whole family of
+    long-separation products.</li>
+  </ul>
+</section>
+
+<footer>
+  Full record, scripts and measurement code in the YSRR repository, branch
+  <code>claude/magnonic-neural-network-sim-16r541</code>; derivations in
+  <code>docs/nonlinear_capacity.md</code>. Every number here is reproducible from the committed
+  scripts.
+</footer>
+
+</div>

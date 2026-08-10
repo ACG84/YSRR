@@ -920,9 +920,7 @@ class PolyTapConfig(PortedVortexConfig):
     #
     # The bus and the tap are not competing for the same alpha, and that is the
     # whole point. Attenuation length and ring-down are both 1/(alpha*omega), so
-    # lowering alpha UNIFORMLY stretches each equally and buys nothing: cost per
-    # resolvable tap stays at e = 2.72 from alpha 8e-3 to 1e-5. Only the RATIO
-    # moves it -- taps within a dynamic range R is about ln(R)*(a_tap/a_bus).
+    # lowering alpha UNIFORMLY stretches each equally and buys nothing.
     #
     # A tap does not need memory. Its job is to multiply a fresh sample against
     # a delayed one; the memory lives in the bus. So a tap that rings briefly is
@@ -930,6 +928,18 @@ class PolyTapConfig(PortedVortexConfig):
     # in under 0.60 ns to be resolved, which needs alpha_tap > 0.022 -- only
     # 2.8x permalloy's. Physically this is a Pt or Pd cap raising alpha by spin
     # pumping while the uncapped bus keeps its own.
+    #
+    # MEASURED: this knob does what it claims for RESOLUTION. At 10x, four
+    # points in the 20-point sweep resolved the first tap pair -- 3.07, 2.62,
+    # 2.64, 2.65 against a designed 3.0 -- which no undamped point ever did.
+    #
+    # REFUTED, and it was written here as established: that the array's
+    # tap-to-tap amplitude spread follows from the same two timescales, giving
+    # "taps within a dynamic range R is about ln(R)*(a_tap/a_bus)". That model
+    # says spread is propagation loss along the bus, so a thirtyfold longer
+    # attenuation length should have flattened it. The bus-damping sweep left
+    # the spread at 405x, 458x, 408x, 388x. Whatever sets the spread here, it
+    # is not bus attenuation, and the ratio does not govern it.
     tap_alpha_mult: float = 1.0
     # Damping multiplier on the BUS and guides, the other half of the ratio.
     #
@@ -942,6 +952,13 @@ class PolyTapConfig(PortedVortexConfig):
     # above 2.8e-06. Attenuation length is 951 nm at alpha 0.008, so the lag-14
     # tap at 2646 nm sees exp(-2.78) = 0.062 of the injection; at a tenth the
     # bus damping it sees 0.757, a 12x gain that should put it near 3e-05.
+    #
+    # MEASURED, half right. Reception improves and clears the 1e-5 bar for the
+    # first time -- 1.19e-05 at x0.1 and 1.40e-05 at x0.03 -- but at roughly a
+    # third of the predicted size. The spread prediction (~400x collapsing to
+    # ~1.2x) failed outright: see tap_alpha_mult above. Reception and
+    # resolution stay anti-correlated, because turning the tap damping back on
+    # to recover resolution halves the weakest tap again (5.88e-06, 6.53e-06).
     bus_alpha_mult: float = 1.0
     bus_width: float = 80e-9
     bus_absorb: float = 400e-9        # absorbing taper at each bus end

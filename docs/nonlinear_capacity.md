@@ -1283,3 +1283,31 @@ A damping ladder at x0.3 separates them: ring-down degrades smoothly with alpha,
 a termination failure stays fine until the bus stops attenuating and then breaks.
 The missing configuration -- the narrowed aperture AT FULL damping -- is in the
 same ladder, and on present evidence is the most likely best point of any tried.
+
+### Correction: the 189 nm/frame layout was right, and 141 nm/frame is wrong
+
+Twice above this record says the taps are laid out 34% too far apart, because
+the envelope should travel at the LOCAL group velocity at 12 GHz (706 m/s) and
+not the 12-20 GHz broadband fit (948 m/s). The measured arrivals say otherwise.
+
+Subtract the predicted transit from each measured lag; what remains is the
+disk's own response, which must be the same at every tap:
+
+| tap | distance | residual at 706 m/s | residual at 948 m/s |
+|---|---|---|---|
+| 1 | 945 nm | 6.44 | 8.15 |
+| 2 | 1512 nm | 5.88 | 8.62 |
+| 3 | 2079 nm | 3.08 | 6.83 |
+| 4 | 2646 nm | 2.81 | 7.59 |
+
+At 706 m/s the residual falls systematically, which means the assumed velocity
+is too slow. At 948 m/s it is constant to +-0.9 frames around 7.8 -- a genuine
+common response time. The mean measured spacing is 2.81 frames against the 3.00
+designed, implying 1010 m/s: a 6% error, not 34%.
+
+The reason is bandwidth. The burst is one frame long, so it spans roughly 5 GHz,
+and a packet that wide travels at about the average group velocity across its
+spectrum rather than the value at the carrier. A NARMA input changes every frame
+and has the same bandwidth, so the broadband figure is the right one there too.
+
+`frame_nm = 189e-9` stays as it is.

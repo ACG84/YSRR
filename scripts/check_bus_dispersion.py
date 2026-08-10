@@ -391,7 +391,12 @@ def main():
         if len(bus_amp) > 1:
             spread = max(bus_amp) / max(min(bus_amp), 1e-30)
             print(f"\nbus field spread across the taps: {spread:.1f}x")
-            print("tap DISK signals over the same span, measured: 388x")
+            # Quote the tap spread from the MATCHING configuration: 405x is the
+            # gap-15 array at bus alpha x1, which is what this run builds. The
+            # 388x quoted elsewhere is the same array at bus alpha x0.03.
+            print(f"tap DISK signals over the same span, measured: "
+                  f"{405 if a.bus_alpha == 1.0 else 388}x "
+                  f"(gap 15, bus alpha x{a.bus_alpha:g})")
             if spread < 20:
                 print(f"\nThe bus is carrying it. A {spread:.1f}x variation in "
                       f"the field arriving at\nthe taps cannot produce a 388x "

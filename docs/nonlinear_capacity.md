@@ -1490,3 +1490,65 @@ during the coupling sweeps for what turns out to have been the wrong reason.
 The cost is known and measured: ta=10 halves what each tap receives, which
 mattered when reception was marginal. It is much less marginal now -- the
 weakest tap reads 3.93e-05 against a 1e-5 bar.
+
+## The fast-disk test: the timescale explanation is confirmed, and insufficient
+
+tap_alpha_mult = 10 drops ring-down from 8.3 frames to under 1, at the cost of
+Q = 1/(2*alpha) falling 62.5 to 6.25. Measured first, on a valid record: the
+ta=10 array resolves 2/3 rather than 3/3, spacings 5.83, 6.42, -1.23, and the
+weakest tap falls 3.93e-05 to 1.68e-05 -- the halving the old coupling sweep
+predicted, now confirmed without the truncated record.
+
+| config | NMSE | rank | deg1 | deg2 P2 | cross-lag | deg1 share |
+|---|---|---|---|---|---|---|
+| ta=1 bus only | 0.8322 | 29 | 16.78 | 0.00 | 0.00 | 100% |
+| ta=1 balanced | **0.3006** | 17 | 17.36 | 0.00 | 0.00 | 100% |
+| ta=1 full amp | 0.6463 | 40 | 11.09 | 0.00 | 0.00 | 100% |
+| ta=10 balanced | 0.7837 | 13 | 17.59 | 0.18 | 0.00 | 99% |
+| **ta=10 full amp** | 0.5196 | 14 | 16.41 | **1.17** | 0.00 | **93%** |
+| best linear (15 lags) | **0.1822** | | | | | |
+
+**The explanation was right.** A disk ringing 8.3 frames averages its input and
+shows no degree-2 capacity at all; a disk settling inside one frame shows
+P2(s[n-1]) = 0.772 and P2(s[n-2]) = 0.474. The nonlinearity was always present
+-- the drive sweep measured 24% compression and 33 degrees of phase shift over
+this range -- it simply could not reach the readout through an 8-sample average.
+
+**And it is not enough.** The products are strictly local, lags 1 and 2 only,
+and **cross-lag products remain exactly 0.000 at every lag in all five
+configurations**, including lag 9. Short-separation products are the family this
+project already priced at nothing: they leave NARMA-10 at the linear baseline
+while the value sits in |i-j| >= 5.
+
+### The remaining fault is a balance error of mine
+
+The disk's nonlinearity acts on its instantaneous internal state, and that state
+is dominated by the fresh drive. I set `fresh_scale` by matching the fresh DRIVE
+amplitude to the measured delayed READOUT amplitude, and those are not
+commensurable: the fresh drive is a uniform field over the whole disk body,
+while the delayed copy arrives through a 15 nm gap and an 80 nm guide. Their
+coupling efficiencies differ by orders of magnitude.
+
+The cross term is bilinear in the two operands, so if the delayed copy is 1% of
+the internal state its product with the fresh sample is 1% of a term that is
+itself 7% of measured capacity -- comfortably under the floor, which is what
+0.000 at every lag looks like.
+
+The measurement that fixes this already exists and was not used.
+`check_polytap_impulse.py` runs bus-only, fresh-only and both arms and reports a
+per-tap balance ratio between the delayed copy and the fresh drive AT THE
+READOUT, which is the commensurable comparison. Setting `fresh_scale` from that
+ratio is the principled version of what was guessed at here.
+
+It needs its record lengthened first: burst 400 + quiet 2000 is 2.4 ns, and the
+wave needs 3.75 ns to reach the lag-14 tap. The impulse script carries the same
+too-short-record bug that invalidated the delay probe.
+
+### A caveat on the absolute numbers
+
+Total measured capacity exceeds the effective rank in several rows -- 17.77 of
+rank 13, 17.58 of rank 14 -- which cannot be literally true and means the
+per-target r^2 are upward-biased at 200 features against 300 training rows. The
+shifted-target noise floor absorbs some of that and evidently not all. The
+CONTRAST between configurations is measured identically throughout and is the
+part to trust: 0.00, 0.00, 0.00, 0.18, 1.17.

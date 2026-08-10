@@ -1152,3 +1152,55 @@ Predictions, registered before the run:
 The falsifier is sharp: if the spread stays above ~20x or the spacings stay
 broken, then the injection near field is not what has been keeping taps 2-4
 dark, and this whole line of reasoning is wrong.
+
+## The rollout ended before the wave arrived
+
+Every poly-tap delay run in this project used `--burst 200 --quiet 2600`, a
+record of 2808 steps = **2.81 ns**. At the local group velocity measured from
+the loaded bus's phase slope, 706 m/s:
+
+| tap | distance from injection | transit | within a 2.81 ns record? |
+|---|---|---|---|
+| lag 5 | 945 nm | 1.34 ns | yes |
+| lag 8 | 1512 nm | 2.14 ns | yes |
+| lag 11 | 2079 nm | 2.94 ns | **no** |
+| lag 14 | 2646 nm | 3.75 ns | **no** |
+| lag 15 | 2835 nm | 4.02 ns | **no** |
+| lag 24 | 4536 nm | 6.42 ns | **no** |
+
+In the shifted array the wave reached **no tap at all** before the simulation
+stopped. What every one of those runs measured was the injection near field,
+which is instantaneous. That is why all four taps reported the same arrival
+time, and why the time was ~13 frames: it is the disk's own response, identical
+at every tap because it has nothing to do with distance.
+
+Nothing in the output looked wrong. Amplitudes were plausible, the estimator
+returned finite lags, and those lags were reproducible run to run and geometry
+to geometry -- which read as reliability rather than as the signature of a
+quantity that did not depend on the thing being varied.
+
+This is the third instance of one error class here:
+
+  check_bus_transport.py   fitted its far taps mid-transient at 4000 steps and
+                           got an attenuation length 2x too short
+  check_bus_dispersion.py  a 1000-step record put the source's main lobe on the
+                           last sample and reported 275 nm where 8192 steps give
+                           3252 nm
+  sweep_polytap.py         this one
+
+`check_record_length()` now refuses any rollout that ends before the wave
+reaches the farthest tap, and the default `--quiet` is 12000 steps.
+
+### What this does and does not invalidate
+
+Unaffected, because they are steady-state quantities rather than delay ones:
+the whole dispersion campaign, the bus-versus-tap comparison (bus field varying
+5.1x across the taps while the taps report 405x), and the aperture sweep's
+amplitude and spread results.
+
+Now unproven: the claim that the tap aperture is WHY the taps showed no delay.
+The record length is a sufficient explanation on its own, and it was present in
+every run the aperture argument was built on. The aperture null is still a
+measured fact -- W/lambda = 0.97, and the non-monotonic optimum at W = lambda/2
+was confirmed out of sample -- but its role in the delay failure is no longer
+established.

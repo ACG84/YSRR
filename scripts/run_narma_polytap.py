@@ -158,7 +158,12 @@ def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
                 accQ[i] += p * math.sin(wi * tk)
         row = []
         for i in range(len(ws)):
-            A = ((accI[i] + 1j * accQ[i]) / spf).numpy()
+            # .cpu() before .numpy(): mnn.set_device sets torch's GLOBAL default
+            # device, so these accumulators were allocated on CUDA and the bare
+            # .numpy() this was copied from raises there. The same unguarded
+            # call is still in run_narma_chain.py, which has only ever been run
+            # on CPU.
+            A = ((accI[i] + 1j * accQ[i]) / spf).cpu().numpy()
             # Each disk's readout guides are their own ring, so they decompose
             # independently rather than as one twenty-port ring.
             for d in range(0, n_sig, npr):
@@ -168,9 +173,10 @@ def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
         feats.append(row)
         if (j + 1) % CKPT_EVERY == 0:
             print(f"  frame {j+1}/{len(u)} ({time.time()-t0:.0f}s)", flush=True)
-            save_ckpt(cache, torch.tensor(np.array(feats), dtype=torch.float64), m)
+            save_ckpt(cache, torch.tensor(np.array(feats), dtype=torch.float64,
+                                          device="cpu"), m)
 
-    F = torch.tensor(np.array(feats), dtype=torch.float64)
+    F = torch.tensor(np.array(feats), dtype=torch.float64, device="cpu")
     save_ckpt(cache, F.cpu(), m)
     return F
 
@@ -260,7 +266,7 @@ def main():
                       cache=outdir / f"features_{tag}.pt",
                       tones=[t * 1e9 for t in a.tones_ghz],
                       drive=a.drive, fresh_scale=fresh)
-    X = F.numpy()
+    X = F.cpu().numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
     ac1 = float(np.nanmean([np.corrcoef(X[:-1, i], X[1:, i])[0, 1]
                             for i in range(X.shape[1])]))

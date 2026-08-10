@@ -1552,3 +1552,61 @@ per-target r^2 are upward-biased at 200 features against 300 training rows. The
 shifted-target noise floor absorbs some of that and evidently not all. The
 CONTRAST between configurations is measured identically throughout and is the
 part to trust: 0.00, 0.00, 0.00, 0.18, 1.17.
+
+## The balance measurement, and the bracket it closes
+
+`check_polytap_impulse.py` measures the commensurable quantity: what a tap
+reports from the bus alone against what the same tap reports from a UNIT fresh
+drive alone, both at the readout. Three fixes were needed first. Its record was
+burst 400 + quiet 2000 = 2.4 ns against a 3.75 ns transit -- the same
+too-short-record bug, found for the fourth time, meaning every balance ratio it
+had ever produced was a ratio of injection near field. It now takes --tap-alpha,
+because the balance has to be measured where the disk's nonlinearity actually
+reaches the readout. And its fresh arm now drives every disk at unit scale, so
+the ratio is a measurement rather than a check on a previous guess.
+
+Measured at ta=10, ba=1, 30 mT:
+
+    recommended --fresh-scale   0.044832  0.008058  0.002274  0.001548
+
+Normalised to tap 1 that is 1, 0.18, 0.051, 0.035 -- close in SHAPE to the
+1, 0.134, 0.050, 0.023 used before. The absolute scale is the finding:
+**0.0448, not 1.0. Every previous run drove the fresh sample 22x too hard**, so
+the delayed copy was a few percent of each disk's internal state and a bilinear
+cross term in a 4% operand sits far under the floor.
+
+### Correcting it closes the bracket the other way
+
+| ta=10 configuration | fresh drive | deg2 P2 | cross-lag | deg1 share | NMSE |
+|---|---|---|---|---|---|
+| full amplitude (22x unbalanced) | 10-30 mT | **1.17** | 0.00 | 93% | 0.5196 |
+| measured balance | ~1.3 mT | **0.00** | 0.00 | 100% | 0.3839 |
+
+Balancing the operands requires 0.045 x 30 mT = 1.3 mT, and the drive sweep puts
+the disk in linear response below ~10 mT. So the disk can have equal operands or
+a nonlinearity, not both, and the two requirements are separated by about a
+factor of eight.
+
+This is not a tuning failure. It is a statement about the geometry: the delayed
+copy arriving through a 15 nm coupling gap is ~22x weaker than the drive a disk
+needs before it compresses.
+
+### The one way out, with numbers
+
+Make the delayed copy stronger so the balance point moves up into the nonlinear
+range. The valid-record ladder measured the weakest tap at 3.93e-05 at bus alpha
+x1 and 2.89e-04 at x0.3, a gain of 7.4x, with x0.1 higher again. Roughly 22x
+would put the balanced fresh drive near 30 mT, where the disk compresses 24%.
+
+The cost is known and measured: lower bus damping scattered the tap timing badly
+at ta=1 (spacings 8.98, 1.32, -3.53 at x0.3 against 3.46, 1.20, 3.76 at x1).
+Whether it still does at ta=10 is untested -- that scatter was attributed to
+guide ring-down, and `bus_alpha_mult` damps the guides while `tap_alpha_mult`
+damps only the disk bodies, so a fast disk on a slow guide is a combination this
+project has not run.
+
+That is the experiment: balance re-measured at ta=10 with bus alpha x0.1 and
+x0.03, then NARMA at whichever puts the balanced fresh drive above 10 mT while
+keeping the delays resolved. If both cannot be had, the tapped bus cannot make
+long-separation products in this geometry, and that is the architecture's
+answer.

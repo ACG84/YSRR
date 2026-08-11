@@ -133,6 +133,13 @@ def main():
     p.add_argument("--settle", type=int, default=600)
     p.add_argument("--meas", type=int, default=600)
     p.add_argument("--relax-steps", type=int, default=6000)
+    p.add_argument("--relax-alpha", type=float, default=0.5,
+                   help="damping used during the relax only. Larger settles a\n"
+                        "big soft disk faster; it does not change the energy\n"
+                        "minimum it settles to.")
+    p.add_argument("--relax-tol", type=float, default=2e-3,
+                   help="max |dm| per 200 further relax steps for the ground\n"
+                        "state to count as converged")
     p.add_argument("--outdir", default="runs/drive_nonlinearity")
     a = p.parse_args()
 
@@ -155,7 +162,7 @@ def main():
         print(f"[m0] restored from {m0c.name}")
     else:
         t0 = time.time()
-        disk.relax(steps=a.relax_steps)
+        disk.relax(steps=a.relax_steps, alpha_relax=a.relax_alpha)
         if a.bias_mT:
             # Relax AGAIN under the bias. A static field displaces the core, so
             # relaxing without it and then driving with it starts the run with
@@ -209,8 +216,27 @@ def main():
     circ = float(((Xc * disk.m0[:, :, 0, 1] - Yc * disk.m0[:, :, 0, 0]) / Rc
                   * body).sum() / max(n_body, 1.0))
     cz0 = core_mz(disk.m0, body)
+
+    # CONVERGENCE, measured rather than trusted.
+    #
+    # The Ms 450 / r=178 nm run reported a 0.50 mT threshold on a state that was
+    # still moving: |A| came back essentially CONSTANT from 0.25 to 40 mT, so
+    # |A|/a fell as 1/a and the criterion fired on a drive-INDEPENDENT
+    # transient. magnum.np does warn, but the warning is a library UserWarning
+    # on stderr and the script printed a threshold regardless.
+    #
+    # Run the relax a little further and see whether anything moves. A settled
+    # ground state does not; one that is still relaxing does, and by how much.
+    _m1 = disk.rollout.relax(disk.m0.clone(), h_static, 200, a.relax_alpha)
+    dm = float((_m1 - disk.m0).abs().max())
+    converged = dm <= a.relax_tol
     print(f"ground state mean m_z = {mz0:.5f}, circulation = {circ:+.3f}, "
           f"core m_z = {cz0:+.3f}")
+    print(f"  relax check: max |dm| over 200 further steps = {dm:.4f} "
+          f"({'converged' if converged else 'NOT CONVERGED'}, tol {a.relax_tol})")
+    if not converged:
+        print("  A threshold measured here reads the settling transient, not "
+              "the response.\n  Raise --relax-steps or --relax-alpha.")
     # The 100 nm baseline relaxes to 0.255 on this mesh, and that is the state
     # every published number in this file was measured on, so the bar is set
     # well above it rather than at the few percent an idealised sharp core would
@@ -286,6 +312,10 @@ def main():
           f"bias {a.bias_mT:g} mT)")
     if not nl:
         print("  never nonlinear below the stability limit")
+    elif thr <= USABLE_mT and not converged:
+        print(f"  NOT USABLE despite {thr:.2f} mT: the ground state had not "
+              f"converged (|dm| = {dm:.4f}),\n  so this reads a settling "
+              f"transient rather than a driven response.")
     elif thr <= USABLE_mT and not is_vortex:
         # Both lines printing together is easy to misread as a success. A low
         # threshold on a state that is not a vortex is not a usable element; it

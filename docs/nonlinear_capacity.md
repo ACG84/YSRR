@@ -1610,3 +1610,51 @@ x0.03, then NARMA at whichever puts the balanced fresh drive above 10 mT while
 keeping the delays resolved. If both cannot be had, the tapped bus cannot make
 long-separation products in this geometry, and that is the architecture's
 answer.
+
+## The bus-damping suite: the balance saturates, and it saturates short
+
+Balance measured at ta=10 for four bus dampings, valid record, unit fresh drive:
+
+| bus alpha | tap-1 balance scale | fresh drive at balance |
+|---|---|---|
+| x1 | 0.0448 | 0.45-1.34 mT |
+| x0.3 | 0.1057 | 1.1-3.2 mT |
+| x0.1 | 0.1341 | 1.3-4.0 mT |
+| **x0.03** | **0.1455** | **1.5-4.4 mT** |
+
+**A 33x reduction in bus damping buys 3.25x in balance, and the curve is
+asymptoting to ~0.15.** Even a lossless bus would top out near 4.5 mT against
+the ~10 mT the disk needs before it compresses -- short by a factor of about
+2.3, with no damping left to spend.
+
+The saturation is structural rather than a limit of the sweep. `bus_alpha_mult`
+damps the bus AND the guides, and the readout guides carry the fresh arm out too,
+so lowering it lifts both sides of the ratio. Once the bus stops attenuating,
+what remains is the geometric coupling through the 15 nm gap, which damping
+cannot touch. The delayed copy's share of a disk's internal state is a property
+of the COUPLER, not of the line.
+
+### And the timing cost does transfer to a fast disk
+
+That was the one thing genuinely untested: the scatter at low bus damping was
+attributed to guide ring-down, and `tap_alpha_mult` damps only the disk bodies,
+so a fast disk on a slow guide might have escaped it. It does not. At ta=10,
+ba x0.03 the delay probe gives spacings 13.88, -0.04, 24.95, mono 2/3 -- the
+same scatter the ta=1 ladder showed.
+
+So both requirements fail at low bus damping, independently: the balance never
+reaches the nonlinear range, and the delays stop resolving on the way.
+
+### What has never actually been measured
+
+The coupling-strength axis. Every gap and coupler result in this project --
+"galvanic tap drains the bus, 314x spread", "30 nm gap, 181x", "directional
+coupler, 157x" -- was measured on the 2.81 ns record, which is to say on
+injection near field. None of them is valid, and none of them says what stronger
+coupling does to the delayed copy's share of the disk state.
+
+That is the remaining lever, and it is the right one: the balance ceiling is set
+by the coupler, so the coupler is what has to change. A gap sweep on a valid
+record would say whether ~2.3x more coupling is available before the tap starts
+draining the line -- which is the trade the original gap sweep was built to
+measure and never validly did.

@@ -85,7 +85,10 @@ def drive(disk, amp, freq, dtype, n_settle, n_meas, h_static=None):
             for i, w in enumerate((2 * math.pi * freq, 4 * math.pi * freq)):
                 accI[i] += p * math.cos(w * tk)
                 accQ[i] += p * math.sin(w * tk)
-    A = ((accI + 1j * accQ) / n_meas).numpy()
+    # .cpu() first: mnn.set_device sets torch's GLOBAL default device, so
+    # these accumulators are allocated on CUDA once --device cuda is used.
+    # This script was hardcoded to CPU until that flag was added.
+    A = ((accI + 1j * accQ) / n_meas).cpu().numpy()
     return np.fft.fft(A[0]), np.fft.fft(A[1]), m
 
 
@@ -155,7 +158,21 @@ def main():
     # is a few cells of m_z = 1, so this is small and POSITIVE for an intact
     # vortex and collapses when the core is expelled.
     mz0 = float((disk.m0[:, :, 0, 2] * mask).sum() / n_cells)
-    print(f"ground state mean m_z = {mz0:.5f}\n")
+    print(f"ground state mean m_z = {mz0:.5f}")
+    # The 100 nm baseline relaxes to 0.255 on this mesh, and that is the state
+    # every published number in this file was measured on, so the bar is set
+    # well above it rather than at the few percent an idealised sharp core would
+    # give. What this catches is the genuinely different state: r=60 and r=40 nm
+    # relax to 0.93 and 0.97, near-uniform out-of-plane, because permalloy stops
+    # preferring a vortex below roughly 50 nm radius at 20 nm thickness. The
+    # nonlinearity of a single-domain disk is a different quantity with a
+    # different threshold, and reporting one as the other would be the error.
+    if abs(mz0) > 0.5:
+        print(f"  NOT A VORTEX: |mean m_z| = {abs(mz0):.3f} is far above the "
+              f"few percent a\n  core contributes. Either the disk is too small "
+              f"to hold one or the relax\n  has not converged. A threshold "
+              f"reported here is for a different element.")
+    print()
 
     print(f"{'amp_mT':>7} {'|A|':>11} {'|A|/a':>11} {'norm':>7} "
           f"{'phase_deg':>10} {'d_phase':>8} {'2f/f':>9} {'mean_mz':>9} {'ok':>4}")

@@ -143,6 +143,15 @@ def main():
     else:
         t0 = time.time()
         disk.relax(steps=a.relax_steps)
+        if a.bias_mT:
+            # Relax AGAIN under the bias. A static field displaces the core, so
+            # relaxing without it and then driving with it starts the run with
+            # the core moving to its true equilibrium -- and that transient
+            # would be measured as nonlinearity.
+            hb = disk.h_zero.clone()
+            hb[:, :, :, 0] += ((a.bias_mT * 1e-3 / MU_0)
+                               * disk.disk_only[:, :, :, 0].to(dtype))
+            disk.m0 = disk.rollout.relax(disk.m0, hb, a.relax_steps, 0.5)
         torch.save(disk.m0.cpu(), m0c)
         print(f"relaxed in {time.time()-t0:.0f}s")
 
@@ -158,7 +167,23 @@ def main():
     # is a few cells of m_z = 1, so this is small and POSITIVE for an intact
     # vortex and collapses when the core is expelled.
     mz0 = float((disk.m0[:, :, 0, 2] * mask).sum() / n_cells)
-    print(f"ground state mean m_z = {mz0:.5f}")
+    # CIRCULATION, not mean m_z, is what identifies a vortex.
+    #
+    # mean m_z is one-sided: it catches a uniformly OUT-OF-PLANE disk (m_z -> 1)
+    # and is blind to a uniformly IN-PLANE one, which gives m_z ~ 0 exactly like
+    # a vortex with a small core. Ms 140 relaxed to 0.00127 and would have
+    # passed an m_z test while possibly not being a vortex at all.
+    #
+    # For m = (-Y, X)/r the integrand (X*m_y - Y*m_x)/r is 1 everywhere, so a
+    # perfect vortex scores +-1; for any uniform state the mean over a disk is 0.
+    nx_, ny_ = disk.mask.shape[0], disk.mask.shape[1]
+    xs = (torch.arange(nx_, dtype=dtype) - (nx_ - 1) / 2)
+    ys = (torch.arange(ny_, dtype=dtype) - (ny_ - 1) / 2)
+    Xc, Yc = torch.meshgrid(xs, ys, indexing="ij")
+    Rc = torch.sqrt(Xc ** 2 + Yc ** 2).clamp(min=1e-6)
+    circ = float(((Xc * disk.m0[:, :, 0, 1] - Yc * disk.m0[:, :, 0, 0]) / Rc
+                  * mask).sum() / n_cells)
+    print(f"ground state mean m_z = {mz0:.5f}, circulation = {circ:+.3f}")
     # The 100 nm baseline relaxes to 0.255 on this mesh, and that is the state
     # every published number in this file was measured on, so the bar is set
     # well above it rather than at the few percent an idealised sharp core would
@@ -167,11 +192,10 @@ def main():
     # preferring a vortex below roughly 50 nm radius at 20 nm thickness. The
     # nonlinearity of a single-domain disk is a different quantity with a
     # different threshold, and reporting one as the other would be the error.
-    if abs(mz0) > 0.5:
-        print(f"  NOT A VORTEX: |mean m_z| = {abs(mz0):.3f} is far above the "
-              f"few percent a\n  core contributes. Either the disk is too small "
-              f"to hold one or the relax\n  has not converged. A threshold "
-              f"reported here is for a different element.")
+    if abs(circ) < 0.5:
+        print(f"  NOT A VORTEX: circulation {circ:+.3f}, against ~+-1 for a "
+              f"vortex and 0 for any\n  uniform state. A threshold reported "
+              f"here is for a different element.")
     print()
 
     print(f"{'amp_mT':>7} {'|A|':>11} {'|A|/a':>11} {'norm':>7} "

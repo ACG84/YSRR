@@ -112,6 +112,12 @@ def main():
                         "ta=10 is where the disk settles inside a frame and its\n"
                         "nonlinearity reaches the readout at all.")
     p.add_argument("--bus-alpha", type=float, default=1.0)
+    p.add_argument("--bus-guide-width", type=float, default=None,
+                   help="nm; width of the guide coupling each disk to the bus.\n"
+                        "None keeps the as-built 80. The valid-record aperture\n"
+                        "sweep measured coupling proportional to width with no\n"
+                        "null, so this is the lever with a measured slope behind\n"
+                        "it rather than a guess.")
     p.add_argument("--fresh-uniform", action="store_true", default=True,
                    help="drive every disk at scale 1 in the fresh arm, so the\n"
                         "bus/fresh ratio is a measurement rather than a check on\n"
@@ -142,10 +148,12 @@ def main():
                 f"{cfg.max_coupler_len()*1e9:.0f} nm that tap spacing allows; "
                 f"adjacent arms would merge into one waveguide.")
     else:
+        kw = ({} if a.bus_guide_width is None
+              else {"bus_guide_width": a.bus_guide_width * 1e-9})
         cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
                             coupling_gap=a.gap * 1e-9,
                             tap_alpha_mult=a.tap_alpha,
-                            bus_alpha_mult=a.bus_alpha)
+                            bus_alpha_mult=a.bus_alpha, **kw)
         arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     check_record_length(cfg, a.burst + a.quiet)
     nx, ny = cfg.grid
@@ -165,6 +173,8 @@ def main():
     # Damping does not move an energy minimum, so the ground state is shared in
     # principle -- but a shared m0 was already found to be silently wrong on
     # CUDA in this project, so key the cache by the full run instead.
+    if a.bus_guide_width is not None:
+        tag = f"{tag}_bw{int(a.bus_guide_width)}"
     if a.tap_alpha != 1.0:
         tag = f"{tag}_ta{a.tap_alpha:g}"
     if a.bus_alpha != 1.0:

@@ -1931,3 +1931,57 @@ function rather than a scatter.
 `check_drive_nonlinearity.py` now measures convergence rather than assuming it
 -- 200 further relax steps, report max |dm| -- and the verdict refuses to say
 USABLE on an unconverged state.
+
+## The element survey, complete
+
+| route | threshold | state | verdict |
+|---|---|---|---|
+| permalloy 100 nm, 12 GHz | 15.00 mT | vortex, converged | the reference |
+| static bias 10 mT | **15.00 mT** | vortex, converged | **no change** |
+| drive frequency 11.0 GHz | 10 mT | vortex, converged | 1.5x, best in the bus band |
+| radius 60, 40 nm | 30 mT / none | **not a vortex** | closed |
+| Ms 300/140, fixed radius | -- | **not a vortex** | closed |
+| Ms 450, radius 178 nm | not measurable | vortex, converged | **switches at ~2 mT** |
+| Ms 300, radius 267 nm | not measurable | **not converged** at 120k steps | -- |
+
+**No route gives a smooth nonlinearity at 1.6 mT.** The bias measurement is the
+cleanest in the survey and settles that route definitively: |A| scales with
+drive over a 160x range (2.65e-03 at 0.25 mT to 2.46e-01 at 40), compression and
+phase are smooth and monotonic, the core never leaves "ok", and the threshold
+lands at exactly the unbiased 15.00 mT.
+
+### Every 0.50 mT in this survey was the same artifact
+
+Three elements reported a 0.50 mT threshold and none of them meant it. It is the
+second point on the amplitude grid, and the metric returns it whenever |A| is
+drive-INDEPENDENT, because norm = (|A|/a)/ref collapses immediately when the
+numerator does not scale. Three different causes, one signature:
+
+  Ms 300/140 fixed radius   not a vortex
+  Ms 450 r178, first try    ground state still settling, |dm| = 0.419
+  Ms 450 r178, converged    the driven state switches, so no stationary
+                            response exists to lock into
+  Ms 300 r267               |dm| = 1.0033 after 120,000 steps at alpha 1.0
+
+A threshold of 0.50 mT in this instrument means the measurement failed, not that
+the element is soft. The bias table is the control that proves it: a
+well-behaved element produces |A| proportional to drive and a threshold at
+15 mT.
+
+The convergence gate now blocks this automatically -- Ms 300 r267 was refused
+with "NOT USABLE despite 0.50 mT" rather than reported.
+
+### Where that leaves the architecture
+
+The only accessible nonlinearity at the drive the coupling permits is a
+REVERSAL. The Ms 450 / r=178 nm disk is a confirmed, converged vortex
+(circulation +0.968, |dm| = 0.0000) whose core flips at ~2 mT against a 1.6 mT
+budget -- and its smooth response is unmeasurable precisely BECAUSE it switches.
+
+That favours the hybrid rather than counting against it. A memoryless
+nonlinearity ahead of a linear reservoir is a Wiener system and cannot make
+cross-lag products at any strength; a hysteretic node can, because polarity
+persists and multiplies the current sample. `check_core_switching.py` is the
+measurement that decides whether these reversals are usable -- deterministic
+against amplitude, persistent through silence, and reversible -- or whether the
+element is a noise source with a threshold.

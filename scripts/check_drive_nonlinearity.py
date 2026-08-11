@@ -92,6 +92,19 @@ def drive(disk, amp, freq, dtype, n_settle, n_meas, h_static=None):
     return np.fft.fft(A[0]), np.fft.fft(A[1]), m
 
 
+def core_mz(m, body):
+    """m_z at the core: the extremal out-of-plane cell inside the disk body.
+
+    Mean m_z cannot tell a REVERSAL from an EXPULSION -- both drive it toward
+    zero -- and those are opposite outcomes. A reversal preserves the vortex and
+    flips its polarity, which is a bistable state and the basis of any
+    thresholding element; an expulsion destroys the state entirely. Tracking the
+    core cell separates them, so a reversal is not discarded as instability.
+    """
+    mz = m[:, :, 0, 2] * body
+    return float(mz.flatten()[int(torch.argmax(mz.abs()))])
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -185,9 +198,19 @@ def main():
     # broadcasts to (nx, ny, ny) and inflates the sum -- the first version of
     # this returned +23.168 for a quantity that cannot exceed 1.
     m2d = mask[:, :, 0]
+    # Over the DISK BODY only. The mask includes six readout guides whose
+    # magnetisation is radial and contributes no circulation, and their combined
+    # area (6 x 80 x 150 nm) is more than twice the disk's own. Averaging over
+    # both dilutes a perfect vortex to 31400/103400 = 0.30 -- which is what the
+    # baseline returned (0.337) before this was corrected, so the first version
+    # would have flagged every real vortex in the survey as not one.
+    body = ((Rc <= (cfg.radius / cfg.dx)) & (m2d > 0)).to(dtype)
+    n_body = float(body.sum())
     circ = float(((Xc * disk.m0[:, :, 0, 1] - Yc * disk.m0[:, :, 0, 0]) / Rc
-                  * m2d).sum() / n_cells)
-    print(f"ground state mean m_z = {mz0:.5f}, circulation = {circ:+.3f}")
+                  * body).sum() / max(n_body, 1.0))
+    cz0 = core_mz(disk.m0, body)
+    print(f"ground state mean m_z = {mz0:.5f}, circulation = {circ:+.3f}, "
+          f"core m_z = {cz0:+.3f}")
     # The 100 nm baseline relaxes to 0.255 on this mesh, and that is the state
     # every published number in this file was measured on, so the bar is set
     # well above it rather than at the few percent an idealised sharp core would
@@ -203,7 +226,7 @@ def main():
     print()
 
     print(f"{'amp_mT':>7} {'|A|':>11} {'|A|/a':>11} {'norm':>7} "
-          f"{'phase_deg':>10} {'d_phase':>8} {'2f/f':>9} {'mean_mz':>9} {'ok':>4}")
+          f"{'phase_deg':>10} {'d_phase':>8} {'2f/f':>9} {'mean_mz':>9} {'core':>9}")
     rows, ref, mode = [], None, None
     for amp_mT in a.amps_mT:
         amp = amp_mT * 1e-3 / MU_0
@@ -225,16 +248,23 @@ def main():
             ref = (mag / amp_mT, ph)
         norm = (mag / amp_mT) / ref[0]
         dph = ((ph - ref[1] + 180) % 360) - 180
-        # Stability: the core has to still be there. A vortex that has been
-        # expelled shows mean m_z collapsing toward zero or flipping sign.
-        ok = abs(mz) > 0.3 * abs(mz0) and np.sign(mz) == np.sign(mz0)
+        # Three outcomes, not two. The core can survive, REVERSE (polarity
+        # flips, vortex intact -- a bistable state, not a failure), or be
+        # expelled. The previous test used mean m_z and read a reversal as a
+        # loss, which would discard exactly the event a thresholding layer wants.
+        cz = core_mz(m, m2d)
+        lost = abs(cz) < 0.5 * abs(cz0)
+        reversed_ = (not lost) and np.sign(cz) != np.sign(cz0)
+        ok = not lost
+        core_state = "lost" if lost else ("REVERSED" if reversed_ else "ok")
         rows.append({"amp_mT": amp_mT, "abs_A": mag, "per_mT": mag / amp_mT,
                      "normalised": norm, "phase_deg": ph, "d_phase_deg": dph,
                      "second_harmonic_ratio": h2, "mean_mz": mz,
+                     "core_mz": cz, "core_state": core_state,
                      "vortex_ok": bool(ok), "seconds": round(time.time() - t0, 1)})
         print(f"{amp_mT:>7.0f} {mag:>11.4e} {mag/amp_mT:>11.4e} {norm:>7.3f} "
               f"{ph:>10.2f} {dph:>8.2f} {h2:>9.4f} {mz:>9.5f} "
-              f"{'yes' if ok else 'NO':>4}", flush=True)
+              f"{core_state:>9}", flush=True)
         (outdir / "results.json").write_text(json.dumps(rows, indent=2))
 
     # The number the tapped-bus result turns on.

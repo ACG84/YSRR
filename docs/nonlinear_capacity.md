@@ -1710,3 +1710,66 @@ measured: every gap and directional-coupler result in this project was taken on
 the 2.81 ns record, which measured injection near field. Whether ~2.3x more
 coupling is available before the tap drains the line is the open question, and
 it is exactly the trade the original gap sweep was built for.
+
+## The coupler sweep: the last axis, and it is saturated
+
+Measured at ta=10, ba x1 -- the only damping that resolves the delays. There the
+balance is 0.0448 and the target is 0.33, so the coupler must supply **7.4x**.
+
+| gap | aperture | balance scale | vs baseline | drive at balance |
+|---|---|---|---|---|
+| 15 nm | 80 nm | 0.0448 | 1.00x | 0.4-1.3 mT |
+| 5 nm | 80 nm | 0.0492 | 1.10x | 0.5-1.5 mT |
+| 0 nm (galvanic) | 80 nm | 0.0492 | 1.10x | 0.5-1.5 mT |
+| 0 nm | 160 nm | **0.0521** | **1.16x** | 0.5-1.6 mT |
+
+**The entire coupler axis buys 1.16x against a target of 7.4x.** Going from a
+15 nm evanescent gap to direct metallic contact changes the balance by 10%, and
+gap 5 and gap 0 are identical to three figures. Proximity was never the
+bottleneck.
+
+The aperture prediction also failed. The valid-record width sweep measured
+coupling proportional to width and implied 2x for 80 -> 160 nm; the measurement
+gives 1.06x. That sweep compared 80 against 40, below saturation. Above ~80 nm
+the guide already spans most of a 200 nm disk's edge and widening adds nothing.
+Coupling is saturated on both axes, which is what an overlap-limited junction
+looks like: a 200 nm disk and an 82 nm wave are mode-mismatched, and making the
+junction more intimate does not fix a mismatch.
+
+And the strongest coupler is worse where it counts. Its delay probe gives
+spacings 3.6, 8.97, -1.1, mono 2/3, spread 102x, weakest tap 5.84e-06 -- against
+3/3, 29x and 3.93e-05 for the as-built array. Its recommended per-tap scale,
+0.0521 / 0.0136 / 0.0007 / 0.0005, shows why: a stronger tap drains the line and
+taps 3 and 4 collapse. That is exactly the trade the original gap sweep existed
+to find, now measured on a valid record, and it runs the wrong way.
+
+Its NARMA arm: NMSE 0.3048, rank 32, deg1 **18.79** -- the highest memory in the
+project -- deg2 P2 0.02, cross-lag 0.00, 100% degree-1.
+
+## The architecture is answered
+
+Nine configurations, all on valid records, spanning tap damping, bus damping,
+drive amplitude, drive balance, coupling gap and aperture width:
+
+**s[n]*s[n-k] is 0.000 at every lag in all nine.**
+
+The reason is a single measured inequality. The cross term is bilinear, so the
+delayed copy must be a comparable fraction of a disk's state. Balancing it caps
+the fresh drive at 1.6 mT with the best coupler and 4.4 mT on a near-lossless
+bus; the disk does not compress below ~10 mT. That is a factor of 6 in drive,
+36 in power, and no knob in this design closes it:
+
+  bus damping   33x reduction buys 3.25x and saturates at 0.15
+  coupler       galvanic contact plus a doubled aperture buys 1.16x
+  tap damping   makes the nonlinearity visible (P2 1.17) but only at a drive
+                that unbalances the operands 22x, and costs delay resolution
+
+What the device is, on the evidence: **an excellent linear delay line.** It holds
+the input for twenty frames at 0.87-0.98 recall, resolves four taps, and carries
+18.79 of degree-1 capacity -- more than the chain ever had. It is not a
+reservoir computer, because the element meant to do the mixing cannot be reached
+by the signal it is meant to mix.
+
+Closing the gap needs something outside this design: a nonlinear element that
+saturates far below 10 mT, gain on the bus, or a nonlinear readout -- and the
+square-law readout was already measured and collapses rank 21 to 5.

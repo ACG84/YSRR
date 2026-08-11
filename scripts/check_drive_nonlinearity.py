@@ -49,7 +49,7 @@ from magnonic_nn._compat import get_device
 
 
 @torch.no_grad()
-def drive(disk, amp, freq, dtype, n_settle, n_meas):
+def drive(disk, amp, freq, dtype, n_settle, n_meas, h_static=None):
     """Drive at constant amplitude; lock in at f and 2f over the last n_meas.
 
     Returns (M_f, M_2f, m_final) with M the complex CROSS-PORT MODE amplitudes.
@@ -69,6 +69,7 @@ def drive(disk, amp, freq, dtype, n_settle, n_meas):
     unit = torch.zeros_like(disk.m0)
     unit[:, :, :, 0] = disk.disk_only[:, :, :, 0].to(dtype)
     m = disk.m0.clone()
+    hz = disk.h_zero if h_static is None else h_static
     n_ports = disk.port_signals(m).shape[0]
     accI = torch.zeros(2, n_ports, dtype=torch.float64)
     accQ = torch.zeros(2, n_ports, dtype=torch.float64)
@@ -78,7 +79,7 @@ def drive(disk, amp, freq, dtype, n_settle, n_meas):
         def h(theta, tk=tk):
             return unit * (amp * math.sin(2 * math.pi * freq * (tk + theta * cfg.dt)))
 
-        m = disk.rollout.rk4_step(m, disk.h_zero, h)
+        m = disk.rollout.rk4_step(m, hz, h)
         if k >= n_settle:
             p = disk.port_signals(m).double()
             for i, w in enumerate((2 * math.pi * freq, 4 * math.pi * freq)):
@@ -92,7 +93,26 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--amps-mT", type=float, nargs="+",
-                   default=[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+                   default=[0.25, 0.5, 1, 2, 4, 6, 8, 10, 15, 20, 30, 40],
+                   help="extended DOWN from the original 5-60 mT. The tapped-bus\n"
+                        "balance caps the drive a disk can receive at ~1.6 mT,\n"
+                        "so the question is no longer where nonlinearity starts\n"
+                        "but whether any element has it THERE.")
+    p.add_argument("--bias-mT", type=float, default=0.0,
+                   help="static in-plane field on the disk. A bias displaces the\n"
+                        "vortex core toward the edge, and near the annihilation\n"
+                        "field the restoring potential softens -- the standard\n"
+                        "way to get a large nonlinear response from a small\n"
+                        "drive is to sit near a bifurcation.")
+    p.add_argument("--radius", type=float, default=None,
+                   help="nm. A smaller disk holds fewer spins, so the same drive\n"
+                        "energy reaches a larger cone angle and the nonlinearity\n"
+                        "threshold falls with volume.")
+    p.add_argument("--Ms", type=float, default=None,
+                   help="A/m. Cone angle goes as drive/Ms, so a low-moment\n"
+                        "material is nonlinear at proportionally lower field.\n"
+                        "Permalloy is 800e3; YIG is ~140e3, a 5.7x reduction.")
+    p.add_argument("--device", default="cpu")
     p.add_argument("--freq", type=float, default=12.0)
     p.add_argument("--settle", type=int, default=600)
     p.add_argument("--meas", type=int, default=600)
@@ -100,13 +120,20 @@ def main():
     p.add_argument("--outdir", default="runs/drive_nonlinearity")
     a = p.parse_args()
 
-    mnn.set_precision("float32"); mnn.set_device("cpu")
+    mnn.set_precision("float32"); mnn.set_device(a.device)
     dtype = torch.float32
     outdir = Path(a.outdir); outdir.mkdir(parents=True, exist_ok=True)
 
-    cfg = PortedVortexConfig()
+    kw = {}
+    if a.radius is not None:
+        kw["radius"] = a.radius * 1e-9
+    if a.Ms is not None:
+        kw["Ms"] = a.Ms
+    cfg = PortedVortexConfig(**kw)
     disk = PortedVortexDisk(cfg, timesteps=a.settle + a.meas + 8, dtype=dtype)
-    m0c = outdir / "m0.pt"
+    tag = (f"r{cfg.radius*1e9:.0f}_Ms{cfg.Ms/1e3:.0f}"
+           + (f"_b{a.bias_mT:g}" if a.bias_mT else ""))
+    m0c = outdir / f"m0_{tag}.pt"
     if m0c.exists():
         disk.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
         print(f"[m0] restored from {m0c.name}")
@@ -115,6 +142,12 @@ def main():
         disk.relax(steps=a.relax_steps)
         torch.save(disk.m0.cpu(), m0c)
         print(f"relaxed in {time.time()-t0:.0f}s")
+
+    # Static bias, in plane, on the disk body only.
+    h_static = disk.h_zero
+    if a.bias_mT:
+        h_static = disk.h_zero.clone()
+        h_static[:, :, :, 0] += (a.bias_mT * 1e-3 / MU_0) * disk.disk_only[:, :, :, 0].to(dtype)
 
     mask = disk.mask[:, :, 0].to(dtype)
     n_cells = float(mask.sum())
@@ -130,7 +163,8 @@ def main():
     for amp_mT in a.amps_mT:
         amp = amp_mT * 1e-3 / MU_0
         t0 = time.time()
-        Mf, M2f, m = drive(disk, amp, a.freq * 1e9, dtype, a.settle, a.meas)
+        Mf, M2f, m = drive(disk, amp, a.freq * 1e9, dtype, a.settle,
+                           a.meas, h_static=h_static)
         # Fix the mode on the FIRST (smallest, most linear) amplitude and follow
         # that same one up the sweep. Re-picking the argmax per amplitude would
         # let the tracked phase jump between modes and read as a frequency shift.
@@ -157,6 +191,31 @@ def main():
               f"{ph:>10.2f} {dph:>8.2f} {h2:>9.4f} {mz:>9.5f} "
               f"{'yes' if ok else 'NO':>4}", flush=True)
         (outdir / "results.json").write_text(json.dumps(rows, indent=2))
+
+    # The number the tapped-bus result turns on.
+    #
+    # The cross term is bilinear, so the delayed copy has to be a comparable
+    # fraction of the disk's state, and balancing it caps the fresh drive at
+    # ~1.6 mT with the best coupler measured. An element that only compresses
+    # above 10 mT is linear at its own operating point, which is why every
+    # product family read 0.00 across nine configurations. So: what is the
+    # LOWEST stable amplitude at which this element is measurably nonlinear?
+    THRESH_COMP, THRESH_PHASE, USABLE_mT = 0.05, 10.0, 1.6
+    nl = [r for r in rows if r["vortex_ok"]
+          and (abs(r["normalised"] - 1.0) > THRESH_COMP
+               or abs(r["d_phase_deg"]) > THRESH_PHASE)]
+    thr = nl[0]["amp_mT"] if nl else float("inf")
+    print(f"\nNONLINEAR THRESHOLD  {thr if nl else float('nan'):.2f} mT   "
+          f"(radius {cfg.radius*1e9:.0f} nm, Ms {cfg.Ms/1e3:.0f} kA/m, "
+          f"bias {a.bias_mT:g} mT)")
+    if not nl:
+        print("  never nonlinear below the stability limit")
+    elif thr <= USABLE_mT:
+        print(f"  USABLE: at or below the {USABLE_mT} mT the tapped-bus balance "
+              f"allows.")
+    else:
+        print(f"  short of the {USABLE_mT} mT the balance allows, by "
+              f"{thr/USABLE_mT:.1f}x")
 
     live = [r for r in rows if r["vortex_ok"]]
     print("\ncolumns: 'norm' is |A|/a relative to the lowest amplitude, so 1.000")

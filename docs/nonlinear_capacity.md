@@ -1773,3 +1773,97 @@ by the signal it is meant to mix.
 Closing the gap needs something outside this design: a nonlinear element that
 saturates far below 10 mT, gain on the bus, or a nonlinear readout -- and the
 square-law readout was already measured and collapses rank 21 to 5.
+
+## Introducing a nonlinear element: what the survey found
+
+The tapped bus is limited by one inequality -- balancing the operands caps the
+fresh drive at ~1.6 mT, and the permalloy vortex disk does not compress below
+~10 mT. So the question became whether any element is strongly nonlinear at
+1.6 mT. Four routes, measured.
+
+### Drive frequency: real structure, not enough of it
+
+The disk's azimuthal spectrum, measured by impulse ring-down: n=+-3 at 10.3 GHz,
+n=+-4 at 11.0, n=-1 at 11.3, n=+-5 at 11.7/11.8, n=+-6 at 12.6, n=0 at 12.7. A
+uniform in-plane drive couples by symmetry to n=+-1 only, so 11.3 GHz was the
+predicted sweet spot.
+
+| drive | threshold |
+|---|---|
+| 10.3 GHz | **8 mT** (below the bus band) |
+| 11.0 GHz | 10 mT |
+| 11.3 GHz | 20 mT |
+| 11.7 GHz | 20 mT |
+| 12.0 GHz | 15 mT |
+| 12.6 GHz | 15 mT |
+
+**The n=-1 prediction is refuted** -- 11.3 GHz is the WORST point measured. The
+actual trend is downward toward lower frequency, which is the disk softening as
+the drive approaches the bottom of its own spin-wave band rather than any
+identified mode. Best inside the bus's band is 10 mT at 11.0 GHz, a 1.5x gain,
+still 6.2x short.
+
+### Radius and moment: both dissolve the vortex
+
+| element | circulation | verdict |
+|---|---|---|
+| 100 nm, 800 kA/m | **+0.963** | vortex; threshold 15 mT |
+| 60 nm, 800 kA/m | -- | not a vortex; threshold 30 mT |
+| 40 nm, 800 kA/m | -- | not a vortex; never nonlinear |
+| 100 nm, 300 kA/m | **-0.036** | **not a vortex**; "0.50 mT" is a different element |
+| 100 nm, 140 kA/m | **+0.005** | **not a vortex**; same |
+
+The low-moment result was the most promising number in this survey and it is an
+artifact. The exchange length l_ex = sqrt(2A/(mu0 Ms^2)) is 5.7 nm at 800 kA/m,
+15.2 at 300 and 32.5 at 140, so a fixed 100 nm radius takes R/l_ex from 17.5 to
+6.6 to 3.1 -- through the point where flux closure stops paying for itself.
+Lowering the moment without rescaling the disk dissolves the vortex.
+
+### The pattern both routes share
+
+**The disk softens as it approaches the conditions where it stops existing.**
+Lower drive frequency softens it toward the band bottom, which is where the bus
+stops propagating (~10.5 GHz). Lower moment softens it toward the exchange
+length, which is where the vortex stops being the ground state. Twice, the
+nonlinearity arrives exactly as the element or its delay line dissolves.
+
+That is an argument for a different element rather than this one pushed harder.
+The one variant that separates softness from instability is a low-moment disk
+with the radius scaled to hold R/l_ex fixed -- 270 nm at 300 kA/m, 580 nm at
+140 -- and the open question there is whether its modes stay above the bus band.
+
+### Four diagnostics were wrong first
+
+Worth recording, because three of them produced plausible numbers:
+
+  CUDA conversion   the script was CPU-only until --device was added
+  circulation (i)   a (nx,ny) integrand against a (nx,ny,1) mask broadcast to
+                    rank 3 and returned +23.168 for a quantity bounded by 1
+  circulation (ii)  averaged over disk AND guides, whose radial magnetisation
+                    contributes nothing, diluting a perfect vortex to
+                    31400/103400 = 0.30 -- the baseline read +0.337 and was
+                    flagged as not a vortex
+  bias equilibrium  relaxed at zero field then driven with the bias applied, so
+                    the core started displaced and moved to equilibrium during
+                    the run. Its signature was in the output and missed: the
+                    biased run reported mean m_z = 0.25486, identical to the
+                    unbiased baseline to five figures.
+
+The circulation metric is bounded by construction -- exactly 1 for a perfect
+vortex, 0 for any uniform state -- which is the only reason the first version
+was caught immediately. A diagnostic with no known bound would have passed.
+
+### A note on the hybrid architecture
+
+A reversing first layer feeding non-reversing reservoir disks is structurally
+sound, and for a specific reason: a memoryless nonlinearity ahead of a linear
+reservoir is a Wiener system, which fills the P2(s[n-k]) column and leaves
+s[n]*s[n-k] at zero -- the failure already measured nine times. A HYSTERETIC
+node is different: core polarity persists, the gyrotropic sense flips with it,
+so the response to a fresh sample is p[n]*u[n] with p[n] set by input history.
+That is a current-times-past product. The nonlinearity has to sit AFTER the
+memory, and a bistable node puts it there.
+
+`check_drive_nonlinearity.py` now reports a three-way core verdict --
+ok / REVERSED / lost -- because the previous test used mean m_z and read a
+reversal as an instability, discarding the exact event such a layer would need.

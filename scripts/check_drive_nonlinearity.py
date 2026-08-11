@@ -219,7 +219,8 @@ def main():
     # preferring a vortex below roughly 50 nm radius at 20 nm thickness. The
     # nonlinearity of a single-domain disk is a different quantity with a
     # different threshold, and reporting one as the other would be the error.
-    if abs(circ) < 0.5:
+    is_vortex = abs(circ) >= 0.5
+    if not is_vortex:
         print(f"  NOT A VORTEX: circulation {circ:+.3f}, against ~+-1 for a "
               f"vortex and 0 for any\n  uniform state. A threshold reported "
               f"here is for a different element.")
@@ -285,9 +286,20 @@ def main():
           f"bias {a.bias_mT:g} mT)")
     if not nl:
         print("  never nonlinear below the stability limit")
+    elif thr <= USABLE_mT and not is_vortex:
+        # Both lines printing together is easy to misread as a success. A low
+        # threshold on a state that is not a vortex is not a usable element; it
+        # is a measurement of something else. Ms 300 at fixed 100 nm radius hit
+        # exactly this: 0.50 mT, and circulation -0.036.
+        print(f"  NOT USABLE despite {thr:.2f} mT: this threshold belongs to a "
+              f"non-vortex state.\n  Lowering Ms raises the exchange length "
+              f"(5.7 nm at 800 kA/m, 15.2 at 300, 32.5\n  at 140), so a "
+              f"100 nm disk stops favouring flux closure. Scaling the radius\n"
+              f"  with the exchange length is the test that would separate the "
+              f"two.")
     elif thr <= USABLE_mT:
         print(f"  USABLE: at or below the {USABLE_mT} mT the tapped-bus balance "
-              f"allows.")
+              f"allows, on a\n  confirmed vortex (circulation {circ:+.3f}).")
     else:
         print(f"  short of the {USABLE_mT} mT the balance allows, by "
               f"{thr/USABLE_mT:.1f}x")

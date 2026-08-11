@@ -1658,3 +1658,55 @@ by the coupler, so the coupler is what has to change. A gap sweep on a valid
 record would say whether ~2.3x more coupling is available before the tap starts
 draining the line -- which is the trade the original gap sweep was built to
 measure and never validly did.
+
+### Phase 3: the low-damping branch fails outright
+
+| | ta=10, ba x0.03, balanced |
+|---|---|
+| NMSE | **2.1598** (worse than the input alone, 1.3366) |
+| effective rank | 64 |
+| deg1 capacity | **1.71** |
+| deg1 noise floor | 0.291 |
+| all deg2/deg3 | 0.00 |
+
+Rank 64 and 1.71 of capacity: a near-lossless bus driven at 1.5-4.4 mT produces
+a state that is mostly long-lived reverberation uncorrelated with the recent
+input. High dimension, almost no information. The noise floor at 0.291 says the
+estimator is fitting that reverberation as readily as the target.
+
+## The architecture's answer
+
+Eight configurations, all on valid records:
+
+| config | NMSE | deg1 | deg2 P2 | cross-lag |
+|---|---|---|---|---|
+| ta1 bus only | 0.8322 | 16.78 | 0.00 | 0.00 |
+| **ta1 balanced** | **0.3006** | 17.36 | 0.00 | 0.00 |
+| ta1 full amp | 0.6463 | 11.09 | 0.00 | 0.00 |
+| ta10 balanced (guessed scale) | 0.7837 | 17.59 | 0.18 | 0.00 |
+| ta10 full amp | 0.5196 | 16.41 | **1.17** | 0.00 |
+| ta10 measured balance | 0.3839 | 15.32 | 0.00 | 0.00 |
+| ta10 ba0.03 measured balance | 2.1598 | 1.71 | 0.00 | 0.00 |
+| best linear (15 lags) | **0.1822** | | | |
+
+Three things are established and none of them is a tuning failure.
+
+**The delay line works.** 3/3 delays resolved, 0.87-0.98 recall from lag 4 to
+lag 20, the best memory this project has produced.
+
+**The disk's nonlinearity can be made to reach the readout.** It takes a disk
+that settles inside one frame (ta=10) driven above ~10 mT, and it yields
+P2(s[n-1]) = 0.772 with the degree-1 share falling to 93%.
+
+**The two cannot be combined.** Balancing the operands -- which the cross term
+requires, being bilinear -- caps the fresh drive at 4.4 mT even on a lossless
+bus, a factor of 2.3 below where the disk compresses. The cap is set by the
+coupling through the 15 nm gap, and the damping sweep shows it saturating.
+
+**s[n]*s[n-k] is 0.000 in all eight configurations, at every lag.**
+
+The remaining lever is the coupler, and it is the one axis never validly
+measured: every gap and directional-coupler result in this project was taken on
+the 2.81 ns record, which measured injection near field. Whether ~2.3x more
+coupling is available before the tap drains the line is the open question, and
+it is exactly the trade the original gap sweep was built for.

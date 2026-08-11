@@ -186,7 +186,10 @@ def main():
     # The vortex signature: mean out-of-plane component over the disk. The core
     # is a few cells of m_z = 1, so this is small and POSITIVE for an intact
     # vortex and collapses when the core is expelled.
-    mz0 = float((disk.m0[:, :, 0, 2] * mask).sum() / n_cells)
+    # mask is (nx, ny, 1) against an (nx, ny) integrand -- the same broadcast
+    # that inflated the circulation. It showed here as |mean m_z| > 1, which
+    # a mean of a unit-vector component cannot be.
+    mz0 = float((disk.m0[:, :, 0, 2] * mask[:, :, 0]).sum() / n_cells)
     # CIRCULATION, not mean m_z, is what identifies a vortex.
     #
     # mean m_z is one-sided: it catches a uniformly OUT-OF-PLANE disk (m_z -> 1)
@@ -270,7 +273,7 @@ def main():
         mag = float(abs(Mf[mode]))
         ph = float(np.angle(Mf[mode], deg=True))
         h2 = float(np.abs(M2f).max() / max(np.abs(Mf).max(), 1e-30))
-        mz = float((m[:, :, 0, 2] * mask).sum() / n_cells)
+        mz = float((m[:, :, 0, 2] * mask[:, :, 0]).sum() / n_cells)
         if ref is None:
             ref = (mag / amp_mT, ph)
         norm = (mag / amp_mT) / ref[0]

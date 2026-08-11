@@ -1867,3 +1867,67 @@ memory, and a bistable node puts it there.
 `check_drive_nonlinearity.py` now reports a three-way core verdict --
 ok / REVERSED / lost -- because the previous test used mean m_z and read a
 reversal as an instability, discarding the exact event such a layer would need.
+
+## The material swap, done properly, and what it actually shows
+
+Holding R/l_ex at permalloy's 17.6 while lowering the moment keeps the vortex:
+
+| element | relax | converged | circulation | verdict |
+|---|---|---|---|---|
+| permalloy, 100 nm | 6k @ a=0.5 | |dm| = 0.0000 | **+0.963** | vortex, 15.00 mT |
+| Ms 450 kA/m, 178 nm | 60k @ a=1.0 | |dm| = 0.0000 | **+0.968** | vortex, threshold NOT MEASURABLE |
+
+So the scaled-radius reasoning was right about the STATE -- a low-moment disk at
+matched R/l_ex relaxes to a clean vortex, better than the reference's own
+circulation. The earlier "not a vortex at 300 and 140 kA/m" was entirely the
+fixed radius.
+
+**The threshold, however, is still not measurable on this element**, and the
+0.50 mT it reports is an artifact for the second time, now for a different
+reason. |A| does not scale with drive -- 6.07e-02 at 0.25 mT, 3.21e-02 at 1,
+1.05e-02 at 4 -- so |A|/a falls as 1/a and the criterion fires on that. The
+first time this happened the ground state was still settling (|dm| = 0.419);
+this time it is converged to 0.0000, so the non-stationarity is in the DRIVEN
+state.
+
+The cause is in the core column: **the core is REVERSED at essentially every
+amplitude at or above 2 mT.** The element is not responding smoothly and
+becoming nonlinear, it is switching, and a lock-in over a fixed 600-step window
+on a state that flips mid-window does not measure a response amplitude at all.
+
+### Which is the interesting result
+
+A converged, confirmed vortex reverses its core at ~2 mT at 12 GHz -- within a
+factor of 1.25 of the 1.6 mT the tapped-bus balance delivers. That is the first
+evidence here that a REVERSING element is reachable at the drive the coupling
+permits, even though a smooth one is not.
+
+It bears directly on the hybrid architecture, and it favours it. A memoryless
+nonlinearity ahead of a linear reservoir is a Wiener system: it fills the
+P2(s[n-k]) column and leaves s[n]*s[n-k] at zero, which is the failure already
+measured nine times. A hysteretic node is different -- polarity persists, the
+gyrotropic sense flips with it, so the response to a fresh sample is p[n]*u[n]
+with p[n] set by input history, and that is a current-times-past product.
+
+What this measurement cannot yet say is whether the reversals are USABLE:
+deterministic against input amplitude, repeatable, and retaining polarity
+between frames. A core that flips chaotically every frame is a noise source,
+not a threshold element. That is the next measurement, and it needs a different
+instrument from this one -- drive a single frame at a given amplitude, read the
+polarity, repeat, and check the map from amplitude to final polarity is a step
+function rather than a scatter.
+
+### Two more diagnostics were wrong
+
+  mean m_z        the same (nx,ny) against (nx,ny,1) broadcast as the
+                  circulation, fixed in one place and not the other. It showed
+                  as |mean m_z| = 2.71, which the mean of a unit-vector
+                  component cannot reach.
+  relax budget    12000 steps at alpha 0.5 left the 178 nm disk at |dm| = 0.419
+                  against a 0.02 tolerance. 60000 at alpha 1.0 reaches 0.0000.
+                  The budget had been scaled by radius rather than measured, and
+                  magnum.np's warning went to stderr under a printed threshold.
+
+`check_drive_nonlinearity.py` now measures convergence rather than assuming it
+-- 200 further relax steps, report max |dm| -- and the verdict refuses to say
+USABLE on an unconverged state.

@@ -181,8 +181,12 @@ def main():
     ys = (torch.arange(ny_, dtype=dtype) - (ny_ - 1) / 2)
     Xc, Yc = torch.meshgrid(xs, ys, indexing="ij")
     Rc = torch.sqrt(Xc ** 2 + Yc ** 2).clamp(min=1e-6)
+    # mask is (nx, ny, 1) and the integrand is (nx, ny); multiplying them
+    # broadcasts to (nx, ny, ny) and inflates the sum -- the first version of
+    # this returned +23.168 for a quantity that cannot exceed 1.
+    m2d = mask[:, :, 0]
     circ = float(((Xc * disk.m0[:, :, 0, 1] - Yc * disk.m0[:, :, 0, 0]) / Rc
-                  * mask).sum() / n_cells)
+                  * m2d).sum() / n_cells)
     print(f"ground state mean m_z = {mz0:.5f}, circulation = {circ:+.3f}")
     # The 100 nm baseline relaxes to 0.255 on this mesh, and that is the state
     # every published number in this file was measured on, so the bar is set

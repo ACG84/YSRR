@@ -264,6 +264,13 @@ def report_feasibility(cfg, a):
     #
     # A frame can satisfy the bound while the configured alpha still misses, so
     # reporting only the bound would call a run feasible that is not.
+    # h_th here is the ON-RESONANCE floor, and it is a LOWER bound rather than
+    # the threshold this disk actually has. Driven off its own mode the response
+    # is suppressed and the threshold rises: the permalloy tap measures 15.00 mT
+    # at 12 GHz against the 3.43 mT this predicts, a factor of 4.4. So a run
+    # that "reaches threshold" by this test still needs the carrier placed on
+    # the element's resonance to do it -- which is why the frequency sweep is
+    # the gate on the frame-length experiment rather than an aside to it.
     reach = h_th_T <= h_max_T
     fade = tau <= 2 * t_frame
     print(f"  the frame {'clears' if t_frame >= t_need else 'MISSES'} the bound"
@@ -271,7 +278,11 @@ def report_feasibility(cfg, a):
           flush=True)
     if reach and fade:
         print("  and this alpha delivers both: drive reaches threshold, "
-              "memory fades.", flush=True)
+              "memory fades.\n"
+              "  CAVEAT: h_th is the on-resonance floor. The permalloy tap "
+              "measures 15.00 mT\n  at 12 GHz against 3.43 predicted, so the "
+              "carrier must sit on the element's\n  own mode for this to hold.",
+              flush=True)
     else:
         why = []
         if not reach:

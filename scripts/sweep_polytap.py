@@ -111,8 +111,14 @@ def main():
     steps = a.burst + a.quiet + 8
     total = (len(geometries) * len(a.tap_alphas) * len(a.bus_alphas)
              * len(a.bus_guide_widths))
-    print(f"{total} points: {len(geometries)} geometries x "
-          f"{len(a.tap_alphas)} damping values, device={a.device}\n")
+    # Only the PARENT has a grid. A worker is handed one point on the command
+    # line and never sees --gaps/--tap-alphas, so it re-parses their defaults
+    # and would announce "20 points: 5 geometries x 4 damping values" while
+    # running exactly one -- harmless until the worker's output is streamed,
+    # at which point it is the first line a reader sees.
+    if a.worker is None:
+        print(f"{total} points: {len(geometries)} geometries x "
+              f"{len(a.tap_alphas)} damping values, device={a.device}\n")
 
     # ONE POINT PER PROCESS.
     #
@@ -177,12 +183,31 @@ def main():
                    "--burst", str(a.burst), "--quiet", str(a.quiet),
                    "--steps-per-frame", str(a.steps_per_frame),
                    "--relax-steps", str(a.relax_steps)]
-            r = subprocess.run(cmd, capture_output=True, text=True)
-            if r.returncode != 0:
-                tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
-                print(f"[{n}/{total}] {run}: FAILED -- " + " | ".join(tail))
+            # STREAM the worker rather than capturing it. A point is a relax
+            # plus a rollout -- tens of minutes on the longer buses -- and
+            # capture_output means the parent prints nothing for that whole
+            # span, so a relax in progress is indistinguishable from a hang.
+            # That matters on a hosted runtime whose CLI tears the session down
+            # after a fixed gap between OUTPUT lines, not between results.
+            #
+            # The last line is still what gets summarised, so the digest at the
+            # end is unchanged; only the silence is gone.
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    bufsize=1)
+            lines = []
+            for line in proc.stdout:
+                line = line.rstrip()
+                if not line:
+                    continue
+                lines.append(line)
+                print(f"    | {line}", flush=True)
+            if proc.wait() != 0:
+                print(f"[{n}/{total}] {run}: FAILED -- "
+                      + " | ".join(lines[-3:]), flush=True)
                 continue
-            print(f"[{n}/{total}] " + r.stdout.strip().splitlines()[-1], flush=True)
+            print(f"[{n}/{total}] " + (lines[-1] if lines else "(no output)"),
+                  flush=True)
 
     results = {f.stem: json.loads(f.read_text()) for f in sorted(pts.glob("*.json"))}
     results_path.write_text(json.dumps(results, indent=2))

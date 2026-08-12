@@ -167,6 +167,13 @@ def main():
                         "dt*omega goes 0.23 -> 1.31. The 1 ps default is stable\n"
                         "at permalloy and diverges below Ms ~300 kA/m, which is\n"
                         "what the low-moment relax failures actually were.")
+    p.add_argument("--cycles", type=float, default=None,
+                   help="settle and measure windows in DRIVE CYCLES rather than\n"
+                        "steps. Required for a frequency sweep: at fixed step\n"
+                        "counts the integration window is 7.2 cycles at 12 GHz\n"
+                        "but 1.2 at 2 GHz, so the sweep would change its own\n"
+                        "lock-in length along with the variable under test.\n"
+                        "7.2 reproduces the 600-step default at 12 GHz.")
     p.add_argument("--outdir", default="runs/drive_nonlinearity")
     a = p.parse_args()
 
@@ -194,13 +201,25 @@ def main():
     # At 12 GHz the period is 83 steps at 1 ps but 476 at 175 fs, so leaving
     # --meas at 600 would integrate 1.3 cycles instead of 7.2.
     scale = VortexConfig.dt / dt
-    n_settle = int(round(a.settle * scale))
-    n_meas = int(round(a.meas * scale))
     n_relax = int(round(a.relax_steps * scale))
+    if a.cycles is not None:
+        # Windows in DRIVE CYCLES, which is what the lock-in actually needs.
+        # Step counts hide a second dependence: at 2 GHz the period is 500
+        # steps, so --meas 600 integrates 1.2 cycles where at 12 GHz it
+        # integrates 7.2, and a frequency sweep would silently change its own
+        # integration length. 7.2 cycles reproduces the 600-step default.
+        n_settle = int(round(a.cycles / (a.freq * 1e9) / dt))
+        n_meas = n_settle
+        win = f"{a.cycles:g} drive cycles"
+    else:
+        n_settle = int(round(a.settle * scale))
+        n_meas = int(round(a.meas * scale))
+        win = (f"{n_settle * dt / (1 / (a.freq * 1e9)):.1f} drive cycles "
+               f"(from step counts)")
     print(f"[dt] {dt*1e15:.0f} fs "
           f"({'explicit' if a.dt_fs is not None else 'scaled from Ms'}); "
-          f"settle {n_settle}, meas {n_meas}, relax {n_relax} steps "
-          f"({scale:.2f}x the 1 ps counts, same physical time)")
+          f"settle {n_settle}, meas {n_meas}, relax {n_relax} steps; "
+          f"window = {win}")
     disk = PortedVortexDisk(cfg, timesteps=n_settle + n_meas + 8, dtype=dtype)
     tag = (f"r{cfg.radius*1e9:.0f}_Ms{cfg.Ms/1e3:.0f}_dt{dt*1e15:.0f}"
            + (f"_b{a.bias_mT:g}" if a.bias_mT else "")
@@ -370,7 +389,8 @@ def main():
         print(f"{amp_mT:>7.0f} {mag:>11.4e} {mag/amp_mT:>11.4e} {norm:>7.3f} "
               f"{ph:>10.2f} {dph:>8.2f} {h2:>9.4f} {mz:>9.5f} "
               f"{core_state:>9}", flush=True)
-        (outdir / "results.json").write_text(json.dumps(rows, indent=2))
+        (outdir / f"results_{tag}_f{a.freq:g}.json").write_text(
+            json.dumps(rows, indent=2))
 
     # The number the tapped-bus result turns on.
     #
@@ -439,7 +459,7 @@ def main():
                   "the amplitude that destroys the core, so there is no window\n"
                   "where this disk is both nonlinear and stable. That is a limit\n"
                   "of the device on this task, not a tuning failure.")
-    print(f"\nwrote {outdir / 'results.json'}")
+    print(f"\nwrote {outdir / f'results_{tag}_f{a.freq:g}.json'}")
     return 0
 
 

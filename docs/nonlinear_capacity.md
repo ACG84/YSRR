@@ -1942,7 +1942,35 @@ USABLE on an unconverged state.
 | radius 60, 40 nm | 30 mT / none | **not a vortex** | closed |
 | Ms 300/140, fixed radius | -- | **not a vortex** | closed |
 | Ms 450, radius 178 nm | not measurable | vortex, converged | **switches at ~2 mT** |
-| Ms 300, radius 267 nm | not measurable | **not converged** at 120k steps | -- |
+| Ms 300, radius 267 nm | not measurable | **diverged** -- see below | to be re-run |
+
+### Correction: the low-moment non-convergences were divergences
+
+Two rows above are recorded as states that would not settle. That reading was
+wrong, and the cause is the integrator rather than the landscape.
+
+The stiffest field RK4 has to resolve is exchange, `h_ex = 2A/(mu0 Ms dx^2)`,
+and it gets **faster** as the moment falls -- the one scaling that runs opposite
+to intuition here, since a softer magnet is in every other respect slower:
+
+| Ms (kA/m) | h_ex (A/m) | f_max (GHz) | dt*omega at 1 ps | |
+|---|---|---|---|---|
+| 800 | 1.035e6 | 36.4 | 0.23 | stable |
+| 450 | 1.839e6 | 64.8 | 0.41 | stable |
+| 300 | 2.759e6 | 97.2 | 0.61 | marginal |
+| 140 | 5.911e6 | 208.2 | 1.31 | **unstable** |
+
+So `|dm| = 1.0033 after 120,000 steps` was not a flat energy surface, and
+`circulation +0.657, |dm| = 1.0078` at Ms 300 / 100 nm was not the vortex-uniform
+crossover being indecisive. Both were the timestep. dt now scales with Ms --
+562 fs at 450, 375 at 300, 175 at 140 -- and settle, measure, relax and the
+convergence-probe windows scale with it, since all four are physical durations
+rather than step counts.
+
+What this does **not** overturn: the permalloy reference, the bias null, the
+frequency sweep and the Ms 450 / r178 switching map all ran at dt*omega <= 0.41
+and stand as measured. What it reopens is the low-moment corner of the survey,
+which is exactly where the single-domain feeder lives.
 
 **No route gives a smooth nonlinearity at 1.6 mT.** The bias measurement is the
 cleanest in the survey and settles that route definitively: |A| scales with
@@ -1957,11 +1985,12 @@ second point on the amplitude grid, and the metric returns it whenever |A| is
 drive-INDEPENDENT, because norm = (|A|/a)/ref collapses immediately when the
 numerator does not scale. Three different causes, one signature:
 
-  Ms 300/140 fixed radius   not a vortex
+  Ms 300/140 fixed radius   not a vortex -- and, per the correction above,
+                            integrated past the stability edge as well
   Ms 450 r178, first try    ground state still settling, |dm| = 0.419
   Ms 450 r178, converged    the driven state switches, so no stationary
                             response exists to lock into
-  Ms 300 r267               |dm| = 1.0033 after 120,000 steps at alpha 1.0
+  Ms 300 r267               diverged: dt*omega = 0.61 at 1 ps
 
 A threshold of 0.50 mT in this instrument means the measurement failed, not that
 the element is soft. The bias table is the control that proves it: a

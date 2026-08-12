@@ -2036,3 +2036,61 @@ Drive window 1-3 mT rather than the usual 10-30: the element responds from
 and a node that always switches carries no information. At 0.383 transfer per
 hop that also gives the capped architecture for free -- stage 2 sees 0.4-1.1 mT
 and stage 3 sees 0.15-0.4 mT, so the head switches and the tail does not.
+
+## NARMA-10 on the switching-vortex chain: chaos, not computation
+
+Three stages of Ms 450 kA/m / 178 nm disks, driven 1-3 mT so the head straddles
+its ~1.5 mT reversal threshold while stages 2 and 3 (0.383 transfer per hop) sit
+at 0.4-1.1 and 0.15-0.4 mT and do not switch -- the capped architecture, built
+by amplitude gradient rather than by per-disk material.
+
+| readout | dim | NARMA-10 test NMSE |
+|---|---|---|
+| input alone | 1 | 1.0153 |
+| linear 10-lag | 10 | 0.6737 |
+| **switching chain** | 180 | **4.4981** |
+
+**The device scores worse than the input by itself**, and the decomposition says
+why in one line: effective rank **142 of 180**, and **every capacity family
+reads 0.00 -- including degree-1.**
+
+Near-full rank with zero measured capacity is not richness, it is noise. The
+state is high-dimensional and decorrelated from the input: no recall at any lag,
+no products at any separation, nothing for a linear readout to fit. Noise floors
+rose accordingly, with s[n-5]*s[n-k] at max r^2 0.103 against 0.02-0.04 in every
+previous run.
+
+That is the echo-state property failing. A reservoir needs FADING memory -- the
+state must depend on recent input history and forget the rest. Core reversals
+scattered across amplitude make the state depend on the whole sequence, so
+nothing generalises.
+
+The integrator agreed. A first attempt at 600 frames ran to frame 525 at a
+steady 0.37 s/frame and then hung for 30 minutes with the GPU busy; 500 frames
+of the same seed and window completed cleanly in 192 s. The hang is
+input-dependent and localised, which is what a trajectory wandering into a state
+the stepper cannot handle looks like.
+
+## The two ends are now measured, and nothing sits between them
+
+| element | nonlinearity | capacity |
+|---|---|---|
+| permalloy vortex | needs 15 mT; coupling delivers 1.6 | 16-18 units, **100% degree-1** |
+| switching vortex | reverses from 1.5 mT | **0.00, every family** |
+
+Too little nonlinearity gives an excellent linear delay line -- 0.87-0.98 recall
+to lag 20, 18.79 of degree-1 capacity, the best memory in the project -- and no
+products. Enough nonlinearity to be reachable at the available drive destroys
+fading memory outright.
+
+That is the classic reservoir tension, and this device has no window between the
+horns of it. The gap is not small: permalloy needs 9.4x more drive than the
+coupling delivers, and the element that closes that gap overshoots into chaos
+rather than landing in the useful middle.
+
+What would be needed is an element whose nonlinearity saturates GENTLY at ~1.6
+mT -- strong enough to mix, bounded enough to forget. A vortex core does not do
+this: it is stiff until it reverses, and reversal is a discrete event with no
+graded regime in between. Something with a soft continuous saturation, rather
+than a bistable core, is the shape of element this architecture wants, and no
+configuration of the vortex disk provides it.

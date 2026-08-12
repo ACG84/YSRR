@@ -2300,3 +2300,72 @@ dispersion and offers a ~3 frame smear estimate. That explanation is now
 refuted, and no replacement has been measured. The scatter is real, reproducible
 across four independent runs of the control (3.46, 1.20, 3.76 every time), and
 unexplained.
+
+## The frequency sweep: the disk is soft at 5 GHz, and the bus cannot go there
+
+The invariant predicts h_th ~ alpha*omega/gamma, so at fixed damping the
+threshold should be proportional to drive frequency. Measured on the permalloy
+100 nm vortex -- the one element with a trusted reference, a converged ground
+state and clean amplitude scaling over a 160x range:
+
+| f (GHz) | linear \|A\|/a | h_th (mT) | on-resonance floor | ratio |
+|---|---|---|---|---|
+| 1.5 | 1.29e-04 | 40.00 | 0.43 | 93.4 |
+| 2.5 | 2.55e-04 | 24.00 | 0.71 | 33.6 |
+| 3.5 | 5.78e-04 | 12.00 | 1.00 | 12.0 |
+| **5.0** | 7.59e-03 | **1.50** | 1.43 | **1.05** |
+| 7.0 | 2.30e-03 | 16.00 | 2.00 | 8.0 |
+| 9.0 | 2.10e-02 | 6.00 | 2.57 | 2.3 |
+| 12.0 | 1.44e-02 | 16.00 | 3.43 | 4.7 |
+
+The log-log slope is -0.62, so the simple proportionality is NOT what happens.
+What happens instead is mode structure: the linear response has two peaks, at
+5 and 9 GHz, with an anti-resonance between them at 7 GHz. Read against the
+on-resonance floor rather than against a power law, the sweep says the disk
+sits 4.7x off its mode at 12 GHz and essentially ON one at 5 GHz, where the
+ratio is 1.05.
+
+**At 5 GHz the threshold is 1.50 mT, below the 1.6 mT the tap balance
+delivers.** That is the first element in this project whose nonlinearity is
+reachable at its own operating point without switching, and it is graded rather
+than bistable -- compression runs 1.000, 0.943, 0.905, 0.820, 0.597 with phase
+rising 0, 1.21, 2.12, 4.44, 10.46 degrees and the core intact throughout.
+
+It is not the artifact. The tell registered in advance was that |A| must keep
+SCALING while `norm` falls, since a flat |A| is what produced three spurious
+0.50 mT thresholds. Here |A| runs 1.90e-03 to 3.53e-02, a factor of 18.6, while
+norm falls to 0.290. At 12 GHz and the same 1.5 mT drive, norm is 0.999 and the
+phase shift is 0.09 degrees -- flatly linear.
+
+### Response magnitude and nonlinearity are not the same quantity
+
+Worth stating because it was assumed otherwise. The LARGEST linear response is
+at 9 GHz (2.10e-02, three times the 5 GHz peak), but its threshold is 6 mT, not
+1.5. So locating a mode by its response amplitude does not locate the useful
+operating point, and the two have to be measured separately.
+
+### The constraint this hits
+
+The 80 nm bus has a band bottom near 10.5 GHz. Both reachable-threshold points
+-- 5 GHz at 1.50 mT and 9 GHz at 6 mT -- are BELOW it, where the delay line
+carries nothing. The only measured point inside the propagating band is 12 GHz
+at 16 mT, which is the wall.
+
+So the problem is no longer "no element is nonlinear at 1.6 mT". One is. The
+problem is that **the disk's soft modes and the bus's passband are in different
+places**, which is a two-sided tuning problem rather than a closed route.
+
+### Caveat, unresolved at time of writing
+
+The settle window was 7.2 drive cycles, which at 5 GHz is 1.44 ns against a
+ring-down of 3.98 ns -- the lock-in read a state 36% of the way to steady.
+Because --cycles makes settle and tau both scale as 1/omega, that fraction is
+identical at every frequency and the COMPARISON is fair; but the absolute
+numbers are mid-transient, and settling in a nonlinear system is itself
+amplitude-dependent. A drive-dependent transient reading as compression is
+exactly how this project produced three false thresholds.
+
+A verification at 40 cycles (2.0 tau at 5 GHz, 2.4 at 12) is running. The 12 GHz
+control is the one that matters: it has been quoted at 15-16 mT throughout this
+project, and if it MOVES then the frequency structure above is an artifact of
+the window rather than a property of the disk.

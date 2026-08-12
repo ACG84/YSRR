@@ -212,6 +212,79 @@ def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
 
 
 @torch.no_grad()
+def report_feasibility(cfg, a):
+    """State, before the run, whether this configuration can possibly work.
+
+    For a resonantly driven mode the nonlinear threshold and the ring-down are
+
+        h_th ~ alpha*omega/gamma            tau ~ 1/(alpha*omega)
+
+    and their PRODUCT is 1/gamma = 5.7 ps*T -- alpha and omega both cancel. No
+    material, moment, radius, damping or drive frequency moves it, which is why
+    the element survey closed five routes that were all the same route.
+
+    What it leaves free is the frame. Requiring a reachable threshold and a
+    memory that fades within two frames gives
+
+        T_frame >= 1 / (2 * gamma * h_max)
+
+    1.78 ns at the 1.6 mT the tap balance currently allows, against the 0.2 ns
+    used in every run of this project so far. This prints the comparison rather
+    than leaving it to be rediscovered: nine configurations have now measured
+    s[n]*s[n-k] = 0.000, and every one of them was outside this bound.
+    """
+    from magnumnp import constants
+    # magnum.np's gamma is 2.21e5 rad/(s * A/m) -- the field argument to LLG
+    # here is H, not B. Everything below is quoted in Tesla, so divide by mu0
+    # to get 1.76e11 rad/(s*T). Using the raw value reported a threshold of
+    # 2.7 million mT, which is the kind of wrong that is easy to catch; a
+    # units slip of mu0 in the other direction would not have been.
+    gamma = float(constants.gamma) / MU_0
+    spf = a.steps_per_frame
+    t_frame = spf * cfg.dt
+    omega = 2 * math.pi * a.carrier_ghz * 1e9
+    alpha = cfg.alpha * a.tap_alpha
+    h_th_T = alpha * omega / gamma
+    tau = 1.0 / (alpha * omega)
+    h_max_T = a.amp_hi_mT * 1e-3
+    t_need = 1.0 / (2 * gamma * h_max_T)
+    print(f"\nfeasibility (h_th * tau = 1/gamma = {1e12/gamma:.2f} ps*T)\n"
+          f"  tap alpha {alpha:.5f} at {a.carrier_ghz:g} GHz: "
+          f"threshold {h_th_T*1e3:.2f} mT, ring-down {tau*1e9:.2f} ns "
+          f"= {tau/t_frame:.1f} frames\n"
+          f"  frame {t_frame*1e9:.2f} ns; a {a.amp_hi_mT:g} mT drive needs "
+          f">= {t_need*1e9:.2f} ns to forget within two", flush=True)
+    # Two separate questions, and only the second is about THIS run.
+    #
+    #   the bound     is there any alpha at which a h_max drive both reaches
+    #                 threshold and fades within two frames? That is the frame
+    #                 length requirement, and it does not mention alpha.
+    #   this config   does the alpha actually configured do it? h_th <= h_max
+    #                 AND tau <= 2 frames, both measured at the tap's own alpha.
+    #
+    # A frame can satisfy the bound while the configured alpha still misses, so
+    # reporting only the bound would call a run feasible that is not.
+    reach = h_th_T <= h_max_T
+    fade = tau <= 2 * t_frame
+    print(f"  the frame {'clears' if t_frame >= t_need else 'MISSES'} the bound"
+          + ("" if t_frame >= t_need else f" by {t_need/t_frame:.1f}x"),
+          flush=True)
+    if reach and fade:
+        print("  and this alpha delivers both: drive reaches threshold, "
+              "memory fades.", flush=True)
+    else:
+        why = []
+        if not reach:
+            why.append(f"threshold {h_th_T*1e3:.2f} mT exceeds the "
+                       f"{a.amp_hi_mT:g} mT drive by {h_th_T/h_max_T:.1f}x")
+        if not fade:
+            why.append(f"ring-down is {tau/t_frame:.1f} frames, over the 2 "
+                       f"that fading memory needs")
+        print("  but this alpha does not: " + "; ".join(why)
+              + ".\n  Expect degree-1 capacity only -- the regime all nine "
+                "previous configurations ran in.", flush=True)
+
+
 def probe_tau(arr, cfg, spf, carrier, amp, dtype, quench_frac, quench_gain,
               n_quiet=3000):
     """Ring-down time of the tap disks, in frames, under a given quench.
@@ -350,6 +423,7 @@ def main():
           f"{a.steps_per_frame} steps, device {a.device}\n"
           f"transit to the farthest tap {transit_frames:.1f} frames, "
           f"washout {a.splits[0]}", flush=True)
+    report_feasibility(cfg, a)
 
     ensure_m0(arr, outdir, run, relax_steps=a.relax_steps, dtype=dtype,
               log=lambda s: print(f"  {s}", flush=True))

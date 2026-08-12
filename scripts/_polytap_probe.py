@@ -245,13 +245,20 @@ def delay_by_xcorr(sig, drive, n_taps, n_readout, freq_ghz,
     return rows
 
 
-def score_point(rows, designed_lags):
+def score_point(rows, designed_lags, steps_per_frame=FRAME_STEPS, dt=1e-12):
     """Collapse one sweep point to the two numbers that decide it.
 
     A point is only useful if taps both RESOLVE (measured spacing tracks the
     designed spacing) and RECEIVE (the weakest tap is not lost in the spread).
     Every sweep in this project so far moved one of those and was defeated by
     the other, so both are reported and neither is reduced away.
+
+    Errors are additionally reported in NANOSECONDS, because frames stopped
+    being a fixed unit once the frame length became a variable. The same
+    physical 0.60 ns tap separation is 3.00 frames at 200 steps and 1.50 at
+    400, so a frame-count error silently halves when the frame doubles -- a
+    comparison across frame lengths read in frames would show an improvement
+    that is pure bookkeeping.
     """
     n = len(rows)
     d_designed = [designed_lags[k + 1] - designed_lags[k] for k in range(n - 1)]
@@ -266,6 +273,9 @@ def score_point(rows, designed_lags):
         "n_monotonic": monotonic,
         "worst_spacing_error": max(abs(e) for e in err),
         "mean_abs_spacing_error": float(np.mean([abs(e) for e in err])),
+        "spacing_error_ns": [e * steps_per_frame * dt * 1e9 for e in err],
+        "mean_abs_spacing_error_ns": float(np.mean(
+            [abs(e) for e in err])) * steps_per_frame * dt * 1e9,
         "amp_spread": float(max(amps) / max(min(amps), 1e-30)),
         "amp_min": float(min(amps)),
         "amps": amps,

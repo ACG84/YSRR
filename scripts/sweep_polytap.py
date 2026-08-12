@@ -147,7 +147,8 @@ def main():
                                     a.quiet, bus=True, fresh=False, dtype=dtype)
         rows = delay_by_xcorr(sig, drive, cfg.n_taps, arr.n_readout, a.freq,
                               steps_per_frame=a.steps_per_frame)
-        sc = score_point(rows, list(cfg.tap_lags[:cfg.n_taps]))
+        sc = score_point(rows, list(cfg.tap_lags[:cfg.n_taps]),
+                         steps_per_frame=a.steps_per_frame, dt=cfg.dt)
         (pts / f"{run}.json").write_text(json.dumps(
             {"gap_nm": gap_nm, "coupler_len_nm": cpl_nm, "tap_alpha_mult": ta,
              "bus_alpha_mult": ba, "bus_guide_width_nm": None if bw < 0 else bw,
@@ -155,6 +156,7 @@ def main():
         print(f"{run}: spacings "
               f"{[round(float(x),2) for x in sc['spacing_measured']]}, "
               f"mono {sc['n_monotonic']}/{cfg.n_taps-1}, "
+              f"err {sc['mean_abs_spacing_error_ns']:.3f} ns, "
               f"spread {sc['amp_spread']:.0f}x, min amp {sc['amp_min']:.2e}")
         return 0
 

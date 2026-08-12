@@ -133,6 +133,12 @@ def main():
                    help="A/m. Cone angle goes as drive/Ms, so a low-moment\n"
                         "material is nonlinear at proportionally lower field.\n"
                         "Permalloy is 800e3; YIG is ~140e3, a 5.7x reduction.")
+    p.add_argument("--init", default="vortex", choices=("vortex", "uniform"),
+                   help="starting state for the relax. `vortex` is the built-in\n"
+                        "ansatz; `uniform` starts fully in-plane, which a\n"
+                        "SINGLE-DOMAIN candidate needs -- from a vortex ansatz\n"
+                        "the relax must unwind a vortex that is not stable and\n"
+                        "stalls part-way.")
     p.add_argument("--drive-axis", default="x", choices=("x", "y"),
                    help="in-plane axis the AC drive acts along. The saturating\n"
                         "geometry needs it PERPENDICULAR to --bias-mT: transverse\n"
@@ -169,23 +175,37 @@ def main():
     cfg = PortedVortexConfig(**kw)
     disk = PortedVortexDisk(cfg, timesteps=a.settle + a.meas + 8, dtype=dtype)
     tag = (f"r{cfg.radius*1e9:.0f}_Ms{cfg.Ms/1e3:.0f}"
-           + (f"_b{a.bias_mT:g}" if a.bias_mT else ""))
+           + (f"_b{a.bias_mT:g}" if a.bias_mT else "")
+           + ("" if a.init == "vortex" else f"_{a.init}")
+           + ("" if a.drive_axis == "x" else f"_d{a.drive_axis}"))
     m0c = outdir / f"m0_{tag}.pt"
     if m0c.exists():
         disk.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
         print(f"[m0] restored from {m0c.name}")
     else:
         t0 = time.time()
-        disk.relax(steps=a.relax_steps, alpha_relax=a.relax_alpha)
+        # The bias has to be present DURING the relax, or the run begins with
+        # the state moving to its true equilibrium and that transient is
+        # measured as nonlinearity.
+        hb = disk.h_zero
         if a.bias_mT:
-            # Relax AGAIN under the bias. A static field displaces the core, so
-            # relaxing without it and then driving with it starts the run with
-            # the core moving to its true equilibrium -- and that transient
-            # would be measured as nonlinearity.
             hb = disk.h_zero.clone()
             hb[:, :, :, 0] += ((a.bias_mT * 1e-3 / MU_0)
                                * disk.disk_only[:, :, :, 0].to(dtype))
-            disk.m0 = disk.rollout.relax(disk.m0, hb, a.relax_steps, 0.5)
+        if a.init == "uniform":
+            # A SINGLE-DOMAIN candidate must not start from a vortex ansatz.
+            # The relax then has to unwind a vortex that is not stable, which
+            # stalls part-way: Ms 300 at 100 nm sat at circulation +0.657 with
+            # |dm| = 1.0078 after 20000 steps -- neither a vortex nor uniform.
+            m_init = torch.zeros_like(disk.h_zero)
+            m_init[:, :, :, 0] = disk.mask[:, :, :, 0].to(dtype)
+            disk.m0 = disk.rollout.relax(m_init, hb, a.relax_steps,
+                                         a.relax_alpha)
+        else:
+            disk.relax(steps=a.relax_steps, alpha_relax=a.relax_alpha)
+            if a.bias_mT:
+                disk.m0 = disk.rollout.relax(disk.m0, hb, a.relax_steps,
+                                             a.relax_alpha)
         torch.save(disk.m0.cpu(), m0c)
         print(f"relaxed in {time.time()-t0:.0f}s")
 

@@ -2249,3 +2249,54 @@ frame-count tolerance silently tightens as the frame grows.
 Whatever it returns, note what is NOT at stake: the frame was introduced for the
 memory argument, where its effect is arithmetic rather than empirical. A
 dispersion null would make longer frames timing-neutral, not useless.
+
+### Frame length, controlled: dispersion refuted, reception improved
+
+Same bus, same taps at 945/1512/2079/2646 nm, same ground state; only the burst
+width changes. Errors in ns, because the designed separation is a fixed 0.60 ns
+while its frame count is not.
+
+| frame | packet | designed | err (frames) | err (ns) | mono | spread | weakest tap |
+|---|---|---|---|---|---|---|---|
+| 200 steps | ~5.0 GHz | 3.00 fr | 1.007 | 0.201 | 3/3 | 29x | 3.93e-05 |
+| 400 steps | ~2.5 GHz | 1.50 fr | 1.057 | 0.423 | 2/3 | 22x | 6.81e-05 |
+| 600 steps | ~1.7 GHz | 1.00 fr | 0.527 | 0.316 | 3/3 | 12x | 9.57e-05 |
+
+Dispersive smearing predicts 0.201 -> 0.100 -> 0.067 ns. Measured: 0.201 ->
+0.423 -> 0.316. **Refuted**, and this time with the amplitude confound removed --
+the weakest tap is above the 1e-5 placement bar at every point, so all three
+are interpretable.
+
+The timing numbers show no trend in the predicted direction and no clean law in
+the other direction either. Three points do not support one, and an earlier
+reading of the first two as "about one frame regardless of frame length" does
+not survive the third (0.527 frames at 600 steps). What can be said is that the
+error stays in the 0.2-0.4 ns band across a 3x change in packet width, so
+whatever sets the spacing scatter, it is not the bandwidth of the packet.
+
+**Reception is the clean result, and it runs opposite to the prediction.**
+Spread fell 29x -> 22x -> 12x and the weakest tap rose by 2.4x, both monotonic
+in burst width, which is what more injected energy per burst does.
+
+So a longer frame is timing-neutral and reception-positive AT FIXED BUS LENGTH.
+The confounded run is the counter-case and stays in the record for it: scaling
+the bus with the frame cost 30x of reception (3.93e-05 -> 1.33e-06) against a
+1.7x burst-energy gain. Bus length is what hurts; frame length is not.
+
+### What this does to the frame-length plan
+
+The memory argument wanted 600-step frames. That is now measured as free on
+timing and favourable on reception, with one constraint attached: the bus must
+not grow with the frame. Holding the bus at 2.6 um puts the taps 1.00 frame
+apart with 0.527 frames of error, which is too tight to resolve cleanly.
+
+The intermediate design is the one to test -- 600-step frames with taps at lags
+2, 4, 6, 8, a 4.5 um bus, and 2.00 frames of designed separation against 0.527
+of error, a relative error of 0.26 against the control's 0.34. It buys the
+memory the invariant demands without either starving the taps or crowding them.
+
+Note what is NOT resolved: the handoff brief attributes the spacing scatter to
+dispersion and offers a ~3 frame smear estimate. That explanation is now
+refuted, and no replacement has been measured. The scatter is real, reproducible
+across four independent runs of the control (3.46, 1.20, 3.76 every time), and
+unexplained.

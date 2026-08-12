@@ -2369,3 +2369,51 @@ A verification at 40 cycles (2.0 tau at 5 GHz, 2.4 at 12) is running. The 12 GHz
 control is the one that matters: it has been quoted at 15-16 mT throughout this
 project, and if it MOVES then the frequency structure above is an artifact of
 the window rather than a property of the disk.
+
+## Widening the bus: 9 GHz is reachable, 5 GHz is not
+
+If the disk's soft modes and the bus's passband are in different places, either
+can move. The disk side is constrained -- 60 and 40 nm radii both lost the
+vortex -- so this measures the bus. Lateral confinement sets the band bottom
+(the lowest mode has k_y = pi/w), so a wider strip should lower it.
+
+| bus width | band bottom | carries 5 GHz? | carries 9 GHz? |
+|---|---|---|---|
+| 80 nm (as built) | 11 GHz | no | no |
+| 160 nm | 8 GHz | no | **yes** |
+| 240 nm | 7 GHz | no | **yes** |
+| 320 nm | 6 GHz | no | **yes** |
+
+Widening 4x buys 5 GHz of band bottom, with clear diminishing returns as the
+dipolar terms take over from exchange. Extrapolating, 5 GHz would need roughly
+500-640 nm -- reachable in principle and probably not usefully, because at that
+width the strip stops being a single-mode waveguide and becomes a film with
+many lateral modes, which would scramble the delay structure the architecture
+depends on.
+
+**9 GHz is inside the band at 160 nm already**, and that is the more useful of
+the two soft points anyway: 6 mT rather than 16, against a budget of 1.6 mT
+base times the bus-damping suite's measured 3.25x = 5.2 mT. Short by 1.15x,
+where the 12 GHz operating point was short by 9.4x.
+
+The band edge is sharp rather than gradual. On the 160 nm strip, below 8 GHz the
+phase fit is poor (R^2 0.06 to 0.74) with decay under 1.8 um; at 8 GHz it snaps
+to R^2 = 1.000, contrast 1370, decay unmeasurable.
+
+### What 9 GHz on a 160 nm bus looks like
+
+| quantity | 12 GHz / 80 nm (as built) | 9 GHz / 160 nm |
+|---|---|---|
+| wavelength | 82.3 nm | 108.6 nm |
+| group velocity | 706 m/s | 542.9 m/s |
+| nm per 200-step frame | 189 (measured) | 108.6 |
+| phase R^2 | 1.000 | 1.000 |
+
+The slower group velocity helps rather than hurts: the same delay fits in a
+shorter bus, which is the axis the tap array is actually limited on.
+
+**Caution on the decay column.** The "inf" figures are bare-strip fits, and the
+80 nm strip reads inf at 12 GHz too while the LOADED bus measures 1354 nm. Tap
+loading dominates the real attenuation, so this says the intrinsic propagation
+is better, not that the reception problem goes away. That has to be measured on
+a loaded 160 nm bus before any of it is designed around.

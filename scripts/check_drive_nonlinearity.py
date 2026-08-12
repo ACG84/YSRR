@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
-from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
+from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk, VortexConfig
 from magnonic_nn._compat import get_device
 
 
@@ -159,6 +159,14 @@ def main():
     p.add_argument("--relax-tol", type=float, default=2e-3,
                    help="max |dm| per 200 further relax steps for the ground\n"
                         "state to count as converged")
+    p.add_argument("--dt-fs", type=float, default=None,
+                   help="integration timestep in fs. Default scales with Ms.\n"
+                        "The stiffest mode is exchange, h_ex = 2A/(mu0 Ms dx^2),\n"
+                        "and it gets FASTER as Ms falls -- 1.04e6 A/m at Ms 800\n"
+                        "but 5.91e6 at Ms 140, so f_max goes 36 -> 208 GHz and\n"
+                        "dt*omega goes 0.23 -> 1.31. The 1 ps default is stable\n"
+                        "at permalloy and diverges below Ms ~300 kA/m, which is\n"
+                        "what the low-moment relax failures actually were.")
     p.add_argument("--outdir", default="runs/drive_nonlinearity")
     a = p.parse_args()
 
@@ -172,9 +180,29 @@ def main():
         kw["radius"] = a.radius * 1e-9
     if a.Ms is not None:
         kw["Ms"] = a.Ms
+    # dt proportional to Ms, because the exchange field the integrator has to
+    # resolve is inversely proportional to it. Holding dt at 1 ps while lowering
+    # Ms is what produced the "no static minimum reachable this way" readings in
+    # the material survey -- those were divergences, not physics.
+    ms_eff = kw.get("Ms", VortexConfig.Ms)
+    dt = (a.dt_fs * 1e-15 if a.dt_fs is not None
+          else min(VortexConfig.dt, VortexConfig.dt * ms_eff / 800e3))
+    kw["dt"] = dt
     cfg = PortedVortexConfig(**kw)
-    disk = PortedVortexDisk(cfg, timesteps=a.settle + a.meas + 8, dtype=dtype)
-    tag = (f"r{cfg.radius*1e9:.0f}_Ms{cfg.Ms/1e3:.0f}"
+    # Step COUNTS are not the quantity that matters -- settle and measure
+    # windows are physical durations, and the lock-in needs whole drive cycles.
+    # At 12 GHz the period is 83 steps at 1 ps but 476 at 175 fs, so leaving
+    # --meas at 600 would integrate 1.3 cycles instead of 7.2.
+    scale = VortexConfig.dt / dt
+    n_settle = int(round(a.settle * scale))
+    n_meas = int(round(a.meas * scale))
+    n_relax = int(round(a.relax_steps * scale))
+    print(f"[dt] {dt*1e15:.0f} fs "
+          f"({'explicit' if a.dt_fs is not None else 'scaled from Ms'}); "
+          f"settle {n_settle}, meas {n_meas}, relax {n_relax} steps "
+          f"({scale:.2f}x the 1 ps counts, same physical time)")
+    disk = PortedVortexDisk(cfg, timesteps=n_settle + n_meas + 8, dtype=dtype)
+    tag = (f"r{cfg.radius*1e9:.0f}_Ms{cfg.Ms/1e3:.0f}_dt{dt*1e15:.0f}"
            + (f"_b{a.bias_mT:g}" if a.bias_mT else "")
            + ("" if a.init == "vortex" else f"_{a.init}")
            + ("" if a.drive_axis == "x" else f"_d{a.drive_axis}"))
@@ -205,12 +233,12 @@ def main():
             # sets m_x = 1 everywhere for the same reason.
             m_init = torch.zeros_like(disk.h_zero)
             m_init[:, :, :, 0] = 1.0
-            disk.m0 = disk.rollout.relax(m_init, hb, a.relax_steps,
+            disk.m0 = disk.rollout.relax(m_init, hb, n_relax,
                                          a.relax_alpha)
         else:
-            disk.relax(steps=a.relax_steps, alpha_relax=a.relax_alpha)
+            disk.relax(steps=n_relax, alpha_relax=a.relax_alpha)
             if a.bias_mT:
-                disk.m0 = disk.rollout.relax(disk.m0, hb, a.relax_steps,
+                disk.m0 = disk.rollout.relax(disk.m0, hb, n_relax,
                                              a.relax_alpha)
         torch.save(disk.m0.cpu(), m0c)
         print(f"relaxed in {time.time()-t0:.0f}s")
@@ -270,7 +298,14 @@ def main():
     #
     # Run the relax a little further and see whether anything moves. A settled
     # ground state does not; one that is still relaxing does, and by how much.
-    _m1 = disk.rollout.relax(disk.m0.clone(), h_static, 200, a.relax_alpha)
+    #
+    # The probe window is a physical duration too, so it scales with dt like the
+    # rest. Left at a fixed 200 steps it would shrink with dt and let a state
+    # that is still moving pass the tolerance simply because it was watched for
+    # less time -- the gate would go slack exactly at the low moments it was
+    # added to police.
+    _m1 = disk.rollout.relax(disk.m0.clone(), h_static, int(round(200 * scale)),
+                             a.relax_alpha)
     dm = float((_m1 - disk.m0).abs().max())
     converged = dm <= a.relax_tol
     print(f"ground state mean m_z = {mz0:.5f}, circulation = {circ:+.3f}, "
@@ -301,8 +336,8 @@ def main():
     for amp_mT in a.amps_mT:
         amp = amp_mT * 1e-3 / MU_0
         t0 = time.time()
-        Mf, M2f, m = drive(disk, amp, a.freq * 1e9, dtype, a.settle,
-                           a.meas, h_static=h_static)
+        Mf, M2f, m = drive(disk, amp, a.freq * 1e9, dtype, n_settle,
+                           n_meas, h_static=h_static)
         # Fix the mode on the FIRST (smallest, most linear) amplitude and follow
         # that same one up the sweep. Re-picking the argmax per amplitude would
         # let the tracked phase jump between modes and read as a frequency shift.

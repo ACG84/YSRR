@@ -2417,3 +2417,71 @@ shorter bus, which is the axis the tap array is actually limited on.
 loading dominates the real attenuation, so this says the intrinsic propagation
 is better, not that the reception problem goes away. That has to be measured on
 a loaded 160 nm bus before any of it is designed around.
+
+### Verified settled: the frequency structure is real
+
+The sweep's settle window was 7.2 drive cycles, 36% of the ring-down, so every
+number in it was read mid-transient. Rerun at 40 cycles -- 2.0 tau at 5 GHz,
+2.0 at 12 -- on the same disk and the same grid:
+
+| amp (mT) | 5 GHz @ 0.36 tau | 5 GHz @ 2.0 tau | 12 GHz @ 0.36 tau | 12 GHz @ 2.0 tau |
+|---|---|---|---|---|
+| 0.25 | 1.000 | 1.000 | 1.000 | 1.000 |
+| 0.50 | 0.995 | 0.995 | 1.000 | 1.000 |
+| 1.00 | 0.974 | 0.976 | 1.000 | 1.000 |
+| 1.50 | 0.943 | 0.949 | 0.999 | 0.999 |
+| 2.00 | 0.905 | 0.918 | 0.999 | 0.999 |
+| 12.0 | 0.373 | 0.267 | 0.962 | 0.955 |
+
+**Threshold 1.50 mT at 5 GHz and 16.00 mT at 12 GHz, both unchanged.** The
+control is the one that mattered -- it has been quoted at 15-16 mT throughout
+this project -- and it reproduces to three decimals at 5.6x the settle. So the
+sweep was not measuring settling, and at 1.5 mT the same disk compresses 50x
+more at 5 GHz than at 12.
+
+One correction to how this should be quoted. The criterion fires at norm 0.950
+and the settled 1.5 mT row is 0.949, so the "1.50 mT" label clears its own
+cutoff by 0.001 and overstates the precision. The defensible statement is the
+curve: at 5 GHz this disk compresses ~5% at 1.5 mT, ~8% at 2, ~15% at 3 and
+~35% at 6, settled, with the core intact throughout.
+
+## Where the architecture actually stands
+
+The element problem is solved, and it was never the problem it was taken for.
+Five materials routes were closed, an invariant was derived to explain why, and
+the answer turned out to be that **12 GHz sits 4.7x off the disk's own mode**.
+The disk was always capable of graded nonlinearity at reachable drive; it was
+being driven in the wrong place.
+
+| | as built | proposed |
+|---|---|---|
+| bus width | 80 nm | 160 nm |
+| carrier | 12 GHz | 9 GHz |
+| disk threshold | 16.00 mT | 6.00 mT |
+| drive available | 1.6 mT | 5.2 mT (bus damping, measured) |
+| shortfall | **9.4x** | **1.15x** |
+| group velocity | 706 m/s | 542.9 m/s |
+| nm per 200-step frame | 189 | 108.6 |
+
+5 GHz is softer still at 1.50 mT, but the bus cannot be widened to carry it
+without becoming multi-mode, so 9 GHz is the operating point.
+
+What is NOT established, and should not be assumed from the above:
+
+  9 GHz threshold      measured at 7.2 cycles only. The 5 and 12 GHz points
+                       both survived the settled rerun, so it probably holds,
+                       but it has not been checked.
+  loaded 160 nm bus    every propagation number here is a BARE strip. The 80 nm
+                       strip reads decay inf at 12 GHz while the loaded bus
+                       measures 1354 nm, so tap loading dominates and the
+                       reception budget is unmeasured at the new width.
+  coupling geometry    the tap aperture was tuned against the 82.3 nm wave at
+                       12 GHz. At 9 GHz on 160 nm the wave is 108.6 nm and the
+                       bus is twice as wide; neither the aperture nor the gap
+                       has been re-optimised.
+  the products         no capacity decomposition has been run at any of this.
+                       s[n]*s[n-k] has read 0.000 in nine configurations, all
+                       of them driven at 12 GHz on an element that was linear
+                       there. That is the run this makes worth its hours, and
+                       it is the only thing that settles whether any of it
+                       matters.

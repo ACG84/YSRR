@@ -2195,3 +2195,57 @@ invariant: `h_th ~ alpha*omega/gamma` says threshold falls in PROPORTION to driv
 frequency. The survey already hints at it -- 11.0 GHz gave 10 mT against 15.00 at
 12, a 1.5x fall for a 1.09x change, steeper than proportional, which is what
 approaching a mode from above looks like.
+
+### Frame length, first attempt: a confounded design
+
+The invariant leaves the frame free, and the frame has a second effect besides
+memory: the burst is one frame wide, so the frame sets the packet BANDWIDTH.
+At 200 steps the packet spans ~5 GHz, over which v_g runs 706 to 1267 m/s, and
+dispersive smearing was the standing explanation for the spacing scatter --
+3.46, 1.20, 3.76 frames against 3.00 designed on an array placed to 1 part in
+500. A narrower packet should smear less.
+
+Measured, with tap spacing scaled to keep designed lags in frames:
+
+| frame | packet | spacings (designed 3.00) | mono | spread | weakest tap |
+|---|---|---|---|---|---|
+| 200 steps | ~5.0 GHz | 3.46, 1.20, 3.76 | 3/3 | 29x | 3.93e-05 |
+| 400 steps | ~2.5 GHz | 5.43, -0.05, 3.37 | 2/3 | 225x | **1.33e-06** |
+
+Mean spacing error went 1.01 -> 1.95 frames. The prediction was that it would
+FALL, so on its face this refutes dispersion.
+
+It does not, because the design confounded two things. Scaling tap spacing with
+the frame also scaled the BUS: 2.6 um to 5.3 um, against a 1354 nm propagation
+length. The weakest tap fell to 1.33e-06, **below the 1e-5 placement bar**, and
+under that bar an arrival estimate is reading near field and noise rather than a
+delayed wave. That is the same failure that cost this project four campaigns,
+reappearing in a new place: a starved tap mis-times, so the timing degradation
+is a plausible CONSEQUENCE of the amplitude collapse rather than evidence about
+dispersion at all.
+
+The 200-step control reproduced the recorded numbers exactly -- 3.46, 1.20,
+3.76, spread 29x, weakest tap 3.93e-05 -- so the build is sound and the
+comparison is real. It is the interpretation that does not follow.
+
+The clean version holds the bus FIXED and varies only the burst, restating the
+lags in the new frame units so the taps sit in the same physical places:
+
+| frame | frame_nm | lags | tap x (nm) | designed spacing |
+|---|---|---|---|---|
+| 200 | 189.0 | 5, 8, 11, 14 | 945, 1512, 2079, 2646 | 0.60 ns |
+| 400 | 378.0 | 2.5, 4, 5.5, 7 | 945, 1512, 2079, 2646 | 0.60 ns |
+| 600 | 567.0 | 1.667, 2.667, 3.667, 4.667 | 945, 1512, 2079, 2646 | 0.60 ns |
+
+Attenuation, coupling geometry and the ground state are then identical and only
+the packet changes. amp_min is the control on the control: same bus, so it
+should land near 3.9e-05 at every frame, and if it does not the geometry is not
+actually matched and nothing in the comparison counts.
+
+Errors get compared in NANOSECONDS, not frames. The designed spacing is 3.00
+frames at 200 steps and 1.50 at 400 -- the same 0.60 ns -- so a fixed
+frame-count tolerance silently tightens as the frame grows.
+
+Whatever it returns, note what is NOT at stake: the frame was introduced for the
+memory argument, where its effect is arithmetic rather than empirical. A
+dispersion null would make longer frames timing-neutral, not useless.

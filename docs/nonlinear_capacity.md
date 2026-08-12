@@ -2123,3 +2123,75 @@ this: it is stiff until it reverses, and reversal is a discrete event with no
 graded regime in between. Something with a soft continuous saturation, rather
 than a bistable core, is the shape of element this architecture wants, and no
 configuration of the vortex disk provides it.
+
+## The invariant: threshold times memory is a constant, and alpha cancels
+
+The trap above was recorded as a damping conflict -- threshold goes as `alpha`,
+ring-down as `1/alpha`, so no single value serves both. That framing is true but
+it hides the stronger statement. Write the two out for a resonantly driven mode:
+
+```
+h_th  ~  alpha * omega / gamma      threshold: drive tips the cone to order 1
+tau   ~  1 / (alpha * omega)        ring-down: the linewidth is alpha*omega
+--------------------------------------------------------------------------
+h_th * tau  =  1 / gamma  =  5.7 ps*T
+```
+
+**Both alpha and omega cancel.** The product of the drive a resonant element
+needs and the memory it then carries is fixed by the gyromagnetic ratio alone --
+not by material, moment, radius, damping, thickness or drive frequency.
+
+This is why the element survey closed every route it tried. Ms, radius, bias and
+frequency are all variables the invariant is blind to. The survey was searching a
+space the answer does not live in, and its uniform failure was the invariant
+being measured five times rather than five independent dead ends.
+
+It also predicts a number already in hand. Permalloy at `alpha` = 0.008 and
+12 GHz gives `tau = 1/(alpha*omega)` = 1.66 ns, and the switching runs measured
+an 8.3-frame ring-down at 200 ps frames -- 1.66 ns. The model reproduces a
+measurement that was made before it was written down.
+
+### What the invariant leaves free
+
+The frame. It is the one parameter this project has never varied, fixed at
+`FRAME_STEPS = 200` and 1 ps since the first chain run. Requiring a reachable
+threshold and a forgetful element together:
+
+```
+h_th <= h_max   and   tau <= 2 * T_frame   =>   T_frame >= 1 / (2*gamma*h_max)
+```
+
+At the 1.6 mT the balance currently allows, that is **1.78 ns against the 200 ps
+in use -- short by 8.9x**. Both sides of the inequality are movable, and the
+second one is already measured: the bus-damping suite found 3.25x of headroom on
+the fresh drive, which puts `h_max` at 5.2 mT and brings the frame requirement
+down to 0.83 ns, a factor of 4.2.
+
+So the pair (3.25x more drive, 4.2x longer frames) closes a gap that no material
+substitution could, and neither number is speculative.
+
+The cost is bus length. Taps sit at `lag * 189 nm` because 189 nm at
+v_g = 706 m/s is one 200 ps frame; at 0.83 ns frames the spacing becomes 586 nm
+and a 20-lag bus grows from 3.8 to 11.7 um, with the attenuation that implies.
+That is a real price and it is the next thing to measure -- but it is an
+engineering cost on a known axis, not another closed route.
+
+### Why the perpendicular-bias feeder was the wrong shape
+
+The feeder disk was designed to escape by installing a tunable anisotropy field:
+static bias with the AC drive perpendicular, so saturation would be set by
+H_bias and memory by alpha, independently. The invariant says that cannot work,
+and the FMR arithmetic says why concretely.
+
+At Ms 140 kA/m with 2 mT bias the Kittel frequency is
+`28 GHz/T * sqrt(H(H+mu0*Ms))` = 0.53 GHz, while the bus drives at 12. Driving
+at 23x the resonance suppresses the response by `(omega_0/omega)^2` and the
+element would have read as weakly linear -- another null, and a misleading one.
+Raising the bias until FMR reaches 12 GHz requires 350 mT, which then IS the
+threshold. The same trap wearing different clothes.
+
+The measurement that is worth making instead is the falsifiable half of the
+invariant: `h_th ~ alpha*omega/gamma` says threshold falls in PROPORTION to drive
+frequency. The survey already hints at it -- 11.0 GHz gave 10 mT against 15.00 at
+12, a 1.5x fall for a 1.09x change, steeper than proportional, which is what
+approaching a mode from above looks like.

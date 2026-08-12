@@ -212,6 +212,19 @@ def main():
                         "single-disk numbers this is compared against are a\n"
                         "different instrument")
     p.add_argument("--n-disks", type=int, default=3)
+    p.add_argument("--Ms", type=float, default=None,
+                   help="A/m. Permalloy is 800e3. A low-moment disk at matched\n"
+                        "R/l_ex is the only element measured here whose\n"
+                        "nonlinearity is reachable at the drive its coupling\n"
+                        "delivers -- it REVERSES its core at ~2 mT rather than\n"
+                        "compressing.")
+    p.add_argument("--radius", type=float, default=None,
+                   help="nm. Must be scaled with the exchange length when Ms is\n"
+                        "lowered, or the vortex dissolves: l_ex = 5.7 nm at\n"
+                        "800 kA/m and 10.1 at 450, so 100 nm pairs with 178.")
+    p.add_argument("--relax-alpha", type=float, default=0.5,
+                   help="a low-moment disk has long-wavelength modes that damp\n"
+                        "slowly; 1.0 converges the 178 nm disk where 0.5 does not")
     p.add_argument("--drive-stages", type=int, nargs="+", default=[0],
                    help="which stages receive the drive; 0 is the input stage.\n"
                         "More than one co-drives: `--drive-stages 0 2` gives the\n"
@@ -234,16 +247,23 @@ def main():
     (outdir / "pid").write_text(str(os.getpid()))
 
     u, y = narma10(args.frames, seed=args.seed)
+    kw = {}
+    if args.Ms is not None:
+        kw["Ms"] = args.Ms
+    if args.radius is not None:
+        kw["radius"] = args.radius * 1e-9
     cfg = ChainPortedConfig(
         n_disks=args.n_disks,
         separation=args.separation * 1e-9,
-        link_width=(0.0 if args.no_link else args.link_width * 1e-9))
+        link_width=(0.0 if args.no_link else args.link_width * 1e-9), **kw)
     arr = ChainPortedArray(cfg, timesteps=args.steps_per_frame + 4, dtype=dtype)
     t0 = time.time()
     # 5000 steps with a hard guard: every coupled lambda in this project
     # measured at 900 steps was reporting relaxation drift as dynamics, and a
     # reservoir run on a drifting ground state has the same problem silently.
     tag = f"n{args.n_disks}_" + ("nolink" if args.no_link else "linked")
+    if args.Ms is not None or args.radius is not None:
+        tag += f"_r{cfg.radius*1e9:.0f}_Ms{cfg.Ms/1e3:.0f}"
     # Cache the relaxed ground state. It is deterministic given the config, and
     # it costs minutes on this mesh -- which every restart would otherwise pay
     # again before even reading the checkpoint, on a container that reboots
@@ -256,10 +276,12 @@ def main():
         except Exception as e:
             print(f"[m0] {m0_cache.name} unreadable ({type(e).__name__}); "
                   "relaxing", flush=True)
-            arr.relax(steps=args.relax_steps, require_tol=args.require_tol)
+            arr.relax(steps=args.relax_steps, alpha_relax=args.relax_alpha,
+                      require_tol=args.require_tol)
             torch.save(arr.m0.cpu(), m0_cache)
     else:
-        arr.relax(steps=args.relax_steps, require_tol=args.require_tol)
+        arr.relax(steps=args.relax_steps, alpha_relax=args.relax_alpha,
+                  require_tol=args.require_tol)
         torch.save(arr.m0.cpu(), m0_cache)
     tau_ns = 1.0 / (cfg.alpha * 2 * math.pi * args.carrier_ghz * 1e9) * 1e9
     frame_ns = args.steps_per_frame * cfg.dt * 1e9
@@ -268,6 +290,8 @@ def main():
           f"-> ~{tau_ns/frame_ns:.1f} frames of memory", flush=True)
 
     tag = f"n{args.n_disks}_" + ("nolink" if args.no_link else "linked")
+    if args.Ms is not None or args.radius is not None:
+        tag += f"_r{cfg.radius*1e9:.0f}_Ms{cfg.Ms/1e3:.0f}"
     if list(args.drive_stages) != [0]:
         tag += "_drv" + "".join(str(s) for s in args.drive_stages)
     F = run_reservoir(arr, u, args.steps_per_frame, args.carrier_ghz * 1e9,

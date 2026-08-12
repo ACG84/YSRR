@@ -217,7 +217,8 @@ def check_record_length(cfg, n_steps, v_g=706.0, response_frames=13.0):
     return need
 
 
-def delay_by_xcorr(sig, drive, n_taps, n_readout, freq_ghz):
+def delay_by_xcorr(sig, drive, n_taps, n_readout, freq_ghz,
+                   steps_per_frame=FRAME_STEPS):
     """Per-tap arrival by envelope cross-correlation against the burst.
 
     Envelope rather than carrier: the 12 GHz period is 0.42 frames, so a
@@ -238,7 +239,7 @@ def delay_by_xcorr(sig, drive, n_taps, n_readout, freq_ghz):
         i = int(np.argmax(c[ok]))
         denom = math.sqrt(float((ec ** 2).sum()) * float((ref ** 2).sum()))
         rows.append({"tap": d + 1,
-                     "xcorr_lag": lags_steps[ok][i] / FRAME_STEPS,
+                     "xcorr_lag": lags_steps[ok][i] / steps_per_frame,
                      "corr": float(c[ok][i] / max(denom, 1e-30)),
                      "peak": float(e.max())})
     return rows

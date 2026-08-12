@@ -33,6 +33,8 @@ from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import (PolyTapConfig, PolyTapArray,
                                 DirCouplerConfig, DirCouplerArray)
 from magnonic_nn._compat import get_device
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _polytap_probe import frame_nm_for, check_record_length
 
 p = argparse.ArgumentParser(description=__doc__,
                             formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -44,7 +46,17 @@ p.add_argument("--tap-alpha-mult", type=float, default=1.0,
                help="local damping multiplier on the tap disk bodies")
 p.add_argument("--amp-mT", type=float, default=30.0)
 p.add_argument("--freq", type=float, default=12.0)
-p.add_argument("--burst", type=int, default=200)
+p.add_argument("--steps-per-frame", type=int, default=200,
+               help="frame length. Tap spacing scales with it, so the designed\n"
+                    "lags stay in frames -- and the BURST is one frame wide, so\n"
+                    "this also sets the packet bandwidth. That is the second\n"
+                    "prediction longer frames make: a 0.2 ns burst spans ~5 GHz\n"
+                    "over which v_g runs 706-1267 m/s, smearing arrivals by ~3\n"
+                    "frames; a 0.6 ns burst spans ~1.7 GHz and should smear ~3x\n"
+                    "less. The spacing scatter (3.46, 1.20, 3.76 against 3.00\n"
+                    "designed) is the quantity that should shrink.")
+p.add_argument("--burst", type=int, default=None,
+               help="burst width in steps; defaults to one frame")
 p.add_argument("--quiet", type=int, default=2600)
 p.add_argument("--device", default="cpu")
 p.add_argument("--outdir", default="runs/polytap_impulse")
@@ -52,19 +64,30 @@ a = p.parse_args()
 
 mnn.set_precision("float32"); mnn.set_device(a.device)
 dtype = torch.float32
+if a.burst is None:
+    a.burst = a.steps_per_frame
+frame_kw = ({} if a.steps_per_frame == 200
+            else {"frame_nm": frame_nm_for(a.steps_per_frame)})
 if a.coupler_len > 0:
     cfg = DirCouplerConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
                            coupler_len=a.coupler_len * 1e-9,
                            coupler_gap=(a.gap or 20.0) * 1e-9,
-                           tap_alpha_mult=a.tap_alpha_mult)
+                           tap_alpha_mult=a.tap_alpha_mult, **frame_kw)
     arr = DirCouplerArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     tag = f"n{cfg.n_taps}_cpl{int(a.coupler_len)}"
 else:
     cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
                         coupling_gap=a.gap * 1e-9,
-                        tap_alpha_mult=a.tap_alpha_mult)
+                        tap_alpha_mult=a.tap_alpha_mult, **frame_kw)
     arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
     tag = f"n{cfg.n_taps}_gap{int(a.gap)}"
+if a.steps_per_frame != 200:
+    tag = f"{tag}_spf{a.steps_per_frame}"
+# The guard that four earlier runs needed. It stays correct under --steps-per-frame
+# without change: transit scales because frame_nm does, and the disk's ~13-frame
+# response was measured at 200-step frames, so response_frames*200 is 2.6 ns of
+# physical time either way.
+check_record_length(cfg, a.burst + a.quiet)
 arr.m0 = torch.load(Path(a.outdir) / f"m0_{tag}.pt", weights_only=False).to(device=get_device(), dtype=dtype)
 m0_used = f"m0_{tag}.pt"
 # The ground state is an energy minimum and does not depend on damping, so the
@@ -103,7 +126,7 @@ with torch.no_grad():
 sig = np.asarray(out); drv = np.asarray(drive)
 
 win = max(4, int(round(1e3 / a.freq)))
-frame = 200
+frame = a.steps_per_frame
 npr = arr.n_readout
 
 def env(x):

@@ -65,7 +65,15 @@ def main():
                         "sharpening the taps")
     p.add_argument("--amp-mT", type=float, default=30.0)
     p.add_argument("--freq", type=float, default=12.0)
-    p.add_argument("--burst", type=int, default=200)
+    p.add_argument("--steps-per-frame", type=int, default=200,
+                   help="frame length in steps. Tap spacing scales with it so\n"
+                        "designed lags stay in frames, and the burst is one\n"
+                        "frame wide -- so this also sets packet bandwidth. A\n"
+                        "0.2 ns burst spans ~5 GHz over which v_g runs 706-1267\n"
+                        "m/s and arrivals smear ~3 frames; a 0.6 ns burst spans\n"
+                        "~1.7 GHz and should smear ~3x less.")
+    p.add_argument("--burst", type=int, default=None,
+                   help="burst width in steps; defaults to one frame")
     p.add_argument("--quiet", type=int, default=12000,
                    help="steps of silence after the burst. Was 2600, which is\n"
                         "2.6 ns -- SHORTER THAN THE TRANSIT. At the measured\n"
@@ -98,6 +106,8 @@ def main():
 
     # (gap_nm, coupler_len_nm) pairs. A coupler length of 0 selects the stub.
     geometries = [(g, 0.0) for g in a.gaps] + [(20.0, c) for c in a.couplers]
+    if a.burst is None:
+        a.burst = a.steps_per_frame
     steps = a.burst + a.quiet + 8
     total = (len(geometries) * len(a.tap_alphas) * len(a.bus_alphas)
              * len(a.bus_guide_widths))
@@ -121,14 +131,16 @@ def main():
         gap_nm, cpl_nm, ta, ba, bw = a.worker
         cfg, arr, geom, run = make_array(
             a.n_taps, a.lags, gap_nm, cpl_nm, ta, steps, dtype,
-            bus_alpha_mult=ba, bus_guide_width_nm=None if bw < 0 else bw)
+            bus_alpha_mult=ba, bus_guide_width_nm=None if bw < 0 else bw,
+            steps_per_frame=a.steps_per_frame)
         check_record_length(cfg, steps)
         t0 = time.time()
         ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
                   log=lambda s: print(f"    {s}", flush=True))
         sig, drive = burst_response(arr, cfg, a.amp_mT, a.freq, a.burst,
                                     a.quiet, bus=True, fresh=False, dtype=dtype)
-        rows = delay_by_xcorr(sig, drive, cfg.n_taps, arr.n_readout, a.freq)
+        rows = delay_by_xcorr(sig, drive, cfg.n_taps, arr.n_readout, a.freq,
+                              steps_per_frame=a.steps_per_frame)
         sc = score_point(rows, list(cfg.tap_lags[:cfg.n_taps]))
         (pts / f"{run}.json").write_text(json.dumps(
             {"gap_nm": gap_nm, "coupler_len_nm": cpl_nm, "tap_alpha_mult": ta,
@@ -149,6 +161,9 @@ def main():
             run = ((f"n{a.n_taps}_cpl{int(cpl_nm)}" if cpl_nm > 0
                     else f"n{a.n_taps}_gap{int(gap_nm)}")
                    + ("" if bw is None else f"_bw{int(bw)}")
+                   + ("" if bw is None else "")
+                   + ("" if a.steps_per_frame == 200
+                      else f"_spf{a.steps_per_frame}")
                    + ("" if ta == 1.0 else f"_ta{ta:g}")
                    + ("" if ba == 1.0 else f"_ba{ba:g}"))
             if (pts / f"{run}.json").exists():
@@ -160,6 +175,7 @@ def main():
                    "--lags", *[str(x) for x in a.lags],
                    "--amp-mT", str(a.amp_mT), "--freq", str(a.freq),
                    "--burst", str(a.burst), "--quiet", str(a.quiet),
+                   "--steps-per-frame", str(a.steps_per_frame),
                    "--relax-steps", str(a.relax_steps)]
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode != 0:

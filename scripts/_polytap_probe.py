@@ -19,9 +19,26 @@ from magnonic_nn._compat import get_device
 FRAME_STEPS = 200
 
 
+def frame_nm_for(steps_per_frame):
+    """Tap spacing that gives one frame of bus delay at `steps_per_frame`.
+
+    189 nm is the MEASURED spacing for a 200-step frame, so the spacing has to
+    track the frame length: a tap sitting at `lag * 189 nm` delivers `lag`
+    frames of delay only while a frame is 200 steps. Changing --steps-per-frame
+    alone would silently rescale every designed lag -- 400-step frames would
+    turn a lag-5 tap into a lag-2.5 one -- and the run would report clean
+    delays at the wrong values.
+
+    This matters now because the frame is the parameter the threshold-memory
+    invariant leaves free (h_th * tau = 1/gamma), so it is about to be varied
+    for the first time in the project.
+    """
+    return 189e-9 * steps_per_frame / 200.0
+
+
 def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
                timesteps, dtype=torch.float32, bus_alpha_mult=1.0,
-               bus_guide_width_nm=None):
+               bus_guide_width_nm=None, steps_per_frame=200):
     """Build the array for one point of the sweep.
 
     Returns (cfg, arr, geom_tag, run_tag). The two tags differ on purpose:
@@ -30,12 +47,14 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
     depend on damping, so every damping point reuses one relax -- which is what
     makes a 2D sweep affordable at all.
     """
+    frame_kw = ({} if steps_per_frame == 200
+                else {"frame_nm": frame_nm_for(steps_per_frame)})
     if coupler_len_nm > 0:
         cfg = DirCouplerConfig(n_taps=n_taps, tap_lags=tuple(lags),
                                coupler_len=coupler_len_nm * 1e-9,
                                coupler_gap=(gap_nm or 20.0) * 1e-9,
                                tap_alpha_mult=tap_alpha_mult,
-                               bus_alpha_mult=bus_alpha_mult)
+                               bus_alpha_mult=bus_alpha_mult, **frame_kw)
         if cfg.coupler_len > cfg.max_coupler_len():
             raise ValueError(
                 f"coupler_len {coupler_len_nm:.0f} nm exceeds the "
@@ -49,11 +68,14 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
         cfg = PolyTapConfig(n_taps=n_taps, tap_lags=tuple(lags),
                             coupling_gap=gap_nm * 1e-9,
                             tap_alpha_mult=tap_alpha_mult,
-                            bus_alpha_mult=bus_alpha_mult, **kw)
+                            bus_alpha_mult=bus_alpha_mult, **kw,
+                            **frame_kw)
         arr = PolyTapArray(cfg, timesteps=timesteps, dtype=dtype)
         geom = f"n{n_taps}_gap{int(gap_nm)}"
         if bus_guide_width_nm is not None:
             geom = f"{geom}_bw{int(bus_guide_width_nm)}"
+    if steps_per_frame != 200:
+        geom = f"{geom}_spf{steps_per_frame}"
     run = geom if tap_alpha_mult == 1.0 else f"{geom}_ta{tap_alpha_mult:g}"
     if bus_alpha_mult != 1.0:
         run = f"{run}_ba{bus_alpha_mult:g}"

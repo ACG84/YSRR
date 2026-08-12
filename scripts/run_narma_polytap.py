@@ -321,13 +321,23 @@ def main():
     u, y = narma10(a.frames, seed=a.seed)
     cfg, arr, geom, run = make_array(
         a.n_taps, a.lags, a.gap, 0.0, a.tap_alpha, a.steps_per_frame + 4, dtype,
-        bus_alpha_mult=a.bus_alpha, bus_guide_width_nm=a.bus_guide_width)
+        bus_alpha_mult=a.bus_alpha, bus_guide_width_nm=a.bus_guide_width,
+        steps_per_frame=a.steps_per_frame)
 
     # The washout has to outlast the transit, for the same reason the delay
     # probe's record did: until the wave has crossed the array the far taps are
     # reporting near field, and a reservoir fitted through that window is fitted
     # on a state that does not yet exist.
-    transit_frames = (max(a.lags[:a.n_taps]) * cfg.frame_nm / 948.0
+    # 706 m/s, the LOCAL group velocity at the 12 GHz drive, not the 948 m/s
+    # low-k phase velocity this used before. The faster figure underestimates
+    # transit, which makes the guard below too lenient in exactly the direction
+    # that has already cost four runs -- a record that ends before the wave
+    # arrives reads the near field and reports it as a result.
+    #
+    # Note this is invariant under --steps-per-frame: frame_nm scales with the
+    # frame, so lag*frame_nm/(spf*dt) does not move. That is the property the
+    # coupled scaling exists to give.
+    transit_frames = (max(a.lags[:a.n_taps]) * cfg.frame_nm / 706.0
                       / (a.steps_per_frame * cfg.dt))
     if a.splits[0] < transit_frames + 13:
         raise SystemExit(

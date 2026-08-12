@@ -1985,3 +1985,54 @@ persists and multiplies the current sample. `check_core_switching.py` is the
 measurement that decides whether these reversals are usable -- deterministic
 against amplitude, persistent through silence, and reversible -- or whether the
 element is a noise source with a threshold.
+
+## The switching gate: not a comparator, but still the only nonlinearity available
+
+`check_core_switching.py` drives one frame from the converged ground state, then
+holds ten frames of silence, and reads core polarity after each. Every amplitude
+starts from the same state, so the map from amplitude to outcome is a function
+of amplitude alone.
+
+**Ms 450 kA/m, radius 178 nm** (circulation +0.968, |dm| = 0.0000):
+
+| amp mT | 0.5 | 1.0 | **1.5** | 2.0 | 2.5 | 3.0 | 4.0 | 5.0 | **6.0** | **8.0** | 10 | 15 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| reversed | - | - | **yes** | - | - | - | - | - | **yes** | **yes** | - | - |
+
+**SCATTERED.** Reversals at 1.5, 6 and 8 mT and not at 2, 2.5, 3, 4, 5, 10 or
+15. The amplitude-to-polarity map is not a step, so the clean hysteretic story
+-- a bit set by the input, multiplying the current sample to give p[n]*u[n] --
+does not hold for this element.
+
+Polarity also fails to persist. At 0.5 mT the core reads +0.999 after the drive
+and **-1.000 after ten frames of silence**, and the same happens at 1.0, 2.0,
+2.5, 3.0 and 5.0 mT. That is not autonomous chaos: the hold follows a drive and
+ring-down is 8.3 frames, so a 0.5 mT pulse deposits enough energy to flip the
+core WHILE ringing down. Deterministic, but violently non-monotonic.
+
+The permalloy control on the same probe reversed at no amplitude up to 30 mT and
+held polarity through every hold, so the probe detects switching where it exists
+and stability where it exists. The scatter is the element, not the instrument.
+
+### What that does and does not rule out
+
+It rules out the comparator reading of the hybrid: there is no reliable p[n] to
+carry history. It does not rule out the element. A deterministic, strongly
+nonlinear response with memory is what a reservoir wants even when it is not a
+clean threshold, and this is still the only nonlinearity in the project
+reachable at the drive its coupling delivers -- reversing from 1.5 mT where
+permalloy needs 15 mT merely to compress 5%.
+
+So the NARMA run is worth its hour, with the mechanism relabelled. The number
+that decides it is not the score but whether s[n]*s[n-k] is finally nonzero. It
+has read exactly 0.000 in all nine tapped-bus configurations and in every chain
+measured. If a strongly nonlinear element with memory in the first stage does
+not move it, the obstruction is not the strength or reachability of the
+nonlinearity but where it sits relative to the memory -- which is a more useful
+thing to know than another incremental score.
+
+Drive window 1-3 mT rather than the usual 10-30: the element responds from
+~1.5 mT, so the standard window would flip it every frame regardless of input,
+and a node that always switches carries no information. At 0.383 transfer per
+hop that also gives the capped architecture for free -- stage 2 sees 0.4-1.1 mT
+and stage 3 sees 0.15-0.4 mT, so the head switches and the tail does not.

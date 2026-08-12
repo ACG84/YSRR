@@ -48,6 +48,11 @@ from magnonic_nn.vortex import PortedVortexConfig, PortedVortexDisk
 from magnonic_nn._compat import get_device
 
 
+# In-plane axis the AC drive acts along, set from --drive-axis. The saturating
+# geometry needs the drive PERPENDICULAR to the static bias.
+AXIS = [0]
+
+
 @torch.no_grad()
 def drive(disk, amp, freq, dtype, n_settle, n_meas, h_static=None):
     """Drive at constant amplitude; lock in at f and 2f over the last n_meas.
@@ -67,7 +72,7 @@ def drive(disk, amp, freq, dtype, n_settle, n_meas, h_static=None):
     # Uniform in-plane drive over the disk BODY -- what the chain runs used, and
     # therefore the drive whose linearity is in question.
     unit = torch.zeros_like(disk.m0)
-    unit[:, :, :, 0] = disk.disk_only[:, :, :, 0].to(dtype)
+    unit[:, :, :, AXIS[0]] = disk.disk_only[:, :, :, 0].to(dtype)
     m = disk.m0.clone()
     hz = disk.h_zero if h_static is None else h_static
     n_ports = disk.port_signals(m).shape[0]
@@ -128,6 +133,14 @@ def main():
                    help="A/m. Cone angle goes as drive/Ms, so a low-moment\n"
                         "material is nonlinear at proportionally lower field.\n"
                         "Permalloy is 800e3; YIG is ~140e3, a 5.7x reduction.")
+    p.add_argument("--drive-axis", default="x", choices=("x", "y"),
+                   help="in-plane axis the AC drive acts along. The saturating\n"
+                        "geometry needs it PERPENDICULAR to --bias-mT: transverse\n"
+                        "response is h/H_bias and saturates smoothly as h -> H_bias,\n"
+                        "so the bias sets the threshold while damping independently\n"
+                        "sets the memory. Driving PARALLEL to the bias -- which the\n"
+                        "first bias run did -- only stiffens the resonance and\n"
+                        "measured no change at all.")
     p.add_argument("--device", default="cpu")
     p.add_argument("--freq", type=float, default=12.0)
     p.add_argument("--settle", type=int, default=600)
@@ -143,6 +156,7 @@ def main():
     p.add_argument("--outdir", default="runs/drive_nonlinearity")
     a = p.parse_args()
 
+    AXIS[0] = 0 if a.drive_axis == "x" else 1
     mnn.set_precision("float32"); mnn.set_device(a.device)
     dtype = torch.float32
     outdir = Path(a.outdir); outdir.mkdir(parents=True, exist_ok=True)

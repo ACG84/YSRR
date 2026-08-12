@@ -197,8 +197,14 @@ def main():
             # The relax then has to unwind a vortex that is not stable, which
             # stalls part-way: Ms 300 at 100 nm sat at circulation +0.657 with
             # |dm| = 1.0078 after 20000 steps -- neither a vortex nor uniform.
+            # m_x = 1 EVERYWHERE, not masked. Masking leaves m = (0,0,0)
+            # outside the material, and with renormalize=True that is a
+            # division by zero -- the first version produced a state with
+            # circulation exactly 0 (correct) but |dm| = 1.117 and a cell at
+            # m_z = -0.794 (not uniform at all). The built-in vortex ansatz
+            # sets m_x = 1 everywhere for the same reason.
             m_init = torch.zeros_like(disk.h_zero)
-            m_init[:, :, :, 0] = disk.mask[:, :, :, 0].to(dtype)
+            m_init[:, :, :, 0] = 1.0
             disk.m0 = disk.rollout.relax(m_init, hb, a.relax_steps,
                                          a.relax_alpha)
         else:

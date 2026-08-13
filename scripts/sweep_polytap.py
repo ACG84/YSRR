@@ -182,7 +182,7 @@ def main():
             run = ((f"n{a.n_taps}_cpl{int(cpl_nm)}" if cpl_nm > 0
                     else f"n{a.n_taps}_gap{int(gap_nm)}")
                    + ("" if bw is None else f"_bw{int(bw)}")
-                   + ("" if bw is None else "")
+                   + "_L" + "-".join(f"{l:g}" for l in a.lags[:a.n_taps])
                    + ("" if a.bus_width is None else f"_bus{int(a.bus_width)}")
                    + ("" if a.steps_per_frame == 200
                       else f"_spf{a.steps_per_frame}")

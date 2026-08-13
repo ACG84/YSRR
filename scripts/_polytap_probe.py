@@ -93,6 +93,14 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
         geom = f"n{n_taps}_gap{int(gap_nm)}"
         if bus_guide_width_nm is not None:
             geom = f"{geom}_bw{int(bus_guide_width_nm)}"
+    # TAP LAGS BELONG IN THE TAG. Without them two arrays differing only in
+    # tap POSITION share a cache key, and the sweep skips the second as
+    # "cached" while reporting the first one's numbers under the second one's
+    # name. Caught when lags 5,8,11,14 silently reused lags 3,5,7,9 and the
+    # verdict announced "2 of 2 points" for a point that never ran. The m0
+    # cache is keyed the same way, so a collision would also load a ground
+    # state relaxed on a different mesh.
+    geom = f"{geom}_L" + "-".join(f"{l:g}" for l in lags[:n_taps])
     if bus_width_nm is not None:
         geom = f"{geom}_bus{int(bus_width_nm)}"
     if steps_per_frame != 200:

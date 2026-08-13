@@ -2561,3 +2561,94 @@ leaves the run dispatch-bound at 13.6 ms/step.
 
 The third is the one worth remembering: three runs carried it from the start, so
 none of the sessions that died would have produced a usable number either.
+
+## Building the memory in: a low-loss bus
+
+The first nonzero product sat at lag 1 because the reservoir had no linear
+memory past lag 9 and cannot multiply against a sample it does not retain. The
+memory had to come from the delay line -- not from disk ring-down, since
+lengthening tau is what destroys products in the first place -- and the delay
+line had a measured wall.
+
+Two points on the loaded 160 nm bus at 9 GHz, same gap and aperture:
+
+    far tap 3255 nm   amplitude 4.13e-04
+    far tap 5859 nm   amplitude 1.79e-05
+    -> loaded-bus decay length 830 nm
+
+At that decay a lag-14 tap receives 3.5e-07, two orders under the placement
+bar. Damping-limited decay scales as 1/alpha, so lowering bus damping buys
+reach directly. Physically a hybrid: a low-loss bus feeding permalloy disks,
+with x0.1 (8e-4) between permalloy at 8e-3 and YIG at ~1e-4.
+
+| lags | bus alpha | mono | err (ns) | weakest tap | usable |
+|---|---|---|---|---|---|
+| 3,5,7,9 | x1.0 | 3/3 | 0.463 | 1.79e-05 | yes |
+| 3,5,7,9 | x0.3 | 3/3 | 0.803 | 1.30e-03 | yes |
+| **3,5,7,9** | **x0.1** | **3/3** | **0.537** | **5.28e-03** | **yes** |
+| **5,8,11,14** | **x0.1** | **3/3** | 1.472 | 3.17e-03 | **yes** |
+| 5,8,11,14 | x0.03 | 2/3 | 4.987 | 6.81e-03 | no |
+
+**The timing degradation did not recur.** At 12 GHz this same move cost the
+ordering -- 2/3 monotonic at both x0.3 and x0.1 where x1 gave 3/3 -- and that
+reach-versus-ordering trade defeated four campaigns. At 9 GHz with 1200-step
+frames it does not bite until x0.03, where reception improves again (6.81e-03)
+while the ordering collapses and the FIRST tap arrives last (21.19 against
+12.75). x0.1 is an optimum, not merely a point that worked.
+
+What that buys, measured rather than designed:
+
+| | 12 GHz array | 9 GHz, x0.1 |
+|---|---|---|
+| delivered lags | 13.1, 16.6, 17.8, 21.6 | 2.87, 5.70, 8.08, 10.21 |
+| separations | 3.5, 1.2, 3.8 | 2.8, 2.4, 2.1 |
+| fresh-drive balance | 1.000, 0.196, 0.043, 0.007 | 1.000, 0.766, 0.523, 0.447 |
+| tap-to-tap spread | 29x | 2x |
+
+The balance is the part that matters for products. A product needs two
+comparable operands, and on the old array balancing them meant scaling the far
+taps to a hundredth -- which is exactly how the chain's co-drive failed. Every
+tap now receives within a factor of 2.2.
+
+The 5,8,11,14 array reaches further still (delivered 4.49, 8.47, 13.18, 17.17)
+and was the first choice for the capacity rerun, but its 2099-cell mesh runs at
+48.6 s/frame against 16.2 for the 1447-cell one -- 1.45x the cells for 3.0x the
+time. There is a cliff between those two sizes that 840 -> 1447 does not show
+(1.72x the cells at 1.01x the time, purely dispatch-bound). Not diagnosed.
+
+## The field: two velocities, and the lag discrepancy explained
+
+Every delay-line number here is a scalar out of a cross-correlation, which is
+how four campaigns went wrong -- a truncated record gave plausible lags for a
+wave that had never arrived. `capture_wave.py` records the field itself.
+
+It shows the bus carrying **two velocities at once**:
+
+    leading edge                          1258 m/s
+    envelope centroid, tap 1 -> tap 4      444 m/s
+    bare strip at 9 GHz                    543 m/s   <- what frame_nm assumed
+
+A one-frame burst has sharp edges and is therefore broadband, so its leading
+edge runs at the fast high-frequency components -- v_g reaches 1267 m/s at
+18-20 GHz -- while its envelope, which is what a cross-correlation times and
+therefore what sets a tap's lag, crawls at 444 on the loaded bus.
+
+That is a candidate mechanism for the delivered-versus-designed discrepancy
+recorded earlier as unexplained. Tap spacing was calibrated on the BARE strip
+at 543 m/s; the loaded bus carries the envelope at ~470, so every tap lands
+later in time than designed. It also predicts the damping dependence that came
+with it: damping eats the packet's tail, pulling the centroid earlier and
+making the bus look faster, which is the measured direction (0.77-0.81 at
+x1.0 against 1.22-1.41 at x<=0.3).
+
+Not yet confirmed. It predicts the centroid should shift with BURST WIDTH at
+fixed damping, and that has not been measured.
+
+### Two analysis errors on the way, both mine
+
+Reading the capture, I first averaged the field over the x axis instead of y
+and concluded the wave was not propagating at all -- a spectacular false
+negative on a bus that demonstrably works -- and separately dropped a factor of
+1000 in the arrival-time units. Both were caught by the numbers being absurd
+rather than by the plot looking wrong, which is the same reason the field
+capture is worth having.

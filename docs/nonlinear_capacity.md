@@ -2485,3 +2485,79 @@ What is NOT established, and should not be assumed from the above:
                        there. That is the run this makes worth its hours, and
                        it is the only thing that settles whether any of it
                        matters.
+
+## First nonzero cross-lag product, at 9 GHz
+
+The run the frequency result exists to justify. Poly-tap array at the retuned
+9 GHz operating point -- 160 nm bus, gap 30 nm, aperture 80 nm, 4 taps at lags
+2/3/4/5, 1200-step frames, co-driven with the fresh scale measured at those
+lags (1.000, 0.372, 0.206, 0.078).
+
+**s[n]*s[n-k] = 0.20 against exactly 0.000 in all nine previous
+configurations**, and the degree-1 share falls from 98-99% to 92%.
+
+| family | capacity |
+|---|---|
+| deg1 P1(s[n-k]) | 8.73 |
+| deg2 P2(s[n-k]) | 0.55 |
+| **deg2 s[n]*s[n-k]** | **0.20** |
+| deg2 s[n-5]*s[n-k] | 0.00 |
+| deg3 P3(s[n-k]) | 0.00 |
+| TOTAL | 9.47 of rank 14 |
+
+### What it is not
+
+**The product sits at lag 1.** Of the 0.20, lag 1 contributes 0.134 (r^2 =
+0.241 against a 0.107 noise floor); lags 18 and 20 contribute the rest at 0.122
+and 0.156, barely over the floor. The reservoir has NO linear memory past lag 9
+-- P1 reads 0.000 from lag 10 on -- so a product against s[n-18] when s[n-18]
+is not remembered at all is noise, not capacity. Short-separation products are
+the family this project already measured as worthless on NARMA-10: every one
+sits at the 0.1243 linear baseline while far pairs score 0.0401.
+
+**The NARMA scores are not usable at this run length.** 150 training frames
+against 200 feature columns is rank-deficient, and the LINEAR baseline shows it
+-- 0.5088 here against 0.1243 on the longer runs. The device read 1.4419, worse
+than input-only at 1.0323. That is a statistics artifact of a run shortened to
+survive the harness, not a measurement of the device.
+
+**Effective rank is 14**, down from 21 in earlier configurations.
+
+### What behaved as designed
+
+Memory horizon is ~9 frames at 1.2 ns per frame, about 10.8 ns, against ~15-20
+frames at 0.2 ns -- roughly 3-4 ns -- before. Far more memory in absolute time
+and fewer frames of it, which is the delay bus supplying memory independently of
+disk ring-down.
+
+The retuned array is also the best delay line measured in this project: spacings
+0.83, 0.79, 0.68 against 1.00 designed, 3/3 monotonic, 0.279 ns error, spread
+13x, weakest tap 4.13e-04 -- against 29x spread and 3.93e-05 at 12 GHz.
+
+### Unexplained
+
+Reservoir lag-1 autocorrelation is **-0.393**, reproduced exactly across two
+independent runs. With tau/frame = 1.84 the state should be POSITIVELY
+correlated frame to frame. Nothing here explains the sign.
+
+### What the next run has to fix
+
+600 frames with splits 100/300/100, which is the configuration the earlier runs
+used and the only way these magnitudes become trustworthy. Lags should include
+9, since NARMA-10's own term is u[n]*u[n-9] and the lag set IS the separation
+set. At ~16.5 s/frame that is a ~2.8 hour rollout, which the harness has not yet
+survived -- so it needs either the chunked-checkpoint approach or a fix to the
+graph-capture path, which currently fails inside magnum.np's tensor wrapper and
+leaves the run dispatch-bound at 13.6 ms/step.
+
+### Four harness and configuration errors, recorded
+
+| error | cost | fixed by |
+|---|---|---|
+| `--timeout 3600` read as a gap timeout; it is a TOTAL limit | 2 sessions | 14400 |
+| session reclaimed on CLI disconnect, `--keep` notwithstanding | checkpoints lost | shorter runs |
+| splits summing to `frames` leaves an EMPTY test set -> silent nan | 1 completed 82-min run | guard added |
+| `--n-ports 6` where n_readout is 5 (the sixth guide is the bus coupler) | assertion | 5 |
+
+The third is the one worth remembering: three runs carried it from the start, so
+none of the sessions that died would have produced a usable number either.

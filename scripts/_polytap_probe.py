@@ -227,6 +227,12 @@ def check_record_length(cfg, n_steps, v_g=706.0, response_frames=13.0):
     v_g defaults to the LOCAL group velocity at the 12 GHz drive, not the 948
     m/s broadband fit -- an envelope travels at the local one, and the
     difference is 34%.
+
+    CALLERS AT A DIFFERENT OPERATING POINT MUST PASS THEIR OWN. The default is
+    706 m/s and the 9 GHz / 160 nm bus runs at 542.9, so the default overstates
+    the velocity by 30% and therefore UNDERSTATES the transit -- leniency in
+    the one direction this guard exists to prevent. Caught on the 9 GHz retune,
+    where it asked for 10905 steps against the 13400 the real velocity needs.
     """
     far = max(cfg.tap_lags[:cfg.n_taps]) * cfg.frame_nm
     need = far / v_g / cfg.dt + response_frames * FRAME_STEPS

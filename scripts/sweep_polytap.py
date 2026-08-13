@@ -152,7 +152,7 @@ def main():
             bus_alpha_mult=ba, bus_guide_width_nm=None if bw < 0 else bw,
             steps_per_frame=a.steps_per_frame, bus_width_nm=a.bus_width,
             v_g=a.v_g)
-        check_record_length(cfg, steps)
+        check_record_length(cfg, steps, v_g=a.v_g)
         t0 = time.time()
         ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
                   log=lambda s: print(f"    {s}", flush=True))

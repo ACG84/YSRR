@@ -2652,3 +2652,64 @@ negative on a bus that demonstrably works -- and separately dropped a factor of
 1000 in the arrival-time units. Both were caught by the numbers being absurd
 rather than by the plot looking wrong, which is the same reason the field
 capture is worth having.
+
+## The memory works; the run that tested it was linear by construction
+
+NARMA-10 and the capacity decomposition on the low-loss array -- lags 3,5,7,9 at
+bus alpha x0.1, delivered lags 2.87/5.70/8.08/10.21, 350 frames.
+
+**The memory went in exactly as intended:**
+
+| | before (bus alpha x1) | after (x0.1) |
+|---|---|---|
+| P1 at lag 10 | 0.000 | **0.709** |
+| P1 at lag 15 | 0.000 | 0.367 |
+| P1 at lag 20 | 0.000 | 0.126 |
+| degree-1 capacity | 8.73 | **11.91** |
+| effective rank | 14 | 17 |
+
+The horizon went from stopping dead at lag 9 to still carrying 0.126 at lag 20.
+
+**The products did not follow.** s[n]*s[n-k] fell from 0.20 to 0.09 and the
+degree-1 share ROSE from 92% to 97%. The only above-floor entry is lag 19 at
+r^2 0.161 against a 0.075 floor, on 50 test frames.
+
+### Why that is not evidence about memory
+
+The drive never reached the element's threshold. Input amplitude ran 1-5 mT and
+the per-tap fresh scale is 1.000 / 0.766 / 0.523 / 0.447, so the taps saw:
+
+    tap 1   5.00 mT    83% of threshold
+    tap 2   3.83 mT    64%
+    tap 3   2.62 mT    44%
+    tap 4   2.23 mT    37%
+
+against the measured 6.00 mT threshold at 9 GHz. **Nothing in the run was ever
+nonlinear**, so no product could form whatever the memory horizon was. The
+5 mT ceiling came from the 5.2 mT coupling budget; the threshold is 6.00.
+
+This was flagged when the run was designed and then wrongly waved off as
+"largely dissolved" once the tap balance improved. The balance is a RATIO --
+all four taps within 2.2x instead of 140x -- and it says nothing about whether
+the absolute drive crosses threshold. It does not.
+
+So the run measures one thing cleanly: a low-loss delay bus with linear
+elements is an excellent linear filter. Degree-1 capacity 11.91, rank 17,
+memory past lag 20. On NARMA-10 it scores 1.0880 against the 20-tap linear
+filter's 0.3182 -- still a loss, and the linear baseline improved too (0.5088
+-> 0.3182) because 200 training frames beat 150.
+
+### What the next run has to change
+
+Drive above threshold. At 2-12 mT input the taps see 12, 9.2, 6.3 and 5.4 mT,
+putting three of four over the 6.00 mT threshold with the crossing mid-range,
+which is where a threshold nonlinearity is most informative. That is
+physically safe: the settled sweep at 9 GHz held the core intact at every
+amplitude to 40 mT.
+
+Whether it is BUILDABLE is a separate question that also needs redoing. The
+1.6 mT cap came from balancing the fresh drive against a delayed copy on the
+12 GHz / 80 nm bus. On this bus the delayed copy is 134x stronger (weakest tap
+5.28e-03 against 3.93e-05), so the balanced fresh drive scales with it and the
+budget is almost certainly no longer 5.2 mT. That arithmetic has not been
+redone at this operating point.

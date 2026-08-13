@@ -426,6 +426,20 @@ def main():
     # Note this is invariant under --steps-per-frame: frame_nm scales with the
     # frame, so lag*frame_nm/(spf*dt) does not move. That is the property the
     # coupled scaling exists to give.
+    # splits is (washout, train, VALIDATION) and the TEST set is whatever is
+    # left over -- fit_eval slices te = [wash+train+val : len(y)]. Passing
+    # splits that sum to `frames` therefore leaves an EMPTY test set, and the
+    # result is not an error but a silent nan in every NMSE column. Three runs
+    # were configured this way before it was noticed, and one of them survived
+    # long enough to report `nan against nan` after 82 minutes of GPU.
+    if sum(a.splits) >= a.frames:
+        raise SystemExit(
+            f"splits {tuple(a.splits)} sum to {sum(a.splits)} against "
+            f"--frames {a.frames}.\nThose are (washout, train, validation) and "
+            f"the TEST set is the remainder,\nso this leaves "
+            f"{a.frames - sum(a.splits)} test frames and every NMSE would be "
+            f"nan.\nLeave at least ~50 frames over.")
+
     transit_frames = (max(a.lags[:a.n_taps]) * cfg.frame_nm / a.v_g
                       / (a.steps_per_frame * cfg.dt))
     if a.splits[0] < transit_frames + 13:

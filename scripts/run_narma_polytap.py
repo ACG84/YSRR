@@ -362,6 +362,10 @@ def main():
     p.add_argument("--n-taps", type=int, default=4)
     p.add_argument("--lags", type=float, nargs="+", default=[5, 8, 11, 14])
     p.add_argument("--gap", type=float, default=15.0)
+    p.add_argument("--bus-width", type=float, default=None, help="nm")
+    p.add_argument("--v-g", type=float, default=945.0,
+                   help="m/s at the operating point; sets tap spacing with the "
+                        "frame")
     p.add_argument("--tap-alpha", type=float, default=1.0)
     p.add_argument("--bus-alpha", type=float, default=1.0,
                    help="x1 is the as-built value and the only point in the\n"
@@ -406,7 +410,8 @@ def main():
     cfg, arr, geom, run = make_array(
         a.n_taps, a.lags, a.gap, 0.0, a.tap_alpha, a.steps_per_frame + 4, dtype,
         bus_alpha_mult=a.bus_alpha, bus_guide_width_nm=a.bus_guide_width,
-        steps_per_frame=a.steps_per_frame)
+        steps_per_frame=a.steps_per_frame, bus_width_nm=a.bus_width,
+        v_g=a.v_g)
 
     # The washout has to outlast the transit, for the same reason the delay
     # probe's record did: until the wave has crossed the array the far taps are
@@ -421,7 +426,7 @@ def main():
     # Note this is invariant under --steps-per-frame: frame_nm scales with the
     # frame, so lag*frame_nm/(spf*dt) does not move. That is the property the
     # coupled scaling exists to give.
-    transit_frames = (max(a.lags[:a.n_taps]) * cfg.frame_nm / 706.0
+    transit_frames = (max(a.lags[:a.n_taps]) * cfg.frame_nm / a.v_g
                       / (a.steps_per_frame * cfg.dt))
     if a.splits[0] < transit_frames + 13:
         raise SystemExit(

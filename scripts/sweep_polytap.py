@@ -82,6 +82,18 @@ def main():
                         "measured here was the disk's own response time to the\n"
                         "injection near field. check_record_length() now\n"
                         "refuses a record that ends before the wave lands.")
+    p.add_argument("--bus-width", type=float, default=None,
+                   help="nm. Lateral confinement sets the band bottom: 80 nm\n"
+                        "cuts off at 11 GHz, 160 at 8, 240 at 7, 320 at 6. The\n"
+                        "disk's soft modes sit at 5 and 9 GHz, so 160 is the\n"
+                        "narrowest bus that carries one of them.")
+    p.add_argument("--v-g", type=float, default=945.0,
+                   help="m/s, bus group velocity at the operating point; sets\n"
+                        "tap spacing with the frame. 945 is 12 GHz on 80 nm\n"
+                        "(broadband, since a 200-step burst spans ~5 GHz);\n"
+                        "542.9 is 9 GHz on 160 nm. Passing the wrong one\n"
+                        "mislays every tap by 1.7x while the output still\n"
+                        "looks sane.")
     p.add_argument("--relax-steps", type=int, default=8000)
     p.add_argument("--device", default="cpu")
     p.add_argument("--quick", action="store_true",
@@ -138,7 +150,8 @@ def main():
         cfg, arr, geom, run = make_array(
             a.n_taps, a.lags, gap_nm, cpl_nm, ta, steps, dtype,
             bus_alpha_mult=ba, bus_guide_width_nm=None if bw < 0 else bw,
-            steps_per_frame=a.steps_per_frame)
+            steps_per_frame=a.steps_per_frame, bus_width_nm=a.bus_width,
+            v_g=a.v_g)
         check_record_length(cfg, steps)
         t0 = time.time()
         ensure_m0(arr, outdir, geom, relax_steps=a.relax_steps, dtype=dtype,
@@ -170,8 +183,10 @@ def main():
                     else f"n{a.n_taps}_gap{int(gap_nm)}")
                    + ("" if bw is None else f"_bw{int(bw)}")
                    + ("" if bw is None else "")
+                   + ("" if a.bus_width is None else f"_bus{int(a.bus_width)}")
                    + ("" if a.steps_per_frame == 200
                       else f"_spf{a.steps_per_frame}")
+                   + ("" if a.v_g == 945.0 else f"_vg{int(a.v_g)}")
                    + ("" if ta == 1.0 else f"_ta{ta:g}")
                    + ("" if ba == 1.0 else f"_ba{ba:g}"))
             if (pts / f"{run}.json").exists():
@@ -184,6 +199,9 @@ def main():
                    "--amp-mT", str(a.amp_mT), "--freq", str(a.freq),
                    "--burst", str(a.burst), "--quiet", str(a.quiet),
                    "--steps-per-frame", str(a.steps_per_frame),
+                   "--v-g", str(a.v_g),
+                   *([] if a.bus_width is None
+                     else ["--bus-width", str(a.bus_width)]),
                    "--relax-steps", str(a.relax_steps)]
             # STREAM the worker rather than capturing it. A point is a relax
             # plus a rollout -- tens of minutes on the longer buses -- and

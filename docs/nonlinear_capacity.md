@@ -2996,3 +2996,30 @@ This also means the route-2 layout is already worth something before any
 barrier: with the feeder at tap 4, the leak reaching taps 3, 2 and 1 travels
 1.3, 2.6 and 3.9 um, worth about 3.4x, 11x and 39x on this decay. A 400 nm
 barrier at alpha 0.2 multiplies each by a further 15.9x.
+
+### The 0.41 survives the control
+
+Downstream/upstream leak from tap 1, at three probe half-separations:
+
+| 400 nm | 600 nm | 800 nm | spread |
+|---|---|---|---|
+| 0.50 | 0.41 | 0.60 | 1.46x |
+
+Never near 1.0 at any distance. So the upstream preference is a genuine
+radiation asymmetry -- between 1.7x and 2.5x depending where it is read -- with
+standing-wave modulation of about +-20% riding on top. It is not a standing
+wave masquerading as directionality, which was the failure mode the single-
+distance measurement could not exclude.
+
+A radial-guide disk therefore couples preferentially back toward the injector,
+and that is free directionality the array already has. It is not large. The
+array that lost its memory had it, so 2x on its own settles nothing -- but it
+multiplies with the loaded decay and the barrier rather than adding to them.
+
+That number cost one crash to get. --sym-nm became a list when the control went
+in and one legend line still formatted it with :g, so the summary raised AFTER
+all three arms had run and every number had been computed. The point paid its
+full GPU time and threw the result away, and because the driver copied its
+result file only on success, the next point overwrote it. Arm F's bus probes
+are now printed rather than only saved: a log that does not carry every
+quantity the verdict needs is a log that can lose them again.

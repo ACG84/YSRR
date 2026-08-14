@@ -214,7 +214,12 @@ def main():
     amp = a.amp_mT * 1e-3 / MU_0
     win = max(4, int(round(1e3 / a.freq)))
     dt_ns = cfg.dt * 1e9
-    frame_ns = 200 * cfg.dt * 1e9
+    # The frame is a VARIABLE now, not 200 steps. Hard-coding it here read a
+    # 2.375 ns arrival as lag 11.88 on an array whose frame is 1.2 ns, where
+    # the true figure is 1.98, and printed "Delays are WRONG" for an array
+    # whose delays are fine. Third instance of this bug -- the delay probe and
+    # the sweep both had it.
+    frame_ns = a.steps_per_frame * cfg.dt * 1e9
     npr = arr.n_readout
 
     arms = {"bus only": (True, False), "fresh only": (False, True),

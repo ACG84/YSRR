@@ -42,7 +42,7 @@ from magnonic_nn.config import MU_0
 from magnonic_nn.vortex import (PolyTapConfig, PolyTapArray,
                                 DirCouplerConfig, DirCouplerArray)
 from magnonic_nn._compat import get_device
-from _polytap_probe import check_record_length
+from _polytap_probe import check_record_length, frame_nm_for
 
 
 @torch.no_grad()
@@ -129,6 +129,11 @@ def main():
                         "tap's arm runs parallel to the bus over this length\n"
                         "instead of butting into it perpendicular. Coupling then\n"
                         "scales with length rather than proximity.")
+    p.add_argument("--bus-width", type=float, default=None, help="nm")
+    p.add_argument("--v-g", type=float, default=945.0,
+                   help="m/s at the operating point; sets tap spacing with the "
+                        "frame")
+    p.add_argument("--steps-per-frame", type=int, default=200)
     p.add_argument("--relax-steps", type=int, default=8000)
     p.add_argument("--device", default="cpu")
     p.add_argument("--outdir", default="runs/polytap_impulse")
@@ -150,12 +155,16 @@ def main():
     else:
         kw = ({} if a.bus_guide_width is None
               else {"bus_guide_width": a.bus_guide_width * 1e-9})
+        if a.bus_width is not None:
+            kw["bus_width"] = a.bus_width * 1e-9
+        if a.steps_per_frame != 200 or a.v_g != 945.0:
+            kw["frame_nm"] = frame_nm_for(a.steps_per_frame, a.v_g)
         cfg = PolyTapConfig(n_taps=a.n_taps, tap_lags=tuple(a.lags),
                             coupling_gap=a.gap * 1e-9,
                             tap_alpha_mult=a.tap_alpha,
                             bus_alpha_mult=a.bus_alpha, **kw)
         arr = PolyTapArray(cfg, timesteps=a.burst + a.quiet + 8, dtype=dtype)
-    check_record_length(cfg, a.burst + a.quiet)
+    check_record_length(cfg, a.burst + a.quiet, v_g=a.v_g)
     nx, ny = cfg.grid
     print(f"grid {nx}x{ny}, {cfg.n_taps} taps, designed lags "
           f"{list(cfg.tap_lags[:cfg.n_taps])}")

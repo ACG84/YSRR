@@ -177,8 +177,6 @@ def run_offset(a, off_nm, outdir, dtype):
     print(f"\n===== offset {off_nm:g} nm =====\n{run}\n"
           f"mesh {cfg.grid[0]}x{cfg.grid[1]}, cells {int(arr.mask.sum())}, "
           f"window {n_win} steps = {a.cycles:g} cycles", flush=True)
-    ensure_m0(arr, outdir, run, relax_steps=a.relax_steps, dtype=dtype, log=log)
-
     probes, pnames, pxs, n_mid = bus_probes(cfg, arr, dtype, a.probe_nm,
                                             a.feeder, a.sym_nm)
     # A symmetric probe inside the barrier reads the field in an absorber and
@@ -197,6 +195,9 @@ def run_offset(a, off_nm, outdir, dtype):
                     f"barrier\n({xb:.0f} +- {half:.0f} nm). Lower --sym-nm "
                     f"below {abs(tx[a.feeder]*1e9 - xb) - half:.0f} nm or move "
                     f"the barrier.")
+    # Only now: the relax is ~100 s of GPU per point, and a geometry check that
+    # runs after it is a check that costs what it was meant to save.
+    ensure_m0(arr, outdir, run, relax_steps=a.relax_steps, dtype=dtype, log=log)
     npr = arr.n_readout
     n_port = npr * a.n_taps
 

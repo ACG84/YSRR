@@ -2924,3 +2924,75 @@ Forward and backward are read on different observables -- a guide-end m_z
 average against a bus-segment m_z average -- so their ratio has no absolute
 meaning. Every number is therefore also reported relative to the offset-0 row,
 and only the relative numbers carry the verdict.
+
+### Result: route 1 is closed
+
+| offset | forward | rel | back-leak | rel | isolation | rel | dir | 2w/w | 3w/w |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 3.10e-06 | 1.00 | 3.87e-05 | 1.00 | 8.03e-02 | 1.00 | 0.41 | 0.018 | 0.007 |
+| 40 nm | 4.82e-06 | 1.55 | 1.15e-04 | 2.97 | 4.20e-02 | 0.52 | 0.94 | 0.023 | 0.016 |
+| 60 nm | 4.76e-06 | 1.53 | 1.15e-04 | 2.96 | 4.16e-02 | 0.52 | 0.87 | 0.032 | 0.014 |
+| 80 nm | 4.56e-06 | 1.47 | 1.30e-04 | 3.36 | 3.51e-02 | 0.44 | 0.96 | 0.025 | 0.013 |
+
+The prediction was that reciprocity would hold and the ratio would come out
+flat. It came out WORSE. Off-axis coupling raises forward transfer about 1.5x
+and the back-leak about 3x, so isolation falls by roughly half at every offset
+tested. The offset does not separate the two directions; it opens both, and it
+opens the wrong one faster.
+
+Both escapes are closed with it. The harmonic fraction does not fall -- it
+drifts slightly UP, 1.8% to 2.5-3.2% -- so there is no frequency selectivity to
+exploit. And directionality moves the wrong way.
+
+That last one is the finding worth keeping, because it is the opposite of the
+hypothesis. Splitting the leak by direction:
+
+| offset | upstream | downstream | up rel | down rel |
+|---|---|---|---|---|
+| 0 | 9.48e-05 | 3.87e-05 | 1.00 | 1.00 |
+| 40 nm | 1.22e-04 | 1.15e-04 | 1.28 | 2.97 |
+| 60 nm | 1.31e-04 | 1.15e-04 | 1.38 | 2.96 |
+| 80 nm | 1.36e-04 | 1.30e-04 | 1.43 | 3.36 |
+
+The offset barely changes the upstream leak and opens the downstream channel
+threefold. So the ASYMMETRY BELONGS TO THE RADIAL GEOMETRY: a radial guide
+couples preferentially back toward the injector, 2.4x at equal distance, and a
+chord coupling merely radiates both ways. The un-offset disk was already the
+better element and route 1's knob is what ruins it.
+
+Twenty minutes of GPU against a ninety-minute NARMA run. That is what
+registering the prediction bought, and the prediction was still wrong in an
+informative direction -- flat was expected, worse was measured.
+
+### The 0.41 is not yet a result
+
+It was read at ONE probe separation, and the two sides of a disk sit in
+different interference environments: downstream has the next tap as a reflector
+703 nm away, upstream has the injector and the end absorber. A standing wave
+produces exactly that signature. A radiation asymmetry is the same at every
+distance and a standing wave oscillates with it, so the ratio is now measured
+at 400/600/800 nm and the spread reported. Until that comes back, the 2.4x is a
+candidate and not a number to design on.
+
+### On the leak's decay, which decides whether route 2 can work at all
+
+Downstream of the driven tap, at offset 0:
+
+| distance | 651 nm | 1954 nm | 3257 nm | 4033 nm |
+|---|---|---|---|---|
+| leak | 5.06e-05 | 8.18e-07 | 2.40e-07 | 7.65e-08 |
+
+The 62x collapse over the first interval looked at first like a near field
+dying, which would have closed route 2 immediately -- a leak that does not
+travel along the bus is a leak no bus barrier can reach. It is not that. Beyond
+the first tap spacing the fall is 3.4x and 3.1x per interval, decay lengths of
+1065 and 685 nm, which is this project's own MEASURED loaded-bus figure of 830
+nm rather than the 8300 nm the bare bus gives at bus alpha x0.1. The tap disks
+are the dominant loss and lowering bus damping does not lower tap loading. So
+the far-field leak is guided, a barrier can attenuate it, and the 62x is the
+near-field-to-guided transition at 651 nm rather than a decay rate.
+
+This also means the route-2 layout is already worth something before any
+barrier: with the feeder at tap 4, the leak reaching taps 3, 2 and 1 travels
+1.3, 2.6 and 3.9 um, worth about 3.4x, 11x and 39x on this decay. A 400 nm
+barrier at alpha 0.2 multiplies each by a further 15.9x.

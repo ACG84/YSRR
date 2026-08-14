@@ -3263,3 +3263,57 @@ extrapolation:
               throughout. A non-monotonic hop is a disk changing STATE rather
               than coupling, which the bus check cannot see. Peak and mean m_z
               per disk body now go in the log for exactly this.
+
+## The tap elements are not vortices
+
+Found by a check added for an unrelated reason -- DMI acts hard on a vortex
+core, so the per-disk ground state went into the log next to the bus one. At
+Di = 0, the plain geometry every measurement on this branch has used:
+
+    disk cores  1:|mz|max 0.00  2:|mz|max 0.00  3:|mz|max 0.00  4:|mz|max 0.00
+
+A vortex has |m_z| ~ 1 at its core. Confirmed independently on a separately
+relaxed ground state -- CPU, two taps, 1000 steps, a different run entirely --
+which gives |mz|max 0.000 and a mean in-plane magnitude of exactly 1.000 over
+both disk bodies. Every cell in the disks is perfectly planar.
+
+The initialiser is not at fault: it seeds mz = exp(-(r/core_width)^2), which is
+1.0 at the centre. The core is EXPELLED during relaxation, and on an ISOLATED
+ported disk -- no bus, no neighbours, so nothing else can be blamed:
+
+| relax steps | 0 | 50 | 100 | 200 | 400 | 800 | 1600 |
+|---|---|---|---|---|---|---|---|
+| \|m_z\|max on body | 0.882 | 0.884 | 0.911 | 0.974 | 0.933 | 0.001 | 0.000 |
+
+The core holds to about 400 steps and is gone by 800. Every array measurement
+here relaxes 8000. The six 80 nm guides give the flux a closure path a bare
+disk does not have, and the element settles into a planar state.
+
+### What this does and does not invalidate
+
+It does not invalidate the measurements. Every threshold, transfer function,
+leak ratio and capacity on this branch measures the element as it actually is,
+and they are self-consistent with each other. Routes 1, 2 and 3 concern
+coupling, reciprocity and barriers; their conclusions stand, including the 29x
+layout result and the 13.5x leak that explains the memory collapse.
+
+It invalidates INTERPRETATION wherever "the vortex" or "the disk's mode" was
+invoked. The most load-bearing case is the 9 GHz operating point, chosen
+because 12 GHz sat 4.7x off "the disk's mode" -- that argument needs redoing
+against whatever mode a planar star-shaped element actually has. The
+nonlinearity is saturation of an in-plane element, not vortex core dynamics,
+and the invariant h_th*tau = 1/gamma should be re-read in that light. The names
+throughout -- VortexConfig, PortedVortexDisk, "tap disk" -- describe an element
+that stopped existing at relax step 800.
+
+### Why it survived this long
+
+check_array_threshold prints core_max_mz over the WHOLE MASK rather than the
+disk bodies, which reads 0.133 on this geometry: finite, unremarkable, and
+never compared against a threshold it could fail. The docstring says "the
+vortex has to survive, or the number describes a different element than the one
+the array is built from" -- which is exactly right, and the check as written
+could not detect the case it was written for.
+
+Same shape as the truncated record that cost four campaigns: a quantity that
+looks plausible while describing something other than its name.

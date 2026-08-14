@@ -504,13 +504,23 @@ def _radial_guides(X, Y, cx, cy, cfg, bus_port=None):
     dX, dY = X - cx, Y - cy
     m = (dX**2 + dY**2) <= cfg.radius**2
     bgw = getattr(cfg, "bus_guide_width", None)
+    # Lateral OFFSET of the bus guide's axis from the disk centre. At zero the
+    # guide is radial and drives the disk's radial (n = 0) response; displaced
+    # toward the rim it meets the disk on a chord and drives azimuthal modes
+    # instead. Coupling goes as mode overlap, so this changes forward and
+    # backward transfer by different amounts -- which is the point. A saturated
+    # disk in line with the bus pollutes the bus, measured: the unsaturated taps
+    # lost their memory (horizon 3 against 20+) without ever crossing their own
+    # threshold, so the corruption travelled through the shared waveguide.
+    bgo = getattr(cfg, "bus_guide_offset", 0.0)
     for i, th in enumerate(cfg.port_angles()):
-        w = cfg.guide_width if (bus_port is None or i != bus_port
-                                or bgw is None) else bgw
+        is_bus = bus_port is not None and i == bus_port
+        w = bgw if (is_bus and bgw is not None) else cfg.guide_width
+        off = bgo if is_bus else 0.0
         u = dX * math.cos(th) + dY * math.sin(th)
         v = -dX * math.sin(th) + dY * math.cos(th)
         m = m | ((u >= 0) & (u <= cfg.radius + cfg.guide_length)
-                 & (v.abs() <= w / 2))
+                 & ((v - off).abs() <= w / 2))
     return m
 
 
@@ -1008,7 +1018,36 @@ class PolyTapConfig(PortedVortexConfig):
     # W = lambda/2 rather than at W -> 0: 80 nm scores 2.3, 40 nm scores 26,
     # 20 nm scores 18, in units where the factor is W_nm * sinc.
     bus_guide_width: float = 80e-9
+    # Lateral displacement of that guide's axis from the disk centre; 0 is
+    # radial, and at the 100 nm radius an offset near 60-80 nm meets the disk
+    # close to tangentially.
+    bus_guide_offset: float = 0.0
     bus_absorb: float = 400e-9        # absorbing taper at each bus end
+    # A lossy segment of bus placed midway between tap `bus_barrier_after` and
+    # the next one, splitting the array into an upstream RESERVOIR and a
+    # downstream FEEDER.
+    #
+    # A barrier is reciprocal -- it attenuates both directions equally -- so on
+    # its own it separates nothing. What makes it useful is the ORDERING, and
+    # that is the whole idea:
+    #
+    #     injector -> reservoir taps -> barrier -> feeder
+    #
+    # The reservoir's delayed copies come straight from the injector and never
+    # cross the barrier. The feeder's fresh sample is applied to its own disk
+    # body and never crosses it either. Only two things cross: the delayed
+    # operand arriving at the feeder, and the feeder's distortion leaking back.
+    # So the barrier costs one operand of the product and buys its attenuation
+    # against the pollution -- and the feeder can pay for the lost operand by
+    # raising its fresh drive, which is not on the bus at all.
+    #
+    # This is the asymmetry a barrier can actually give, and it comes from
+    # layout rather than from the barrier being one-way. Placing the feeder
+    # UPSTREAM instead would buy nothing: then the reservoir's own signal would
+    # cross the barrier too, and both sides would fall together.
+    bus_barrier_len: float = 0.0      # 0 = no barrier
+    bus_barrier_alpha: float = 0.05
+    bus_barrier_after: int = -1       # 0-indexed tap; -1 disables
     inject_at: float = 600e-9         # from the left bus end
     inject_len: float = 100e-9
     tap_lags: tuple = (5.0, 8.0, 11.0, 14.0)   # frames of delay, per tap
@@ -1113,8 +1152,16 @@ def polytap_alpha(cfg: PolyTapConfig, device=None, dtype=torch.float64):
         # damp the entire bus at absorb_alpha -- which is exactly what the
         # first version did, and what the geometry check caught.
         g = torch.where(r <= outer + cfg.dx, g, torch.zeros_like(g))
-        # cut the coupling corridor: directly below this disk, down to the bus
-        g = torch.where(((X - cx).abs() <= cfg.guide_width / 2) & (Y < cy),
+        # Cut the coupling corridor: below this disk, down to the bus. It has
+        # to track the BUS guide's width and offset, not the readout guides'.
+        # With the corridor pinned at the disk axis an offset guide runs
+        # straight through the absorbing taper -- at 60 nm offset, 60 of its 80
+        # nm would sit in the ramp -- so its coupling would collapse for a
+        # reason that has nothing to do with mode overlap, in exactly the
+        # direction that reads as "the offset bought isolation".
+        bgw = getattr(cfg, "bus_guide_width", None) or cfg.guide_width
+        bgo = getattr(cfg, "bus_guide_offset", 0.0)
+        g = torch.where(((X - cx - bgo).abs() <= bgw / 2) & (Y < cy),
                         torch.zeros_like(g), g)
         ramp = torch.maximum(ramp, g)
     # bus ends
@@ -1126,8 +1173,30 @@ def polytap_alpha(cfg: PolyTapConfig, device=None, dtype=torch.float64):
                                            torch.zeros_like(bl)))
     base = cfg.alpha * cfg.bus_alpha_mult
     a = base + (cfg.absorb_alpha - base) * ramp
+    a = _bus_barrier(cfg, X, on_bus, x0, a, base)
     a = _tap_damped(cfg, X, Y, a)
     return a.reshape(nx, ny, 1, 1)
+
+
+def _bus_barrier(cfg, X, on_bus, x0, a, base):
+    """Lossy bus segment between the reservoir taps and the feeder.
+
+    TAPERED, not a step. Damping is the imaginary part of the wavevector, so an
+    abrupt change in alpha is an impedance discontinuity and reflects -- a hard
+    barrier would send the forward wave back through the reservoir it is meant
+    to protect, which is worse than no barrier at all. The profile is the same
+    squared taper the bus ends already use, rising to `bus_barrier_alpha` at
+    the centre and back to the bus value at both edges.
+    """
+    L = getattr(cfg, "bus_barrier_len", 0.0)
+    k = getattr(cfg, "bus_barrier_after", -1)
+    if L <= 0 or not 0 <= k < cfg.n_taps - 1:
+        return a
+    tx = cfg.tap_x()
+    xb = x0 + 0.5 * (tx[k] + tx[k + 1])
+    g = (1.0 - ((X - xb).abs() / (L / 2)).clamp(0.0, 1.0)) ** 2
+    g = torch.where(on_bus, g, torch.zeros_like(g))
+    return torch.maximum(a, base + (cfg.bus_barrier_alpha - base) * g)
 
 
 def _tap_damped(cfg, X, Y, a):
@@ -1384,6 +1453,7 @@ def dircoupler_alpha(cfg: DirCouplerConfig, device=None, dtype=torch.float64):
                                            torch.zeros_like(bl)))
     base = cfg.alpha * cfg.bus_alpha_mult
     a = base + (cfg.absorb_alpha - base) * ramp
+    a = _bus_barrier(cfg, X, on_bus, x0, a, base)
     a = _tap_damped(cfg, X, Y, a)
     return a.reshape(nx, ny, 1, 1)
 

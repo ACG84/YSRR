@@ -55,7 +55,8 @@ def frame_nm_for(steps_per_frame, v_g=945.0, dt=1e-12):
 def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
                timesteps, dtype=torch.float32, bus_alpha_mult=1.0,
                bus_guide_width_nm=None, steps_per_frame=200,
-               bus_width_nm=None, v_g=945.0):
+               bus_width_nm=None, v_g=945.0, bus_guide_offset_nm=0.0,
+               barrier=None):
     """Build the array for one point of the sweep.
 
     Returns (cfg, arr, geom_tag, run_tag). The two tags differ on purpose:
@@ -84,6 +85,13 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
     else:
         kw = ({} if bus_guide_width_nm is None
               else {"bus_guide_width": bus_guide_width_nm * 1e-9})
+        if bus_guide_offset_nm:
+            kw["bus_guide_offset"] = bus_guide_offset_nm * 1e-9
+        if barrier:
+            bl, ba, bk = barrier
+            if bl > 0:
+                kw.update(bus_barrier_len=bl * 1e-9, bus_barrier_alpha=ba,
+                          bus_barrier_after=int(bk))
         cfg = PolyTapConfig(n_taps=n_taps, tap_lags=tuple(lags),
                             coupling_gap=gap_nm * 1e-9,
                             tap_alpha_mult=tap_alpha_mult,
@@ -107,6 +115,12 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
         geom = f"{geom}_spf{steps_per_frame}"
     if v_g != 945.0:
         geom = f"{geom}_vg{int(v_g)}"
+    # The offset moves the mask, so it moves the ground state too -- same
+    # reason the tap lags are in here.
+    if bus_guide_offset_nm:
+        geom = f"{geom}_off{int(bus_guide_offset_nm)}"
+    if barrier and barrier[0] > 0:
+        geom = f"{geom}_bar{int(barrier[0])}a{barrier[1]:g}k{int(barrier[2])}"
     run = geom if tap_alpha_mult == 1.0 else f"{geom}_ta{tap_alpha_mult:g}"
     if bus_alpha_mult != 1.0:
         run = f"{run}_ba{bus_alpha_mult:g}"

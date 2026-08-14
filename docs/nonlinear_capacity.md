@@ -2857,3 +2857,70 @@ the estimate less trustworthy, not more, and the difference between 0.26 and
 The first is a modest geometry change and testable with the existing tooling;
 the third is a redesign that changes every transport constant this project has
 measured.
+
+## Route 1: off-centre coupling
+
+### What the knob is
+
+`PolyTapConfig.bus_guide_offset` displaces the bus coupling guide's axis
+laterally from the disk centre. At zero it is radial and drives the disk's
+radial response; at 60-80 nm against the 100 nm radius it meets the disk close
+to tangentially and drives azimuthal modes instead. Verified on the mask before
+any physics: offsets of 40/60/80 nm move the guide by exactly +40/+60/+80 nm at
+constant 80 nm width, on an unchanged 1447x178 grid.
+
+One thing had to be fixed first. `polytap_alpha` cuts a corridor out of the
+absorbing taper directly below each disk so the coupling guide is not damped,
+and that cut was pinned to the disk axis at the READOUT guide width. An offset
+guide would have run straight through the taper -- at 60 nm offset, 60 of its
+80 nm inside the ramp -- and its coupling would have collapsed for a reason
+that has nothing to do with mode overlap, in exactly the direction that reads
+as "the offset bought isolation". The corridor now tracks `bus_guide_width` and
+`bus_guide_offset`, and the coupling guide measures 8.00e-04 alpha (the bus
+value, undamped) at every offset tested.
+
+### Registered prediction
+
+Reciprocity says the linear transfer bus->disk equals disk->bus for the same
+mode pair. Nothing in this geometry breaks reciprocity: no bias asymmetry, no
+gyrotropic term the offset touches. So the expectation on the record is that
+the offset scales forward and backward TOGETHER and the isolation ratio comes
+out flat. If it does, route 1 is closed on a measurement rather than on an
+argument, for ten minutes against a NARMA run's ninety.
+
+Two ways it could still earn a place, and both are measured:
+
+  directionality  a chord-coupled disk re-radiates into the bus with a phase
+                  gradient along x, which can favour one direction. That is
+                  reciprocal and legal, and it is enough: a feeder that dumps
+                  its distortion downstream of every reservoir tap is as good
+                  as one that does not dump it at all.
+  distortion      forward coupling is at the carrier; the pollution is at 2w
+                  and 3w. Mode overlap is frequency dependent, so an offset
+                  can in principle keep the carrier and shed the harmonics.
+                  Both are inside the bus band -- 18 and 27 GHz against a band
+                  bottom of 8 GHz at 160 nm -- so they propagate if launched.
+
+### Method
+
+Three lock-in arms per offset, on the built array (4 taps, lags 3/5/7/9, 160 nm
+bus, bus alpha x0.1, 9 GHz):
+
+  F     bus injector at 3 mT -> each disk's readout ports at w. Forward
+        coupling. If this collapses the offset merely decoupled the disk.
+  Blin  disk 1's body at 3 mT -> bus probes at w. Backward coupling in the
+        linear regime. F/Blin is both the isolation figure and the
+        reciprocity check.
+  Bsat  disk 1's body at 20 mT -- what tap 1 actually saw in the run whose
+        reservoir died, against a 10 mT in-array threshold -> bus probes at
+        w, 2w, 3w. What a saturated feeder puts into the shared line.
+
+Bus probes are 20 nm windows on the bus centreline, upstream of tap 1 and
+between each tap pair. Short on purpose: the guided wavelength here is 108.6
+nm, so a probe approaching that length averages the carrier to nothing and
+would report a dead bus.
+
+Forward and backward are read on different observables -- a guide-end m_z
+average against a bus-segment m_z average -- so their ratio has no absolute
+meaning. Every number is therefore also reported relative to the offset-0 row,
+and only the relative numbers carry the verdict.

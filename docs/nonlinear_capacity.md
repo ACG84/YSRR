@@ -3216,3 +3216,50 @@ at different rates per micron. So the ratio should GROW with probe separation.
 The near-field asymmetry did the opposite -- 2.4x at 600 nm, 0.95 by 1954 nm --
 which is how it was caught. Flat-in-distance would mean this is that artifact
 wearing a different hat, and would close route 3 the same way.
+
+### Result: DMI moves the coupling, not the line
+
+| Di (mJ/m^2) | 400 nm | 800 nm | 1200 nm | 1600 nm |
+|---|---|---|---|---|
+| 0 (reciprocal) | 2.339 | 1.596 | 0.923 | 0.762 |
+| 0.02 | 2.303 | 1.564 | 0.923 | 0.764 |
+| 0.05 | 2.198 | 1.545 | 0.901 | 0.742 |
+| 0.10 | 2.062 | 1.486 | 0.897 | 0.741 |
+
+The Di = 0 row earns its keep before any DMI is read off. In a RECIPROCAL
+medium, with probes equidistant from the neighbouring taps by construction, the
+downstream/upstream ratio is 2.34 at 400 nm and 0.76 at 1600 nm -- not 1.0
+anywhere. So the raw ratio measures environment, and only deviation from this
+row measures non-reciprocity. It also settles the route-1 leftover: that
+measurement gave 0.41 for tap 1 and this one gives 2.34 for tap 2, the same
+phenomenon with opposite sign, which is local loading rather than any radiation
+pattern.
+
+Normalised to the reciprocal baseline, the DMI effect is 11.9% at 400 nm and
+2.8% at 1600 nm. IT SHRINKS WITH DISTANCE. The registered prediction was the
+opposite -- a dispersion asymmetry accumulates along the path, so it should
+grow -- with flat-or-shrinking called in advance as the signature of the same
+near-field artifact route 1 produced. By that criterion this is that artifact:
+DMI is modifying the disk's LOCAL coupling, not making the LINE one-way.
+
+The coefficient is linear and clean, about 119% per mJ/m^2 at 400 nm across the
+top two points, so extrapolation is trustworthy. Di = 0.25 would give roughly
+30% at 400 nm and 7% at 1600 nm. Order-of-magnitude isolation at the 1.3-3.9 um
+where the reservoir taps sit would need several mJ/m^2 -- past the spiral bound
+and past any real material.
+
+Two things are still worth the next twenty minutes, and neither is an
+extrapolation:
+
+  band edge   differential attenuation is what the linear coefficient
+              describes. A separate mechanism appears if the DMI shift pushes
+              one direction out of the propagating band entirely -- the carrier
+              is 9 GHz against a band bottom of 8 GHz, so that needs about
+              1 GHz, near Di = 0.25. Below it the effect is invisible and above
+              it the bus is genuinely one-way, so a linear fit from 0.10 cannot
+              see it in either direction.
+  a loose end tap 4's forward response jumped 2.6x at Di = 0.05 and returned to
+              normal at 0.10, while the bus stayed uniform at <m_x> = 0.996
+              throughout. A non-monotonic hop is a disk changing STATE rather
+              than coupling, which the bus check cannot see. Peak and mean m_z
+              per disk body now go in the log for exactly this.

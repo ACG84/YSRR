@@ -66,7 +66,7 @@ from magnonic_nn.config import MU_0
 from _polytap_probe import make_array, ensure_m0
 
 
-def bus_probes(cfg, arr, dtype, probe_nm=20.0, feeder=0, sym_nm=600.0):
+def bus_probes(cfg, arr, dtype, probe_nm=20.0, feeder=0, sym_nm=(400, 600, 800)):
     """Short windows on the bus centreline.
 
     Two families, for two different questions.
@@ -271,6 +271,12 @@ def run_offset(a, off_nm, outdir, dtype):
     rec["h2"] = rec["bsat_probes_2w"][down] / max(rec["bsat_probes_w"][down], 1e-30)
     rec["h3"] = rec["bsat_probes_3w"][down] / max(rec["bsat_probes_w"][down], 1e-30)
     print(f"  fwd/tap  " + " ".join(f"{v:.3e}" for v in fwd), flush=True)
+    # Printed, not just saved. A run of this project was lost to a summary that
+    # crashed after the numbers were computed, and a log that does not carry
+    # every quantity the verdict needs is a log that can lose them again.
+    print(f"  F bus    " + " ".join(f"{n}={v:.2e}"
+                                    for n, v in zip(pnames, rec["fwd_probes"])),
+          flush=True)
     print(f"  Blin bus " + " ".join(f"{n}={v:.2e}"
                                     for n, v in zip(pnames, rec["blin_probes"])),
           flush=True)
@@ -375,7 +381,8 @@ def main():
     print(f"\nfwd  disk-{a.feeder+1} readout per mT of BUS drive (want: kept)")
     print(f"back bus downstream of disk {a.feeder+1} per mT of DISK drive (want: low)")
     print("iso  fwd/back. Cross-offset ratios only; the two have different units.")
-    print(f"sym  radiated downstream over upstream, from probes {a.sym_nm:g} nm")
+    print("sym  radiated downstream over upstream, from probes at "
+          + "/".join(f"{d:g}" for d in a.sym_nm) + " nm")
     print("     either side of the feeder -- equal distances, so this is")
     print("     radiation pattern rather than the midpoints' unequal spacing.")
     print("2w/w how much of what the SATURATED feeder puts into the bus is")

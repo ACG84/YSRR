@@ -56,7 +56,7 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
                timesteps, dtype=torch.float32, bus_alpha_mult=1.0,
                bus_guide_width_nm=None, steps_per_frame=200,
                bus_width_nm=None, v_g=945.0, bus_guide_offset_nm=0.0,
-               barrier=None):
+               barrier=None, Di=0.0):
     """Build the array for one point of the sweep.
 
     Returns (cfg, arr, geom_tag, run_tag). The two tags differ on purpose:
@@ -87,6 +87,8 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
               else {"bus_guide_width": bus_guide_width_nm * 1e-9})
         if bus_guide_offset_nm:
             kw["bus_guide_offset"] = bus_guide_offset_nm * 1e-9
+        if Di:
+            kw["Di"] = Di
         if barrier:
             bl, ba, bk = barrier
             if bl > 0:
@@ -121,6 +123,10 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
         geom = f"{geom}_off{int(bus_guide_offset_nm)}"
     if barrier and barrier[0] > 0:
         geom = f"{geom}_bar{int(barrier[0])}a{barrier[1]:g}k{int(barrier[2])}"
+    # DMI changes the GROUND STATE, not just the dynamics, so it must key
+    # the m0 cache or a spiralled state gets reused as a uniform one.
+    if Di:
+        geom = f"{geom}_D{Di*1e3:g}"
     run = geom if tap_alpha_mult == 1.0 else f"{geom}_ta{tap_alpha_mult:g}"
     if bus_alpha_mult != 1.0:
         run = f"{run}_ba{bus_alpha_mult:g}"

@@ -180,7 +180,7 @@ def run_offset(a, off_nm, outdir, dtype):
         bus_alpha_mult=a.bus_alpha, bus_guide_width_nm=a.bus_guide_width,
         bus_width_nm=a.bus_width, steps_per_frame=a.steps_per_frame,
         v_g=a.v_g, bus_guide_offset_nm=off_nm,
-        barrier=(a.barrier_len, a.barrier_alpha, a.barrier_after))
+        barrier=(a.barrier_len, a.barrier_alpha, a.barrier_after), Di=a.Di)
     log = lambda s: print(f"  {s}", flush=True)
     print(f"\n===== offset {off_nm:g} nm =====\n{run}\n"
           f"mesh {cfg.grid[0]}x{cfg.grid[1]}, cells {int(arr.mask.sum())}, "
@@ -207,6 +207,22 @@ def run_offset(a, off_nm, outdir, dtype):
     # runs after it is a check that costs what it was meant to save.
     ensure_m0(arr, outdir, run, relax_steps=a.relax_steps, dtype=dtype, log=log,
               fresh=a.fresh_m0)
+
+    # DMI changes the ground state, not only the dynamics. With no anisotropy
+    # the helix period is 4*pi*A/D -- 163 nm at D = 1e-3, shorter than the bus
+    # is wide -- and shape anisotropy raises that bound by an amount this
+    # project has not calculated. So the bus is CHECKED for uniformity rather
+    # than assumed: a spiralled bus is not a waveguide, and every transport
+    # number measured on one would be meaningless while still looking finite.
+    bus = arr.bus_mask > 0.5
+    mx = float((arr.m0[:, :, 0, 0] * arr.bus_mask).sum() / arr.bus_mask.sum())
+    if a.Di:
+        log(f"[DMI] Di = {a.Di*1e3:g} mJ/m^2, helix period "
+            f"{cfg.spiral_period()*1e9:.0f} nm against a {cfg.bus_length()*1e9:.0f} "
+            f"nm bus")
+    verdict = ("uniform" if abs(mx) > 0.9 else
+               "NOT UNIFORM -- transport numbers measured here mean nothing")
+    log(f"[m0] bus <m_x> = {mx:.3f} over {int(bus.sum())} cells ({verdict})")
     npr = arr.n_readout
     n_port = npr * a.n_taps
 
@@ -330,6 +346,9 @@ def main():
                         "field, inside the 1303 nm tap spacing. SEVERAL, so a\n"
                         "standing wave can be told from a radiation pattern.")
     p.add_argument("--relax-steps", type=int, default=8000)
+    p.add_argument("--Di", type=float, default=0.0,
+                   help="interfacial DMI, J/m^2. The only non-reciprocal term\n"
+                        "this solver has. Bounded by the spiral instability.")
     p.add_argument("--fresh-m0", action="store_true",
                    help="ignore a COMPLETE cached ground state and relax again.\n"
                         "Two invocations differing only in something the run tag\n"

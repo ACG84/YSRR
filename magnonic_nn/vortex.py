@@ -69,6 +69,32 @@ class VortexConfig:
     polarity: int = 1            # core out-of-plane direction
     chirality: int = 1           # in-plane circulation sense
     core_width: float = 10e-9    # core profile scale
+    # Interfacial DMI, J/m^2. Zero is plain permalloy.
+    #
+    # This is the ONLY non-reciprocal term this solver has, and it is the one
+    # route 3 needs. Classical Damon-Eshbach cannot serve here: its asymmetry
+    # is surface localisation through the film thickness, +k on one face and
+    # -k on the other, and every mesh in this project is nz = 1. Even resolved
+    # in 3D it would not isolate this geometry, because omega(k) is reciprocal
+    # for a symmetric film and the asymmetry only appears through a transducer
+    # that couples to one face -- while these coupling guides are lateral and
+    # in-plane, so they meet both faces alike. DMI instead adds a term linear
+    # in k to the dispersion itself, so omega(+k) != omega(-k) in the plane the
+    # simulation already represents.
+    #
+    # Bounded above by the spiral instability: with no anisotropy the ground
+    # state becomes a helix of period 4*pi*A/D, which is 163 nm at D = 1e-3 and
+    # would destroy the uniform bus this whole design rests on. Shape
+    # anisotropy raises that bound, by how much is not calculated here -- so
+    # the ground state is CHECKED after relaxing rather than assumed.
+    Di: float = 0.0
+
+    def spiral_period(self) -> float:
+        """Helical ground-state period at this DMI, in metres (inf at Di = 0).
+
+        A bus much longer than this is not a waveguide, it is a spiral.
+        """
+        return float("inf") if self.Di == 0 else 4 * math.pi * self.A / abs(self.Di)
 
     @property
     def n_cells(self) -> int:
@@ -809,7 +835,7 @@ class ChainPortedArray:
         self.mask = chain_ported_mask(cfg, device, dtype)
         alpha = chain_ported_alpha(cfg, device, dtype) * self.mask
         self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha,
-                                  Ms_ref=cfg.Ms)
+                                  Ms_ref=cfg.Ms, Di=getattr(cfg, "Di", 0.0))
         self.rollout.set_Ms(cfg.Ms * self.mask)
         self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
         self.m0 = None
@@ -1233,7 +1259,7 @@ class PolyTapArray:
         self.mask = polytap_mask(cfg, device, dtype)
         alpha = polytap_alpha(cfg, device, dtype) * self.mask
         self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha,
-                                  Ms_ref=cfg.Ms)
+                                  Ms_ref=cfg.Ms, Di=getattr(cfg, "Di", 0.0))
         self.rollout.set_Ms(cfg.Ms * self.mask)
         self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
         self.m0 = None
@@ -1472,7 +1498,7 @@ class DirCouplerArray(PolyTapArray):
         self.mask = dircoupler_mask(cfg, device, dtype)
         alpha = dircoupler_alpha(cfg, device, dtype) * self.mask
         self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha,
-                                  Ms_ref=cfg.Ms)
+                                  Ms_ref=cfg.Ms, Di=getattr(cfg, "Di", 0.0))
         self.rollout.set_Ms(cfg.Ms * self.mask)
         self.h_zero = torch.zeros(nx, ny, 1, 3, device=_dev(device), dtype=dtype)
         self.m0 = None

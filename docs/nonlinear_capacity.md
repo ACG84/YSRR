@@ -3023,3 +3023,65 @@ full GPU time and threw the result away, and because the driver copied its
 result file only on success, the next point overwrote it. Arm F's bus probes
 are now printed rather than only saved: a log that does not carry every
 quantity the verdict needs is a log that can lose them again.
+
+### The mechanism, quantified
+
+Arm F's bus probes were being computed and discarded until this run. With them,
+the saturated feeder's leak can be read against the injected signal ON THE SAME
+STRETCH OF BUS, which is the only form in which a leak amplitude means
+anything. Feeder = tap 1, per mT of each drive:
+
+| stretch | injected (F) | leak (Bsat) | leak/signal |
+|---|---|---|---|
+| up (before tap 1) | 9.52e-04 | 6.91e-05 | 0.073 |
+| 1-2 | 5.06e-06 | 6.84e-05 | **13.5** |
+| 2-3 | 1.36e-06 | 6.62e-07 | 0.49 |
+| 3-4 | 7.25e-07 | 2.57e-07 | 0.35 |
+| after | 4.37e-07 | 1.04e-07 | 0.24 |
+
+On the stretch immediately downstream of the saturated disk its own
+re-radiation is 13.5x the injected signal, and it is still 35-50% of it two and
+three taps away. That is the memory collapse in one table: the delay line
+downstream of a saturated tap carries mostly that tap's distortion rather than
+the delayed input it exists to carry. It also explains the shape of the
+split-readout result -- taps 3 and 4 sat at leak/signal around 0.4, enough to
+destroy a memory horizon without either of them ever crossing its own
+threshold.
+
+Two caveats held on this. It is normalised per mT and the operating run drove
+the bus and the disk bodies at different amplitudes, so the operating ratio
+needs that scaling before it is quoted as an absolute. And the steep fall over
+the first stretch -- 153 nm decay length -- is the injector's own evanescent
+near field rather than bus transport; the propagating decay settles to
+1000-2000 nm per tap spacing further out.
+
+### What the barrier actually trades
+
+Worth stating before route 2's numbers arrive, because it decides which row of
+the table is the good one.
+
+Of the two orderings, the barrier only pays in one. In
+`injector -> feeder -> barrier -> reservoir` the reservoir's own signal crosses
+the barrier too, so the barrier cancels out of the leak-to-signal ratio
+entirely and only the bare 2x directionality is left. In
+`injector -> reservoir -> barrier -> feeder` the reservoir's signal never
+crosses and the leak does, so the barrier does not cancel -- at the cost of a
+factor of 2, because the leak travels upstream, which is the disk's preferred
+direction. A 15.9x barrier nets about 8x. The second ordering wins and the
+directionality finding halves its benefit rather than overturning it.
+
+But it is not free, and this is the part that decides how to read the table:
+
+  reservoir signal      unchanged, never crosses the barrier
+  leak into reservoir   proportional to 1/B, so reservoir SNR improves as B
+  feeder's operand      also crosses, proportional to 1/B, and the product goes
+                        as fresh x delayed -- so product amplitude degrades as
+                        1/B
+
+The barrier trades reservoir cleanliness against product amplitude one for one,
+and raising the feeder's fresh drive cannot buy it back because the feeder is
+already driven above threshold on purpose. So the row to want is NOT the
+largest leak drop. It is the WEAKEST barrier that restores enough cleanliness,
+because everything past that is paid out of the product the architecture exists
+to make. If 2x suffices, route 2 is cheap. If it takes 16x, the product may not
+survive its own protection.

@@ -3085,3 +3085,79 @@ largest leak drop. It is the WEAKEST barrier that restores enough cleanliness,
 because everything past that is paid out of the product the architecture exists
 to make. If 2x suffices, route 2 is cheap. If it takes 16x, the product may not
 survive its own protection.
+
+### Result: route 2's barrier is bypassed, but its LAYOUT is worth 29x
+
+Two things have to be separated here, because the run measures both and only
+one of them works.
+
+**The barrier does not isolate.** Local suppression of the injected signal,
+measured at the barrier's own centre against the same probe with no barrier:
+
+| barrier | at its centre | beyond it |
+|---|---|---|
+| 400 nm, alpha 0.05 (designed 2.0x) | 1.88x | 0.93x |
+| 400 nm, alpha 0.2 (designed 15.9x) | 6.25x | 0.87x |
+
+The field is suppressed inside the barrier and recovers completely past it. Tap
+4's forward drive is unchanged across all three points -- 6.942e-07, 6.981e-07,
+7.019e-07 -- so the barrier costs nothing, and it buys nothing either. The leak
+behaves the same way. Against the clean baseline, leak/signal per stretch:
+
+| | up | 1-2 | 2-3 | 3-4 (barrier) | after |
+|---|---|---|---|---|---|
+| no barrier | 4.9e-05 | 0.0340 | 0.461 | 139.3 | 322.7 |
+| alpha 0.05 | 4.2e-05 | 0.0298 | 0.487 | 131.1 | 297.9 |
+| alpha 0.2 | 3.6e-05 | 0.0283 | 0.590 | 119.8 | 282.9 |
+
+A barrier designed for 15.9x delivers at most 1.34x on any reservoir stretch,
+and makes the NEAREST one worse -- 0.461 to 0.590 -- which is what a reflector
+does. A 400 nm damped segment attenuates what propagates through it and does
+nothing to the stray field, and demag is long-range and switched on in these
+simulations. Both the signal and the leak simply step over it.
+
+This closes route 2 as a mechanism, and it closes it in the manner registered
+in advance: "if the leak does not fall with the barrier's attenuation, it is
+not arriving along the bus and a bus barrier cannot touch it." The prediction
+named the leak; the measurement found the SIGNAL doing it too.
+
+It also makes the cleanliness-against-product-amplitude trade moot. There is no
+trade, because there is no effect. The analysis was right about what a working
+barrier would cost and wrong to assume one would work.
+
+**The ordering works, and it does not need the barrier at all.** What each
+RESERVOIR tap sees, leak against injected signal on its own stretch:
+
+| feeder position | nearest reservoir tap | middle | farthest |
+|---|---|---|---|
+| tap 1 (the array that died) | 13.5 | 0.487 | 0.354 |
+| tap 4 (this layout) | 0.461 | 0.034 | 4.9e-05 |
+
+Moving the feeder to the far end takes the worst reservoir stretch from 13.5 to
+0.461, a factor of 29, from ordering alone. The two far taps land at 0.034 and
+4.9e-05, clean by any standard. The nearest reservoir tap still sits at 0.461,
+comparable to the 0.35-0.49 that destroyed the memory before, so this buys a
+GRADED reservoir -- two clean taps and one compromised -- rather than a
+uniformly poisoned line.
+
+### And the directionality is near-field only
+
+Tested directly rather than assumed. Probe 2-3 sits 1955 nm downstream of tap 1
+in the control and 1954 nm upstream of tap 4 in the baseline -- equal distances,
+opposite directions:
+
+| | distance | direction | leak |
+|---|---|---|---|
+| feeder tap 1 | 1955 nm | downstream | 6.62e-07 |
+| feeder tap 4 | 1954 nm | upstream | 6.27e-07 |
+
+Ratio 0.95. The prediction on the record was 1.32e-06 if the 2x upstream
+preference held at that range. It does not: the 1.7-2.5x measured at 400-800 nm
+is a near-field effect, gone by 2 um, and the reservoir taps it was supposed to
+protect sit 1.3-3.9 um away. Isolation by directionality does not work at the
+distances that matter, and the 29x above comes from DISTANCE -- the loaded-bus
+decay -- rather than from any radiation pattern.
+
+Three probe pairs proved the asymmetry was real and a fourth measurement at
+four times the range proved it was useless. Both were needed; neither would
+have been enough alone.

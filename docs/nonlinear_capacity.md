@@ -2795,3 +2795,65 @@ session still reported BUSY. Completed runs cluster at 81, 85 and 100 minutes;
 the wiped one was 105. The sixth was sized to 83 minutes and dumps its feature
 matrix to the log as base64 the moment the rollout ends, so the result now
 survives the machine.
+
+## Can the reservoir be preserved? Splitting the readout says not this way
+
+The above-threshold run saturated taps 1 and 2 (20.1 and 15.9 mT against
+thresholds of 10 and 12) and left taps 3 and 4 below (10.6 and 8.9 mT against
+none-in-range and 12). Disks couple to the bus BIDIRECTIONALLY, so a saturated
+tap re-radiates its distorted response into the bus and downstream. The array
+may therefore already contain a saturating feeder followed by a linear
+reservoir, summed together in one readout -- which splitting the readout tests
+for free.
+
+| readout | cols | rank | floor | deg1 | product | total | deg1 share | horizon |
+|---|---|---|---|---|---|---|---|---|
+| all four taps | 200 | 44 | 0.132 | 3.00 | 0.22 | 3.59 | 83% | 4 |
+| saturated (taps 1,2) | 100 | 29 | 0.113 | 2.82 | 0.12 | 3.40 | 83% | 4 |
+| sub-threshold (taps 3,4) | 100 | 29 | 0.183 | 2.58 | **0.26** | 2.85 | 90% | 3 |
+
+**The nonlinearity does propagate.** The unsaturated taps carry more than twice
+the product capacity of the saturated ones, 0.26 against 0.12, so a saturated
+disk's distortion does reach its neighbours.
+
+**But the memory is gone at the unsaturated taps too.** Horizon 3 frames,
+against 20+ when the same array ran sub-threshold. Taps 3 and 4 are
+individually linear -- neither was driven past its own threshold -- so the
+corruption did not happen in those disks. It arrived through the BUS, which
+every tap shares.
+
+So a saturating element placed in line with the delay line pollutes the delay
+line. Separating the READOUT is not enough. The feeder needs a path into the
+reservoir that does not also carry the memory.
+
+Caveat on the 0.26: it is measured against a 0.183 floor on 100 columns and 40
+test frames, where the saturated view's floor is 0.113. A higher floor makes
+the estimate less trustworthy, not more, and the difference between 0.26 and
+0.12 is not large against that.
+
+### Three routes, by cost
+
+  off-centre coupling   attach the feeder's guide away from the disk's
+                        symmetry axis, or tangentially rather than radially,
+                        so it drives an azimuthal mode that overlaps poorly
+                        with the bus's propagating mode. Coupling goes as mode
+                        overlap, so this buys asymmetry cheaply -- but it is
+                        mode selectivity, not isolation, and the leakage back
+                        into the bus falls rather than vanishing.
+  absorbing barrier     a lossy segment of bus between feeder and reservoir.
+                        Directional only in the sense that it attenuates
+                        everything crossing it, so it costs the delayed copy
+                        as much as the pollution unless the feeder sits
+                        downstream of every reservoir tap.
+  non-reciprocity       the physically correct answer. In-plane films with
+                        k perpendicular to M (Damon-Eshbach) are genuinely
+                        one-way: +k and -k localise on opposite surfaces. That
+                        is a true isolator rather than an attenuator. It needs
+                        the bus magnetised transverse to propagation, which
+                        means a bias field and a different dispersion from the
+                        one measured here -- the band bottom, v_g and the
+                        108.6 nm wavelength would all have to be re-measured.
+
+The first is a modest geometry change and testable with the existing tooling;
+the third is a redesign that changes every transport constant this project has
+measured.

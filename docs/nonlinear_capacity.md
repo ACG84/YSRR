@@ -2713,3 +2713,85 @@ Whether it is BUILDABLE is a separate question that also needs redoing. The
 5.28e-03 against 3.93e-05), so the balanced fresh drive scales with it and the
 budget is almost certainly no longer 5.2 mT. That arithmetic has not been
 redone at this operating point.
+
+## Driving the elements through threshold: nonlinearity at the cost of the reservoir
+
+Both issues cleared first, which changed the configuration materially.
+
+**Threshold in situ.** The 6.00 mT figure was a LONE disk with six readout
+guides. A tap disk has five plus a bus coupler and sits a gap from a loaded
+160 nm waveguide. Measured in the array it compresses at 10, 12, never and
+12 mT -- about 2x stiffer. Passes the artifact check (|A| scales x47-61 over a
+drive x60). Tap 3 is anomalous and unexplained: its normalised gain RISES to
+1.021 and it never compresses in range.
+
+**Balance.** The bus at 30 mT delivers a copy worth 0.201 / 0.159 / 0.106 /
+0.089 of direct drive. At exact balance the taps top out at 8.0 / 6.3 / 4.2 /
+3.6 mT -- under threshold everywhere, and tap 4 would need 135 mT on the bus.
+**Balance and threshold cannot both be satisfied on this bus.** The run used
+2.5x balance at 8-40 mT, giving a 2.5:1 operand imbalance against the 100:1
+that killed the chain co-drive, with the drive spanning the threshold.
+
+### The result
+
+| quantity | sub-threshold (1-5 mT) | above-threshold (8-40 mT) |
+|---|---|---|
+| effective rank | 17 | **44** |
+| degree-1 capacity | 11.91 | 3.00 |
+| deg2 P2 | 0.27 | 0.11 |
+| **deg2 s[n]*s[n-k]** | 0.09 | **0.22** |
+| deg2 s[n-5]*s[n-k] | 0.00 | 0.05 |
+| **deg3 P3** | 0.00 | **0.21** |
+| TOTAL measured | 12.26 | **3.59** |
+| degree-1 share | 97% | **83%** |
+| P1 at lag 5 | 0.991 | 0.158 |
+| P1 at lag 10 | 0.709 | 0.021 |
+| NARMA-10 NMSE | 1.088 | **5.625** |
+
+**The nonlinearity is real.** Degree-1 share fell 97% -> 83%, the cross-lag
+family more than doubled, and degree-3 appeared from nothing. Driving the
+elements through threshold does what it was supposed to do.
+
+**And it destroys the reservoir.** Memory collapsed -- P1 at lag 5 went 0.991
+to 0.158 and the horizon from past lag 20 to about lag 4. Total measured
+capacity fell 12.26 to 3.59 while effective rank ROSE 17 to 44, so roughly 40
+of 44 dimensions carry nothing attributable to the input at degrees 1-3. That
+is the chaos signature, the same one the switching-vortex chain produced at
+rank 142/180 with all capacity 0.00. NARMA went 1.088 to 5.625, worse than
+input-only at 0.986.
+
+The noise floor moved with it: the s[n]*s[n-k] floor rose 0.055 -> 0.132,
+because features that can predict targets shifted out of reach are overfitting.
+Of the three above-floor entries, only lag 2 (r^2 0.289, P1 0.814) sits where
+the reservoir has memory; lag 10 (0.138) and lag 15 (0.193) have P1 of 0.021
+and 0.015 and are the same artifact called out in the earlier run.
+
+### What is now bracketed
+
+The classic reservoir tension, measured at one operating point with a working
+delay line on both sides of it:
+
+    1-5 mT    sub-threshold   excellent linear filter, memory past lag 20,
+                              capacity 12.26, products 0.09
+    8-40 mT   above threshold nonlinear and incoherent, memory to lag ~4,
+                              capacity 3.59, products 0.22, NARMA 5.6
+
+Both horns are now measured rather than inferred. The untested middle is a
+drive that crosses threshold only at the very top of the input range -- at
+2.5x balance, an 8-24 mT input puts tap 1 at 12.1 mT against its 10 mT
+threshold and leaves the other three under, so most samples stay in the graded
+region and only the peaks compress. That is the narrowest version of the
+window, and if it is empty the tension is not resolvable by drive alone at
+this operating point.
+
+Features from the above-threshold run are committed under data/narma_9ghz/ so
+the decomposition can be redone without the GPU.
+
+### Five runs lost to infrastructure
+
+This result took six attempts. The fifth died with the VM wiped mid-flight at
+frame 330/350 -- checkpoint, ground state and repo clone all gone while the
+session still reported BUSY. Completed runs cluster at 81, 85 and 100 minutes;
+the wiped one was 105. The sixth was sized to 83 minutes and dumps its feature
+matrix to the log as base64 the moment the rollout ends, so the result now
+survives the machine.

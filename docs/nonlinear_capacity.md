@@ -3317,3 +3317,44 @@ could not detect the case it was written for.
 
 Same shape as the truncated record that cost four campaigns: a quantity that
 looks plausible while describing something other than its name.
+
+### Route 3 closes: no usable far-field non-reciprocity
+
+Full sweep, deviation from the reciprocal Di = 0 baseline. Bus <m_x> = 0.996 at
+every point including 0.40, where the helix period is 2.6x the bus width --
+shape anisotropy held the ground state throughout, so nothing was disqualified.
+
+| Di | 400 nm | 800 nm | 1200 nm | 1600 nm |
+|---|---|---|---|---|
+| 0.02 | 0.984 | 0.980 | 1.000 | 1.002 |
+| 0.05 | 0.940 | 0.968 | 0.977 | 0.973 |
+| 0.10 | 0.881 | 0.931 | 0.972 | 0.972 |
+| 0.15 | 0.825 | 0.897 | 0.967 | 0.979 |
+| 0.25 | 1.006 | 1.420 | 1.244 | 1.073 |
+| 0.40 | 1.275 | 1.474 | 1.200 | 1.013 |
+
+Far-field asymmetry against Di is NON-MONOTONIC -- -2.7, -2.8, -2.1, +7.3,
++1.3 percent -- and never exceeds 7.3%. A dispersion non-reciprocity grows
+monotonically with Di and accumulates with distance. This does neither. The
+near-field effect is large but CHANGES SIGN between 0.15 and 0.25, which is
+also not dispersion.
+
+That also settles the band-edge question against itself. Di = 0.25 did show a
+threshold-like jump, with transmission up about 50%, consistent with the
+dispersion shifting away from the band bottom. But at 0.40, further past the
+supposed threshold, the far-field asymmetry falls back to 1.3%. A one-way bus
+does not become less one-way when the non-reciprocal term doubles. What moved
+at 0.25 was the standing-wave environment, not the direction of transport.
+
+So all three routes are closed as isolation mechanisms, each measured rather
+than argued: reciprocity for the offset, stray-field bypass for the barrier,
+and no far-field asymmetry for DMI.
+
+### What is left, and it is the cheapest thing on the list
+
+The ordering. Feeder at the far end takes the worst reservoir stretch from 13.5
+to 0.461, a factor of 29, with no barrier, no offset and no DMI. Two of the
+three reservoir taps land at 0.034 and 4.9e-05. It needs no new physics and no
+new transport constants, and it is testable at the existing 9 GHz operating
+point -- with the caveat that the operating point's own justification rests on
+a vortex mode that does not exist, and needs redoing first.

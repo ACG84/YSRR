@@ -223,6 +223,22 @@ def run_offset(a, off_nm, outdir, dtype):
     verdict = ("uniform" if abs(mx) > 0.9 else
                "NOT UNIFORM -- transport numbers measured here mean nothing")
     log(f"[m0] bus <m_x> = {mx:.3f} over {int(bus.sum())} cells ({verdict})")
+    # The DISKS have a ground state too, and DMI acts on a vortex core far more
+    # strongly than on a saturated strip -- it sets the core size and can
+    # unwind or flip it outright. Checking only the bus would let a disk that
+    # changed state be read as a disk whose coupling changed, which is what
+    # tap 4 jumping 2.6x at Di = 0.05 looks like from the bus side alone.
+    #
+    # A vortex has |m_z| ~ 1 at the core and a mean m_z of order the core area
+    # over the disk area, about (10/100)^2 = 0.01. A core that has grown, gone,
+    # or flipped shows up in both numbers.
+    cores = []
+    for k in range(a.n_taps):
+        dm = arr.disk_masks[k]
+        mz = arr.m0[:, :, 0, 2] * dm
+        cores.append((float(mz.abs().max()), float(mz.sum() / dm.sum())))
+    log("[m0] disk cores  " + "  ".join(f"{k+1}:|mz|max {p:.2f} mean {m:+.3f}"
+                                        for k, (p, m) in enumerate(cores)))
     npr = arr.n_readout
     n_port = npr * a.n_taps
 

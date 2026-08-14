@@ -141,21 +141,45 @@ def make_array(n_taps, lags, gap_nm, coupler_len_nm, tap_alpha_mult,
 
 
 def ensure_m0(arr, outdir, geom_tag, relax_steps=8000, chunk=1000, dtype=torch.float32,
-              log=print):
+              log=print, fresh=False):
     """Relax to the ground state, checkpointing every `chunk` steps.
 
     Chunked because the relax is ~40 minutes on this mesh and both hosts this
     runs on reclaim idle machines -- the container here reboots roughly hourly
     and Colab recycles runtimes. An all-or-nothing relax on those odds does not
     merely risk the work, it can fail to ever complete.
+
+    `fresh` ignores a COMPLETE cache and relaxes again. Reloading a finished m0
+    on CUDA is the un-root-caused corruption documented in make_array, and the
+    run-keyed tag only protects points that differ IN THE TAG. Two invocations
+    of the same geometry differing in something the tag does not carry -- which
+    disk is driven, say -- share the file, and the second one silently gets the
+    bad state. That has now cost two runs, so the reload is announced rather
+    than logged quietly, and callers that cannot tolerate it pass fresh=True.
+    Resuming a PARTIAL relax still reloads, because that is the crash recovery
+    the chunking exists for and the corruption was only ever seen on complete
+    reloads.
     """
     outdir = Path(outdir); outdir.mkdir(parents=True, exist_ok=True)
     m0c, prog = outdir / f"m0_{geom_tag}.pt", outdir / f"m0_{geom_tag}.steps"
     done = 0
+    if m0c.exists() and fresh:
+        n_done = int(prog.read_text().strip()) if prog.exists() else relax_steps
+        if n_done >= relax_steps:
+            log(f"[m0] ignoring complete cache {m0c.name} (fresh=True)")
+            m0c.unlink()
+            if prog.exists():
+                prog.unlink()
     if m0c.exists():
         arr.m0 = torch.load(m0c, weights_only=False).to(device=get_device(), dtype=dtype)
         done = int(prog.read_text().strip()) if prog.exists() else relax_steps
-        log(f"[m0] {m0c.name} at {done}/{relax_steps}")
+        if done >= relax_steps:
+            log(f"[m0] REUSING A COMPLETE GROUND STATE: {m0c.name}. On CUDA "
+                f"this is the\n      un-root-caused corruption that returns "
+                f"every tap at the same amplitude.\n      Pass fresh=True if "
+                f"this point must not share it.")
+        else:
+            log(f"[m0] resuming {m0c.name} at {done}/{relax_steps}")
     while done < relax_steps:
         if arr.m0 is None:
             arr.relax(steps=chunk)

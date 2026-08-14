@@ -205,7 +205,8 @@ def run_offset(a, off_nm, outdir, dtype):
                     f"the barrier.")
     # Only now: the relax is ~100 s of GPU per point, and a geometry check that
     # runs after it is a check that costs what it was meant to save.
-    ensure_m0(arr, outdir, run, relax_steps=a.relax_steps, dtype=dtype, log=log)
+    ensure_m0(arr, outdir, run, relax_steps=a.relax_steps, dtype=dtype, log=log,
+              fresh=a.fresh_m0)
     npr = arr.n_readout
     n_port = npr * a.n_taps
 
@@ -329,6 +330,11 @@ def main():
                         "field, inside the 1303 nm tap spacing. SEVERAL, so a\n"
                         "standing wave can be told from a radiation pattern.")
     p.add_argument("--relax-steps", type=int, default=8000)
+    p.add_argument("--fresh-m0", action="store_true",
+                   help="ignore a COMPLETE cached ground state and relax again.\n"
+                        "Two invocations differing only in something the run tag\n"
+                        "does not carry -- --feeder, say -- otherwise share one\n"
+                        "and the second silently gets the CUDA reload corruption.")
     p.add_argument("--device", default="cpu")
     p.add_argument("--outdir", default="runs/isolation")
     a = p.parse_args()

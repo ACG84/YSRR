@@ -228,6 +228,12 @@ def run_offset(a, off_nm, outdir, dtype):
         "probe_names": pnames, "probe_x_nm": pxs,
         "fwd_per_tap": fwd,
         "fwd": fwd[a.feeder] / a.amp_lin,
+        # Arm F's BUS probes: what the injected signal itself puts on each
+        # stretch of line. This is the denominator route 2 lives or dies on --
+        # the barrier is worth having only if it drops the feeder's leak
+        # relative to the reservoir's own signal, and without this the leak is
+        # an amplitude with nothing to be small compared to.
+        "fwd_probes": [float(x) for x in np.abs(F[0, n_port:]) / a.amp_lin],
         "blin_probes": [float(x) for x in np.abs(Bl[0, n_port:]) / a.amp_lin],
         "bsat_probes_w": [float(x) for x in np.abs(Bs[0, n_port:]) / a.amp_sat],
         "bsat_probes_2w": [float(x) for x in np.abs(Bs[1, n_port:]) / a.amp_sat],
@@ -326,6 +332,17 @@ def main():
               f"{r['back']:>10.3e} {r['back']/max(base['back'],1e-30):>6.2f} "
               f"{r['iso']:>10.3e} {r['iso']/max(base['iso'],1e-30):>6.2f} "
               f"{r['dir']:>8.2f} {r['h2']:>7.3f} {r['h3']:>7.3f}")
+
+    # Leak against the reservoir's own signal, on the same stretch of bus. The
+    # per-mT normalisation means this is the ratio at equal drive amplitudes;
+    # in operation the feeder's fresh drive and the bus injection are set
+    # independently, so scale by their ratio to get the operating figure.
+    print(f"\nfeeder leak / injected signal, per stretch of bus "
+          f"(saturating feeder, per mT each)")
+    print(f"{'offset':>7} " + " ".join(f"{n:>9}" for n in recs[0]["probe_names"]))
+    for r in recs:
+        row = [l / max(s, 1e-30) for l, s in zip(r["bsat_probes_w"], r["fwd_probes"])]
+        print(f"{r['offset_nm']:>6.0f}n " + " ".join(f"{v:>9.3f}" for v in row))
 
     print(f"\nleak by direction, {a.sym_nm:g} nm either side of the feeder")
     print(f"{'offset':>7} {'upstream':>10} {'downstream':>11} {'up rel':>7} "

@@ -3161,3 +3161,58 @@ decay -- rather than from any radiation pattern.
 Three probe pairs proved the asymmetry was real and a fourth measurement at
 four times the range proved it was useless. Both were needed; neither would
 have been enough alone.
+
+## Route 3: DMI, not Damon-Eshbach
+
+### The target was wrong, and structurally rather than budgetarily
+
+Classical DE cannot serve this design. Its asymmetry is surface localisation
+through the film thickness -- +k on one face, -k on the other -- and every mesh
+in this project is nz = 1, so it is not merely unmeasured but unrepresentable.
+And resolving it in 3D would not fix the geometry: omega(k) is reciprocal for a
+symmetric film, so the asymmetry only reaches a transducer that couples to ONE
+face, while these coupling guides are lateral and in-plane and meet both faces
+alike. Route 3 as sketched needed a 3D mesh AND vertically stacked coupling.
+The earlier estimate -- "re-measure the transport constants" -- was wrong in
+kind, not in size.
+
+Interfacial DMI adds a term linear in k to the dispersion itself, so
+omega(+k) != omega(-k) in the plane already simulated. solver.py has said so
+since before this branch -- "the only non-reciprocal term available here" --
+and LLGRollout has taken a Di argument all along. The vortex path never passed
+it. Threading it through was a few lines.
+
+### The bound is the spiral, not the cost
+
+| Di (mJ/m^2) | helix period | vs 160 nm bus width | vs 7.3 um bus |
+|---|---|---|---|
+| 0.02 | 8168 nm | 51x | 1.12x |
+| 0.05 | 3267 nm | 20x | 0.45x |
+| 0.10 | 1634 nm | 10x | 0.23x |
+| 0.20 | 817 nm | 5.1x | 0.11x |
+| 1.00 | 163 nm | 1.0x | 0.02x |
+
+With no anisotropy the ground state becomes a helix of period 4*pi*A/D. Shape
+anisotropy on a 160 x 20 nm strip raises that bound by an amount this project
+has not calculated, so the bus <m_x> is printed at every point and a point that
+spiralled is reported rather than quietly used. A spiralled bus is not a
+waveguide and its transport numbers would look perfectly finite while meaning
+nothing -- the same shape as the truncated-record failure that cost four
+campaigns here.
+
+### The feeder is tap 2, and that is the measurement
+
+Taps sit 1303 nm apart, so probes placed +-d about tap 2 are equidistant from
+tap 1 and tap 3 at EVERY d: at 1600 nm both sit 297 nm from a neighbouring tap,
+at 1200 nm both sit 103 nm from one. The two sides carry identical loading by
+construction. That is precisely what the route-1 directionality measurement
+lacked, where downstream had a tap 703 nm away and upstream had the injector
+and an end absorber.
+
+Registered prediction, and it is the one that separates a real result from a
+repeat of route 1's artifact: a dispersion asymmetry ACCUMULATES along the
+path, because the two directions travel at different k and therefore attenuate
+at different rates per micron. So the ratio should GROW with probe separation.
+The near-field asymmetry did the opposite -- 2.4x at 600 nm, 0.95 by 1954 nm --
+which is how it was caught. Flat-in-distance would mean this is that artifact
+wearing a different hat, and would close route 3 the same way.

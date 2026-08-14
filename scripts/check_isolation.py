@@ -98,9 +98,17 @@ def bus_probes(cfg, arr, dtype, probe_nm=20.0, feeder=0, sym_nm=600.0):
         xs.append(0.5 * (tx[k] + tx[k + 1])); names.append(f"{k+1}-{k+2}")
     xs.append(tx[-1] + 0.5 * (cfg.radius + cfg.guide_length)); names.append("after")
     n_mid = len(xs)
-    d = sym_nm * 1e-9
-    xs += [tx[feeder] - d, tx[feeder] + d]
-    names += ["sym-", "sym+"]
+    # SEVERAL symmetric pairs, not one. The two sides of a disk sit in
+    # different interference environments -- downstream has the next tap as a
+    # reflector 703 nm away, upstream has the injector and the end absorber --
+    # so a standing wave would produce a directional-looking ratio at any
+    # single distance. A genuine radiation asymmetry is the same at every
+    # distance; a standing wave oscillates with it. One pair cannot tell them
+    # apart and three can, for the cost of three more matvec rows.
+    for d_nm in sym_nm:
+        d = d_nm * 1e-9
+        xs += [tx[feeder] - d, tx[feeder] + d]
+        names += [f"s{d_nm:.0f}-", f"s{d_nm:.0f}+"]
     on_bus = (arr._Y - yb).abs() <= cfg.bus_width / 2
     half = probe_nm * 1e-9 / 2
     masks = torch.stack([(on_bus & ((arr._X - xp).abs() <= half)).to(dtype)
@@ -188,7 +196,7 @@ def run_offset(a, off_nm, outdir, dtype):
         tx = cfg.tap_x()
         xb = 0.5 * (tx[a.barrier_after] + tx[a.barrier_after + 1]) * 1e9
         half = a.barrier_len / 2
-        for i in (n_mid, n_mid + 1):
+        for i in range(n_mid, len(pxs)):
             if abs(pxs[i] - xb) < half:
                 raise SystemExit(
                     f"probe {pnames[i]} at {pxs[i]:.0f} nm is inside the "
@@ -254,6 +262,12 @@ def run_offset(a, off_nm, outdir, dtype):
     rec["iso_up"] = rec["fwd"] / max(rec["back_up"], 1e-30)
     rec["dir"] = rec["blin_probes"][sp] / max(rec["blin_probes"][sm], 1e-30)
     rec["dir_sat"] = rec["bsat_probes_w"][sp] / max(rec["bsat_probes_w"][sm], 1e-30)
+    # dir at every symmetric distance: flat means radiation, oscillating means
+    # a standing wave and the single-distance number means nothing.
+    rec["dir_by_d"] = {
+        f"{d:.0f}": rec["blin_probes"][n_mid + 2 * i + 1]
+                    / max(rec["blin_probes"][n_mid + 2 * i], 1e-30)
+        for i, d in enumerate(a.sym_nm)}
     rec["h2"] = rec["bsat_probes_2w"][down] / max(rec["bsat_probes_w"][down], 1e-30)
     rec["h3"] = rec["bsat_probes_3w"][down] / max(rec["bsat_probes_w"][down], 1e-30)
     print(f"  fwd/tap  " + " ".join(f"{v:.3e}" for v in fwd), flush=True)
@@ -303,10 +317,11 @@ def main():
                         "the next one. -1 disables.")
     p.add_argument("--cycles", type=float, default=9.0)
     p.add_argument("--probe-nm", type=float, default=20.0)
-    p.add_argument("--sym-nm", type=float, default=600.0,
-                   help="half-separation of the symmetric probe pair used for\n"
+    p.add_argument("--sym-nm", type=float, nargs="+", default=[400, 600, 800],
+                   help="half-separations of the symmetric probe pairs used for\n"
                         "directionality. Past the 280 nm guide-plus-gap near\n"
-                        "field, inside the 1303 nm tap spacing.")
+                        "field, inside the 1303 nm tap spacing. SEVERAL, so a\n"
+                        "standing wave can be told from a radiation pattern.")
     p.add_argument("--relax-steps", type=int, default=8000)
     p.add_argument("--device", default="cpu")
     p.add_argument("--outdir", default="runs/isolation")
@@ -344,13 +359,18 @@ def main():
         row = [l / max(s, 1e-30) for l, s in zip(r["bsat_probes_w"], r["fwd_probes"])]
         print(f"{r['offset_nm']:>6.0f}n " + " ".join(f"{v:>9.3f}" for v in row))
 
-    print(f"\nleak by direction, {a.sym_nm:g} nm either side of the feeder")
-    print(f"{'offset':>7} {'upstream':>10} {'downstream':>11} {'up rel':>7} "
-          f"{'down rel':>9}")
+    print(f"\ndownstream/upstream leak, by probe half-separation")
+    print(f"{'offset':>7} " + " ".join(f"{d:>8.0f}nm" for d in a.sym_nm)
+          + "   verdict")
     for r in recs:
-        print(f"{r['offset_nm']:>6.0f}n {r['back_up']:>10.3e} {r['back']:>11.3e} "
-              f"{r['back_up']/max(base['back_up'],1e-30):>7.2f} "
-              f"{r['back']/max(base['back'],1e-30):>9.2f}")
+        vs = [r["dir_by_d"][f"{d:.0f}"] for d in a.sym_nm]
+        spread = max(vs) / max(min(vs), 1e-30)
+        tag = ("consistent" if spread < 1.5 else
+               "SPREAD -- standing wave, not a radiation pattern")
+        print(f"{r['offset_nm']:>6.0f}n " + " ".join(f"{v:>10.2f}" for v in vs)
+              + f"   {tag}")
+    print("A directional ratio read at one distance cannot be told from a")
+    print("standing wave. Flat across distances is radiation; spread is not.")
 
     print(f"\nfwd  disk-{a.feeder+1} readout per mT of BUS drive (want: kept)")
     print(f"back bus downstream of disk {a.feeder+1} per mT of DISK drive (want: low)")

@@ -105,13 +105,35 @@ def spectrum(isl, cfg, m0, n_steps, every, amp_mT, fc_ghz, dtype, log=print):
     return np.asarray(rec)          # (n_samples, n_layers, 3)
 
 
-def power_spectrum(sig, dt_sample):
-    """|FFT|^2 of each channel, with a Hann window; returns (freq_GHz, power)."""
+def power_spectrum(sig, dt_sample, fmin_ghz=0.15):
+    """|FFT|^2 of each channel, detrended and Hann-windowed, DC discarded.
+
+    DETRENDED, and the first run without it is why. Subtracting the static
+    state at t = 0 -- which is what the paper's Methods prescribe -- leaves any
+    residual drift during the record as a constant offset, and on the vortex
+    states that offset dominated everything: the 0.00 GHz bin came back at 1.00
+    with every dynamic peak at 0.00-0.01.
+
+    That is not merely an ugly spectrum, it is a rigged verdict. Every
+    DC-dominated spectrum correlates with every other one THROUGH THE DC BIN,
+    so the distinguishability matrix would have reported states as identical
+    when the modes that distinguish them were sitting two orders down and
+    perfectly resolved. A false negative manufactured by the estimator, of the
+    same family as the capacity floor whose own spread was larger than the
+    products it was scoring.
+
+    So: subtract the time-mean per channel, then window, then drop everything
+    below `fmin_ghz`. The floor is set above the 38 MHz resolution and below
+    any real mode -- a vortex gyrotropic mode sits at a few hundred MHz, which
+    survives at 0.15 GHz.
+    """
     n = sig.shape[0]
+    sig = sig - sig.mean(axis=0, keepdims=True)
     win = np.hanning(n)[:, None, None]
     F = np.fft.rfft(sig * win, axis=0)
     f = np.fft.rfftfreq(n, d=dt_sample) / 1e9
-    return f, (np.abs(F) ** 2)
+    keep = f >= fmin_ghz
+    return f[keep], (np.abs(F) ** 2)[keep]
 
 
 def main():
@@ -134,6 +156,11 @@ def main():
     p.add_argument("--offset-nm", type=float, default=50.0)
     p.add_argument("--alpha", type=float, default=0.001)
     p.add_argument("--dx-nm", type=float, default=5.0)
+    p.add_argument("--fmin-ghz", type=float, default=0.15,
+                   help="discard bins below this. A residual static offset puts\n"
+                        "all its power in the DC bin, which then dominates every\n"
+                        "vortex spectrum and makes them all correlate with each\n"
+                        "other through it rather than through their modes.")
     p.add_argument("--fmax-ghz", type=float, default=15.0)
     p.add_argument("--outdir", default="runs/asvi_spec")
     a = p.parse_args()
@@ -182,7 +209,15 @@ def main():
 
         sig = spectrum(isl, cfg, m0, n_steps, a.every, a.amp_mT, a.fc_ghz,
                        dtype, log=lambda s: print(s, flush=True))
-        f, P = power_spectrum(sig, a.every * cfg.dt)
+        # How far the state drifted over the record, per layer, against how
+        # much it oscillated. A drift comparable to the dynamics means the
+        # relax had not converged and the spectrum is of a moving target.
+        drift = np.abs(sig.mean(axis=0)).max(axis=1)
+        swing = sig.std(axis=0).max(axis=1)
+        print("  drift/oscillation: " + "  ".join(
+            f"L{k} {drift[k]:.2e}/{swing[k]:.2e} = {drift[k]/max(swing[k],1e-30):.2f}"
+            for k in range(isl.n_layers)), flush=True)
+        f, P = power_spectrum(sig, a.every * cfg.dt, a.fmin_ghz)
         sel = f <= a.fmax_ghz
         f, P = f[sel], P[sel]
         spectra[spec] = P

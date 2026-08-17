@@ -161,6 +161,11 @@ def main():
                         "all its power in the DC bin, which then dominates every\n"
                         "vortex spectrum and makes them all correlate with each\n"
                         "other through it rather than through their modes.")
+    p.add_argument("--clean-ghz", type=float, default=1.0,
+                   help="floor for the second correlation matrix. Above the\n"
+                        "vortex gyrotropic mode, so the verdict can be\n"
+                        "checked without the band the low-frequency floor\n"
+                        "is clipping.")
     p.add_argument("--fmax-ghz", type=float, default=15.0)
     p.add_argument("--outdir", default="runs/asvi_spec")
     a = p.parse_args()
@@ -242,20 +247,47 @@ def main():
     names = list(spectra)
     print("=" * 72)
     print("spectral correlation between microstates (1.00 = indistinguishable)")
-    print(f"{'':<24} " + " ".join(f"{n.split('/')[0][:6]+'/'+n.split('/')[1][:6]:>14}"
-                                  for n in names))
-    def flat(P):
-        v = P.sum(axis=2).reshape(-1)      # both layers, summed over components
+    def flat(P, band=None):
+        Q = P if band is None else P[band]
+        v = Q.sum(axis=2).reshape(-1)      # both layers, summed over components
         return v / max(np.linalg.norm(v), 1e-30)
-    worst = (0.0, None, None)
-    for i, a_ in enumerate(names):
-        row = f"{a_:<24} "
-        for j, b_ in enumerate(names):
-            c = float(np.dot(flat(spectra[a_]), flat(spectra[b_])))
-            row += f"{c:>14.3f}"
-            if i < j and c > worst[0]:
-                worst = (c, a_, b_)
-        print(row)
+
+    # TWO matrices, at two frequency floors, because one is not falsifiable.
+    # The vortex states put a large lightly-damped gyrotropic component in the
+    # lowest retained bins -- measured drift/oscillation 1.4 with the peak
+    # sitting ON the floor -- so a correlation taken over the full band is
+    # dominated by a feature the floor is clipping. If the verdict is the same
+    # over the clean GHz band it does not rest on that feature; if it differs,
+    # the full-band number is an artifact of where the floor was put and the
+    # clean-band one is what to believe.
+    def matrix(band, label):
+        print(f"\n{label}")
+        print(f"{'':<24} " + " ".join(
+            f"{n.split('/')[0][:6]+'/'+n.split('/')[1][:6]:>14}" for n in names))
+        w = (0.0, None, None)
+        for i, a_ in enumerate(names):
+            row = f"{a_:<24} "
+            for j, b_ in enumerate(names):
+                c = float(np.dot(flat(spectra[a_], band), flat(spectra[b_], band)))
+                row += f"{c:>14.3f}"
+                if i < j and c > w[0]:
+                    w = (c, a_, b_)
+            print(row)
+        return w
+
+    clean = f >= a.clean_ghz
+    worst_full = matrix(None, f"FULL BAND ({f[0]:.2f}-{f[-1]:.1f} GHz)")
+    worst_clean = matrix(clean, f"CLEAN BAND (>= {a.clean_ghz:g} GHz, "
+                                f"{int(clean.sum())} bins, gyrotropic excluded)")
+    print(f"\nworst pair full band  {worst_full[0]:.3f}"
+          f"  ({worst_full[1]} vs {worst_full[2]})")
+    print(f"worst pair clean band {worst_clean[0]:.3f}"
+          f"  ({worst_clean[1]} vs {worst_clean[2]})")
+    agree = (worst_full[0] > 0.99) == (worst_clean[0] > 0.99)
+    print("the two bands " + ("AGREE on the verdict" if agree else
+          "DISAGREE -- the full-band number depends on the clipped low bins "
+          "and\n  the clean-band number is the one to believe"))
+    worst = worst_clean
     print()
     if worst[1] is None:
         print("Only one state measured; nothing to distinguish.")

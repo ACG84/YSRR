@@ -3437,3 +3437,36 @@ same versus opposite circulation may be inequivalent anyway through edge-charge
 and core dipolar coupling, with no offset required. The control is one run at
 offset 0: if the gap survives, the asymmetry is not the offset and the paper's
 chirality-selection knob is not what is producing it here.
+
+### Control: the chirality asymmetry is NOT the offset
+
+Same six states at offset 0:
+
+| double-vortex state | 50 nm offset | offset 0 |
+|---|---|---|
+| ACW / ACW | +0.54 / +0.47 | +0.52 / +0.45 |
+| ACW / CW | +0.82 / -0.85 | +0.84 / -0.88 |
+
+The gap survives entirely and is if anything slightly WIDER without the offset.
+The registered prediction had two branches and this is the second: the
+asymmetry is intrinsic to two stacked vortices -- edge-charge and core dipolar
+coupling -- and the 50 nm shadow-deposition offset is not what produces it
+here. Without this control the paper's headline knob would have been written up
+as reproduced.
+
+A sharper point, which should have been made when the test was designed. This
+protocol IMPOSES a chirality in the initial state and checks it survives
+relaxation: that is chirality RETENTION, not chirality SELECTION. The paper
+selects chirality by field-driven programming from an unbiased state. So the
+run could not have demonstrated the offset's mechanism whatever it returned,
+and calling the asymmetry "the direction the offset is supposed to produce" was
+an overclaim.
+
+Two candidates for why selection does not appear, both testable: the offset may
+break symmetry for the LATTICE, through neighbouring islands' stray fields,
+rather than for an isolated island; or selection may need a field protocol that
+has not been run. The first is more likely and points at the array rather than
+the element.
+
+Gate one is untouched: 6/6 vortex layers survive at offset 0 as well, with both
+macrospin controls clean at (1.00, 1.00).

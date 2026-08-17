@@ -3358,3 +3358,82 @@ three reservoir taps land at 0.034 and 4.9e-05. It needs no new physics and no
 new transport constants, and it is testable at the existing 9 GHz operating
 point -- with the caveat that the operating point's own justification rests on
 a vortex mode that does not exist, and needs redoing first.
+
+## A different architecture: artificial spin-vortex ice
+
+The poly-tap bus is closed. Every isolation route failed on measurement, and
+the ring that would have made the coupling the mechanism rather than the fault
+needs kappa_in * kappa_out = 0.0147, which is -36.6 dB before propagation
+against roughly -8 dB required, with the whole coupler axis worth 1.16x.
+Separately, the readout was found blind by parity to the degree-2 family it was
+scored on: the demodulator has no zero-frequency bin, and for a narrowband
+drive through a compressive nonlinearity the cross term s[n]*s[n-d] lives at DC
+and 2w, never at the carrier.
+
+    Dion, Stenning, Vanstone, Holder, Sultana, Alatteili, Martinez, Taghipour
+    Kaffash, Kimura, Oulton, Branford, Kurebayashi, Iacocca, Jungfleisch,
+    Gartside, Nat. Commun. 15 (2024). doi:10.1038/s41467-024-48080-z
+
+Why this one rather than another repair. Memory is the MICROSTATE -- hysteretic,
+non-volatile, no decay length -- so the ~1 um loaded-bus decay that capped the
+delay line does not apply. Coupling is the ultrastrong regime, normalised rate
+0.57 against our 0.0147. And the readout in this family is the FMR spectrum
+("spin-wave fingerprinting", Gartside et al., Nat. Nanotech. 17, 460 (2022)),
+a POWER spectrum and therefore an even-order detector, so the parity blindness
+does not arise. The reservoir protocol for this system class is already
+published, so the architecture is adopted rather than invented.
+
+Ms = 800 kA/m and A = 13 pJ/m are identical to the permalloy values already
+used here. Cells are 5 nm laterally and 5 nm normal, which divides the
+30/35/20/5 nm stack exactly where the paper's 10 nm does not.
+
+### Gate one: does the element hold its states, where the disk did not?
+
+Geometry verified before any physics: 127,008 cells against the bus's 257,566
+-- half the cost -- stadium area matching analytic to 1.000, zero z-overlap
+between layers, lateral shift exactly 50 nm, 62% footprint overlap.
+
+| initial state | hard layer (30 nm) | soft layer (20 nm) |
+|---|---|---|
+| macro+ / macro+ | macro + (0.95) | macro + (0.93) |
+| macro+ / macro- | macro + (0.98) | macro - (0.98) |
+| vortex_acw / macro+ | **vortex ACW (+0.79)** | macro + (0.94) |
+| macro+ / vortex_acw | macro + (0.99) | **vortex ACW (+0.81)** |
+| vortex_acw / vortex_acw | vortex ACW (+0.54) | vortex ACW (+0.47) |
+| vortex_acw / vortex_cw | **vortex ACW (+0.82)** | **vortex CW (-0.85)** |
+
+**6/6 vortex layers survive 8000 relax steps.** The ported disk read 0.974 at
+step 200 and 0.001 by step 800; every layer here is still a vortex at 8000, at
+both thicknesses, with both controls behaving and chirality preserved with
+clean opposite signs. All four states per layer exist and are readable.
+
+A classifier bug was caught by the smoke test before it could produce a wrong
+verdict. A SATURATED 90 nm island reads |m_z|max 0.40-0.50 from edge canting at
+the stadium caps -- the antiparallel control peaked at 0.503, above any
+sensible core threshold, with in-plane moment 0.982. Classifying on the core
+alone would have reported both macrospin controls as vortices, in the direction
+that flatters the architecture. Flux closure is the discriminator and the core
+is the confirmation; both are required. Same error as reading core_max_mz over
+the whole mask on the disks.
+
+### An unpredicted result, and the control it needs
+
+The two double-vortex states are NOT equivalent:
+
+| | circulation | in-plane moment |
+|---|---|---|
+| ACW / ACW | +0.54 / +0.47 | 0.327 / 0.429 |
+| ACW / CW | +0.82 / -0.85 | 0.051 / 0.094 |
+
+Same-chirality is measurably worse: its cores are pushed off-centre, its flux
+closure is partial, and one core flipped polarity (mean m_z +0.0166 against
+-0.0094). It was also the only state that drifted rather than converging --
+stable to step 1600, then moving out to 3200.
+
+That is the direction the 50 nm inter-layer offset is supposed to produce, and
+it satisfies the registered prediction that the two combinations must differ.
+But it does NOT establish that the offset causes it. Two coaxial vortices with
+same versus opposite circulation may be inequivalent anyway through edge-charge
+and core dipolar coupling, with no offset required. The control is one run at
+offset 0: if the gap survives, the asymmetry is not the offset and the paper's
+chirality-selection knob is not what is producing it here.

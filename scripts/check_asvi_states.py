@@ -135,19 +135,27 @@ def main():
     print("=" * 72)
     print(f"{'initial state':<26} " + " ".join(
         f"{'L'+str(k)+' final':>22}" for k in range(isl.n_layers)))
+    # Peak |m_z| ALONE does not identify a vortex, and the smoke test proved it:
+    # a saturated 90 nm-thick island reads |m_z|max 0.40-0.48 from edge canting
+    # at the stadium caps, which would clear any sensible core threshold and be
+    # reported as a vortex. Its mean m_z is 0.0000 and its in-plane moment is
+    # 0.98, so flux closure is the discriminator and the core is the
+    # confirmation. Classifying on the core alone is exactly the error that let
+    # a whole-mask reading of 0.133 stand in for a vortex on the disks.
     CORE = 0.5          # a core is present if peak |m_z| clears this
-    MACRO = 0.5         # a layer is saturated if its in-plane moment clears this
+    CLOSED = 0.5        # a layer is flux-closed if its in-plane moment is below
     for r in rows:
         line = f"{' / '.join(r['states']):<26} "
         for k in range(isl.n_layers):
             f = r["history"][-1]["layers"][k]
-            if f["peak_mz"] >= CORE:
+            closed = f["m_inplane"] < CLOSED
+            if closed and f["peak_mz"] >= CORE:
                 chir = "ACW" if f["circulation"] > 0 else "CW"
                 what = f"vortex {chir} ({f['circulation']:+.2f})"
-            elif f["m_inplane"] >= MACRO:
+            elif not closed:
                 what = f"macro {'+' if f['mx'] > 0 else '-'} ({f['m_inplane']:.2f})"
             else:
-                what = f"neither (|mz|{f['peak_mz']:.2f} |m|{f['m_inplane']:.2f})"
+                what = f"closed,no core ({f['peak_mz']:.2f})"
             line += f"{what:>22}"
         print(line)
 
@@ -157,7 +165,8 @@ def main():
     for r in vortex_runs:
         for k, s in enumerate(r["states"]):
             if s.startswith("vortex"):
-                if r["history"][-1]["layers"][k]["peak_mz"] >= CORE:
+                f = r["history"][-1]["layers"][k]
+                if f["peak_mz"] >= CORE and f["m_inplane"] < CLOSED:
                     survived += 1
     total = sum(sum(1 for s in r["states"] if s.startswith("vortex"))
                 for r in vortex_runs)

@@ -161,6 +161,10 @@ def main():
                         "all its power in the DC bin, which then dominates every\n"
                         "vortex spectrum and makes them all correlate with each\n"
                         "other through it rather than through their modes.")
+    p.add_argument("--dump-b64", action="store_true",
+                   help="print each state's summed power spectrum to stdout as\n"
+                        "base64 as soon as it is computed, so a run killed\n"
+                        "part-way still yields every state it finished.")
     p.add_argument("--clean-ghz", type=float, default=1.0,
                    help="floor for the second correlation matrix. Above the\n"
                         "vortex gyrotropic mode, so the verdict can be\n"
@@ -238,6 +242,17 @@ def main():
             print(f"  L{k} peaks: " + "  ".join(
                 f"{fr:.2f} GHz ({pw/max(peaks[0][1],1e-30):.2f})"
                 for fr, pw in peaks), flush=True)
+        # DUMP TO THE LOG, per state, not only to a file on the VM.
+        # This project has now lost six runs to reclaimed machines, and the
+        # last one died after three of six states with every completed spectrum
+        # sitting in an npz that went with the container. A log line survives
+        # what the filesystem does not.
+        if a.dump_b64:
+            import base64, io
+            buf = io.BytesIO()
+            np.save(buf, P.sum(axis=2).astype(np.float32), allow_pickle=False)
+            print(f"B64 {spec} {f[0]:.6f} {f[-1]:.6f} "
+                  + base64.b64encode(buf.getvalue()).decode(), flush=True)
         out.append({"states": states, "seconds": round(time.time()-t0, 1)})
         np.savez_compressed(outdir / "asvi_spectra.npz", freq_ghz=f,
                             **{s.replace("/", "__"): v for s, v in spectra.items()})

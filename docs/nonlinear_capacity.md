@@ -3470,3 +3470,57 @@ the element.
 
 Gate one is untouched: 6/6 vortex layers survive at offset 0 as well, with both
 macrospin controls clean at (1.00, 1.00).
+
+### Gate two passes: all six microstates are spectrally distinct
+
+Spectral correlation between microstates, clean band (>= 1 GHz, 364 bins).
+1.00 would mean indistinguishable to any spectral readout.
+
+| | mac+/mac+ | mac+/mac- | mac+/vACW | vACW/mac+ | vACW/vACW | vACW/vCW |
+|---|---|---|---|---|---|---|
+| macro+/macro+ | 1.000 | 0.095 | 0.023 | 0.003 | 0.003 | 0.010 |
+| macro+/macro- | 0.095 | 1.000 | 0.003 | 0.011 | 0.002 | 0.019 |
+| macro+/vortex_acw | 0.023 | 0.003 | 1.000 | 0.023 | 0.019 | 0.456 |
+| vortex_acw/macro+ | 0.003 | 0.011 | 0.023 | 1.000 | 0.008 | 0.041 |
+| vortex_acw/vortex_acw | 0.003 | 0.002 | 0.019 | 0.008 | 1.000 | 0.181 |
+| vortex_acw/vortex_cw | 0.010 | 0.019 | 0.456 | 0.041 | 0.181 | 1.000 |
+
+Worst pair 0.456, most below 0.1, and the full and clean bands agree on the
+verdict. Two results inside it were registered in advance:
+
+  the risky pair   macro+/macro+ against macro+/macro-, which differ only in
+                   the relative orientation of two saturated layers, come out
+                   at 0.095 -- and their dominant modes sit 1.84 GHz apart,
+                   9.65 against 7.81 GHz, in ZERO applied field. That is the
+                   paper's central claim reproduced, and it was the pair named
+                   beforehand as most likely to fail.
+  chirality        ACW/ACW against ACW/CW, differing only in the circulation
+                   sense of one layer, come out at 0.181. Gate one showed those
+                   two relax to genuinely different magnetic states, and the
+                   question was whether the readout could see a distinction the
+                   magnetisation carries. It can. This matters more than one
+                   entry in a table: chirality is what takes each layer from
+                   two states to four, and the microstate space from 4^N to
+                   16^N. A readout blind to it would leave most of that space
+                   inaccessible.
+
+Held: the double-vortex states still pile power at the low-frequency floor
+(drift/oscillation 1.16, peak at 0.04 GHz), so their FULL-band numbers are
+dominated by gyrotropic content the floor clips. The clean band is what is
+quoted. The two bands agreeing is reassurance, not proof, and the gyrotropic
+mode still needs its own longer-record run.
+
+### The infrastructure fix, which is why this result exists
+
+Six runs had been lost to reclaimed containers. The seventh loss took the
+six-state spectrum run after three states, with every finished spectrum in an
+npz that went with the machine, and killed a concurrent second run two minutes
+in. Retrying at the same size would have lost it again.
+
+Instead the analysis stopped depending on one machine: --dump-b64 prints each
+state's spectrum to stdout the moment it is computed, and combine_asvi_spectra
+reassembles the matrix from any number of logs. The table above was assembled
+from TWO separate one-hour sessions that never coexisted, and the combiner
+refuses to correlate across different record lengths rather than silently
+comparing mismatched frequency grids. The local combiner was checked against
+the on-VM matrix and reproduces it exactly before being relied on.

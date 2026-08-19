@@ -3577,3 +3577,48 @@ convergence rate, which needs a memory-capacity measurement rather than a
 contraction test; and anything about an array, where each island's switching
 field is set by its neighbours' state-dependent dipolar field and the
 contraction behaviour need not resemble one island's.
+
+### The vertex: two islands, and ESP fails by degenerate attractors
+
+525,888 cells (4.14x the single island), stadium areas matching analytic to
+0.998-1.005, zero overlap, island ends 125 nm from the vertex. Patterns built
+in each island's own frame and rotated back, verified as m_long +1.000 and
+m_trans 0.000 on all four island-layers.
+
+TWO PROTOCOL ERRORS FOUND, and the first is worth stating plainly because the
+result looked like physics. A field along x reported "ESP FAILS" at 70 mT. It
+was the drive: square ASI has two sublattices at 90 degrees, so an x-field
+leaves the y-island transverse to its own shape anisotropy and unswitchable at
+ANY amplitude. Island 0 converged perfectly -- both trajectories locked to ++
+by step 6 -- while island 1 held its initial condition for all 12 steps in both
+runs, and the distance metric, summing over all four island-layers, let one
+structurally-unswitchable sublattice veto a result the other had delivered.
+This is why ASI experiments drive at an angle to the lattice. The script now
+warns rather than silently latching half of itself.
+
+Driven at 45 degrees, both sublattices switch, and ESP still fails -- for a
+real reason:
+
+| peak | st0 settles to | st1 settles to | final rel |
+|---|---|---|---|
+| 55 mT | `+-|+-` from step 3 | `-+|-+` from step 6 | 0.918 |
+| 70 mT | dynamic | `-+|-+` | 0.568 |
+
+The two trajectories fall into EXACT MIRROR IMAGES of the interlayer-
+ANTIPARALLEL configuration and stay there. That state is flux closure between
+the two layers, so it is low energy and hard to leave: the field needed to
+escape exceeds the field that produced it. Both starts land in the trap, in the
+two degenerate versions of it, and each remembers which. ESP fails by DEGENERATE
+ATTRACTORS, which is a different mechanism from the single island's latching --
+there one layer never moved, here both move and then stick.
+
+Also measured, before a T4 run died: the vertex nucleates a vortex at -32 mT
+where the single island needed -41 mT. Neighbour dipolar coupling assists
+reversal by about 9 mT across a 125 nm end gap, which is the coupling the array
+hypothesis rests on, and it is real.
+
+The prediction this sets up: the vertex should need a HIGHER amplitude than the
+single island's 70-90 mT, because it has interlayer plus neighbour coupling to
+overcome rather than interlayer alone. If it satisfies ESP only at a field that
+also forgets in one step, the array has bought nothing and the memory horizon
+gets shorter rather than longer -- the opposite of the hypothesis.

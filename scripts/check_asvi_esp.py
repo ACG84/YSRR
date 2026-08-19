@@ -157,7 +157,7 @@ def main():
         print(f"{'n':>4} {'u':>7} " + " ".join(f"{'st'+str(i):>9}" for i in
                                                range(len(ms)))
               + f" {'distance':>10} {'rel':>7}")
-        print(f"{0:>4} {'':>7} " + " ".join(f"{label(isl, m):>5}" for m in ms)
+        print(f"{0:>4} {'':>7} " + " ".join(f"{lab(m):>9}" for m in ms)
               + f" {d0:>10.4f} {1.0:>7.3f}", flush=True)
         hist, seen, t0 = [], set(), time.time()
         for n in range(a.n_steps):
@@ -218,11 +218,20 @@ def main():
     print(f"\namplitudes with fading memory AND state diversity: "
           f"{good if good else 'NONE'}")
     if not good:
-        print("  No amplitude gives both. Either the window is narrower than the\n"
-              "  sweep resolution, or a single island is too small a state space\n"
-              "  to hold memory without also latching -- which an ARRAY, where\n"
-              "  neighbours supply the partial fields a uniform drive cannot,\n"
-              "  would be the way to test.")
+        print("  No amplitude gives both. Either the window is narrower than\n"
+              "  the sweep resolution, or this geometry cannot hold memory\n"
+              "  without also latching.")
+        if not a.vertex:
+            print("  A single island under a uniform field sees exactly two\n"
+                  "  coercivities, so a layer either switches or latches. An\n"
+                  "  ARRAY, where neighbours supply the state-dependent partial\n"
+                  "  fields a uniform drive cannot, is the way to test that.")
+        else:
+            print(f"  This is a {a.vertex}-island vertex, so neighbour coupling\n"
+                  "  was present and did not supply it at this amplitude. Re-sweep\n"
+                  "  the amplitude before concluding anything about the lattice:\n"
+                  "  inter-island coupling shifts the switching fields, and 70 mT\n"
+                  "  was the SINGLE ISLAND's working point, not this one's.")
     print(f"\nwrote {outdir / 'asvi_esp.json'}")
     return 0
 

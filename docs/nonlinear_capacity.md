@@ -3622,3 +3622,42 @@ single island's 70-90 mT, because it has interlayer plus neighbour coupling to
 overcome rather than interlayer alone. If it satisfies ESP only at a field that
 also forgets in one step, the array has bought nothing and the memory horizon
 gets shorter rather than longer -- the opposite of the hypothesis.
+
+### Vertex ESP resolved: the array made it worse, and why
+
+| | converges at | post-conv states | behaviour |
+|---|---|---|---|
+| single island, 70 mT | step 4 | 5 | 6 changes in 12 steps, incl. vortex states |
+| vertex, 90 mT | step 4 | 3 | mostly sign-following, one vortex state |
+| vertex, 120 mT | step 3 | 2 | pure sign-following |
+| vertex, 150 mT | step 3 | 2 | pure sign-following |
+
+At 120 and 150 mT the vertex state is exactly sign(u[n]) -- ++|++ for positive
+input, --|-- for negative, nothing else -- a memory horizon of ONE step. The
+vertex needs a higher field than the single island (90 against 70 mT) and gives
+less diversity (2-3 against 5). The registered prediction was that if ESP
+required a field that also forgets in one step, the array had bought nothing.
+That is what happened.
+
+THE MECHANISM, and it is a real tension in the 3D multilayer design rather than
+a tuning miss. The interlayer-antiparallel configuration is flux-closed between
+the two layers, so it is deep: below ~90 mT trajectories fall in and stick, and
+ESP fails by degenerate mirror attractors. Above ~90 mT the field escapes the
+trap but also overwhelms everything else, so the state simply follows the
+drive. There is no window between, and the trap is a per-ISLAND property, so a
+larger lattice does not obviously dissolve it.
+
+The uncomfortable part: the strong inter-layer coupling that creates those
+traps is the same coupling that gives the paper its headline magnon-magnon rate
+of 0.57. The feature and the failure are the same physics, which means they
+cannot be separated by tuning the spacer -- weakening the coupling to shallow
+the trap weakens the coupling the architecture was chosen for.
+
+What this does NOT close. Every measurement so far encodes the input as field
+AMPLITUDE at fixed angle, which drives the system along one axis of a state
+space whose traps sit off that axis. ASI reservoir work generally uses field
+ANGLE, or angle and amplitude together, precisely because a rotating field can
+walk a system between states without saturating it. That is a different input
+channel on the same hardware, it is cheap to test with the machinery already
+built, and it is the honest next question before concluding the architecture
+cannot hold memory.

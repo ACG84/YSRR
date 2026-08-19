@@ -44,7 +44,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
 import magnonic_nn as mnn
 from magnonic_nn.config import MU_0
-from magnonic_nn.spinice import ASVIConfig, ASVIIsland
+from magnonic_nn.spinice import (ASVIConfig, ASVIIsland,
+                                 ASVIVertexConfig, ASVIVertex)
 
 
 def label(isl, m):
@@ -88,6 +89,10 @@ def main():
     p.add_argument("--offset-nm", type=float, default=50.0)
     p.add_argument("--alpha", type=float, default=0.001)
     p.add_argument("--dx-nm", type=float, default=5.0)
+    p.add_argument("--vertex", type=int, default=0,
+                   help="islands meeting at a square-ASI vertex. 0 = the single\n"
+                        "island; 2 = the minimal motif (one x-island, one\n"
+                        "y-island); 4 = the full vertex.")
     p.add_argument("--outdir", default="runs/asvi_esp")
     a = p.parse_args()
 
@@ -95,11 +100,20 @@ def main():
     dtype = torch.float32
     outdir = Path(a.outdir); outdir.mkdir(parents=True, exist_ok=True)
 
-    cfg = ASVIConfig(length=a.length_nm * 1e-9, width=a.width_nm * 1e-9,
-                     layer_offset=a.offset_nm * 1e-9, alpha=a.alpha,
-                     dx=a.dx_nm * 1e-9, dz=a.dx_nm * 1e-9)
+    kw = dict(length=a.length_nm * 1e-9, width=a.width_nm * 1e-9,
+              layer_offset=a.offset_nm * 1e-9, alpha=a.alpha,
+              dx=a.dx_nm * 1e-9, dz=a.dx_nm * 1e-9)
+    if a.vertex:
+        cfg = ASVIVertexConfig(
+            placements=ASVIVertexConfig.square_vertex(a.length_nm, 125.0,
+                                                      a.vertex), **kw)
+        isl = ASVIVertex(cfg, timesteps=32, dtype=dtype)
+        n_parts, lab = isl.n_parts, isl.label
+    else:
+        cfg = ASVIConfig(**kw)
+        isl = ASVIIsland(cfg, timesteps=32, dtype=dtype)
+        n_parts, lab = isl.n_layers, lambda m: label(isl, m)
     nx, ny, nz = cfg.grid
-    isl = ASVIIsland(cfg, timesteps=32, dtype=dtype)
     mask = isl.mask
     n_mag = float(mask.sum())
     print(f"ASVI island, mesh {nx}x{ny}x{nz} = {nx*ny*nz:,} cells, "
@@ -118,17 +132,29 @@ def main():
     # re-relaxing them per amplitude was a quarter of a run that has now been
     # killed mid-sweep by the host three times. Cloned per amplitude, in
     # process -- not reloaded from disk, which is the CUDA corruption path.
-    starts0 = [isl.relax(s.split("/"), steps=a.relax_steps, dtype=dtype).clone()
+    def expand(spec):
+        # A start is written per ISLAND ("macro+/macro+") and repeated across
+        # islands, so the same string means the same thing for one island and
+        # for a vertex and the two runs stay comparable.
+        parts = spec.split("/")
+        if len(parts) == n_parts:
+            return parts
+        if n_parts % len(parts) == 0:
+            return parts * (n_parts // len(parts))
+        raise SystemExit(f"start {spec!r} has {len(parts)} labels; need "
+                         f"{n_parts} or a divisor of it")
+
+    starts0 = [isl.relax(expand(s), steps=a.relax_steps, dtype=dtype).clone()
                for s in a.starts]
     print("relaxed starts: " + "  ".join(
-        f"{s} -> {label(isl, m)}" for s, m in zip(a.starts, starts0)), flush=True)
+        f"{s} -> {lab(m)}" for s, m in zip(a.starts, starts0)), flush=True)
 
     rows = []
     for amp in a.amps_mT:
         print(f"\n===== peak {amp:g} mT =====", flush=True)
         ms = [m.clone() for m in starts0]
         d0 = float((ms[0] - ms[1]).norm() / (2 * n_mag) ** 0.5)
-        print(f"{'n':>4} {'u':>7} " + " ".join(f"{'st'+str(i):>5}" for i in
+        print(f"{'n':>4} {'u':>7} " + " ".join(f"{'st'+str(i):>9}" for i in
                                                range(len(ms)))
               + f" {'distance':>10} {'rel':>7}")
         print(f"{0:>4} {'':>7} " + " ".join(f"{label(isl, m):>5}" for m in ms)
@@ -139,7 +165,7 @@ def main():
             h[:, :, :, a.axis] = (float(u[n]) * amp * 1e-3 / MU_0) * mask[:, :, :, 0]
             ms = [isl.rollout.relax(m, h, a.settle, a.alpha_relax) for m in ms]
             d = float((ms[0] - ms[1]).norm() / (2 * n_mag) ** 0.5)
-            labs = [label(isl, m) for m in ms]
+            labs = [lab(m) for m in ms]
             seen.update(labs)
             hist.append({"n": n + 1, "u": float(u[n]), "labels": labs,
                          "distance": d, "rel": d / max(d0, 1e-30)})

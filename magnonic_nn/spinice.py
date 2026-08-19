@@ -343,3 +343,241 @@ class ASVIIsland:
         circ = ((dX.unsqueeze(-1) * m[:, :, :, 1]
                  - dY.unsqueeze(-1) * m[:, :, :, 0]) / r.unsqueeze(-1)) * w
         return float(circ.sum() / w.sum().clamp_min(1e-30))
+
+
+# --------------------------------------------------------------- the vertex
+
+@dataclass
+class ASVIVertexConfig(ASVIConfig):
+    """N multilayered islands placed on a square-ASI lattice.
+
+    WHY THIS EXISTS. The single island passes all three element gates -- it
+    holds four states per layer, they are spectrally distinct, and the echo
+    state property holds at 70-90 mT -- but its memory horizon is 3-4 input
+    samples, bounded by how fast it forgets. That is the ESP-memory trade and
+    on one island there is no way around it: a spatially uniform field sees
+    exactly two coercivities, so a layer either switches or latches.
+
+    An array is a different system, and specifically for the reason that
+    matters here: each island's switching field is set by the DIPOLAR FIELD OF
+    ITS NEIGHBOURS, which is itself state-dependent. The same global drive then
+    produces different switching in different places depending on the
+    configuration already there, which is history dependence a uniform field on
+    one island cannot produce. Whether that lengthens the memory horizon is the
+    open question, and it is a hypothesis until measured.
+
+    `placements` are (cx_nm, cy_nm, angle_deg) per island. Square ASI puts
+    islands on the EDGES of a square lattice, so a vertex is where island ends
+    meet: one island along x and one along y, each with its end `vertex_gap`
+    from the vertex centre. That gap is the paper's 125 nm, measured
+    island-end to vertex-centre.
+    """
+
+    placements: tuple = ((0.0, 0.0, 0.0),)
+    vertex_gap: float = 125e-9
+
+    @staticmethod
+    def square_vertex(length_nm=550.0, gap_nm=125.0, n=2):
+        """Placements for `n` islands meeting at a vertex at the origin.
+
+        Island ends sit `gap_nm` from the origin, so the centre of each is
+        gap + length/2 away along its own axis. n = 2 is the minimal motif
+        (one x-island, one y-island); n = 4 is the full square-ASI vertex.
+        """
+        d = gap_nm + length_nm / 2.0
+        ang = [0.0, 90.0, 180.0, 270.0][:n]
+        out = []
+        for a in ang:
+            th = math.radians(a)
+            out.append((-d * math.cos(th), -d * math.sin(th), a))
+        return tuple(out)
+
+    def n_islands(self) -> int:
+        return len(self.placements)
+
+    def y_span(self):
+        """Footprint over EVERY island and layer, so the mesh contains them all."""
+        lo, hi = [], []
+        half_l, half_w = self.length / 2, self.width / 2
+        for (cx, cy, ang) in self.placements:
+            th = math.radians(ang)
+            # extent of a rotated stadium along y
+            ry = abs(half_l * math.sin(th)) + abs(half_w * math.cos(th))
+            for (_, _, off) in super().magnetic_layers():
+                lo.append(cy * 1e-9 + off - ry)
+                hi.append(cy * 1e-9 + off + ry)
+        return min(lo), max(hi)
+
+    def x_span(self):
+        lo, hi = [], []
+        half_l, half_w = self.length / 2, self.width / 2
+        for (cx, cy, ang) in self.placements:
+            th = math.radians(ang)
+            rx = abs(half_l * math.cos(th)) + abs(half_w * math.sin(th))
+            lo.append(cx * 1e-9 - rx)
+            hi.append(cx * 1e-9 + rx)
+        return min(lo), max(hi)
+
+    @property
+    def grid(self) -> tuple[int, int, int]:
+        xlo, xhi = self.x_span()
+        ylo, yhi = self.y_span()
+        nx = int(np.ceil((xhi - xlo + 2 * self.margin) / self.dx))
+        ny = int(np.ceil((yhi - ylo + 2 * self.margin) / self.dx))
+        return (nx + nx % 2, ny + ny % 2, self.nz)
+
+    def centre(self):
+        """Mesh origin offset, so the footprint sits centred in the box."""
+        xlo, xhi = self.x_span()
+        ylo, yhi = self.y_span()
+        return 0.5 * (xlo + xhi), 0.5 * (ylo + yhi)
+
+    def island_layer_cy(self, isl: int, k: int):
+        """(cx, cy, angle) of island `isl`'s layer `k`, in mesh coordinates."""
+        cx0, cy0 = self.centre()
+        cx, cy, ang = self.placements[isl]
+        off = super().magnetic_layers()[k][2]
+        # the inter-layer offset is applied along the island's own transverse
+        # axis, so a y-island's layers shift in x -- shadow deposition is a
+        # global direction, but the physics that matters is the shift relative
+        # to the island, and keeping it island-local keeps the two islands
+        # equivalent under the 90-degree rotation that defines square ASI.
+        th = math.radians(ang)
+        return (cx * 1e-9 - off * math.sin(th) - cx0,
+                cy * 1e-9 + off * math.cos(th) - cy0,
+                ang)
+
+
+def asvi_vertex_masks(cfg: ASVIVertexConfig, device=None, dtype=torch.float64):
+    """Mask ``(nx, ny, nz, 1)`` plus one mask per (island, layer)."""
+    nx, ny, nz = cfg.grid
+    x = (torch.arange(nx, device=_dev(device), dtype=dtype) - (nx - 1) / 2) * cfg.dx
+    y = (torch.arange(ny, device=_dev(device), dtype=dtype) - (ny - 1) / 2) * cfg.dx
+    X, Y = torch.meshgrid(x, y, indexing="ij")
+
+    full = torch.zeros(nx, ny, nz, dtype=dtype, device=_dev(device))
+    parts, keys = [], []
+    mags = ASVIConfig.magnetic_layers(cfg)
+    for i in range(cfg.n_islands()):
+        for k, (z0, z1, _) in enumerate(mags):
+            cx, cy, ang = cfg.island_layer_cy(i, k)
+            th = math.radians(ang)
+            # rotate into the island's frame, then use the same stadium
+            u = (X - cx) * math.cos(th) + (Y - cy) * math.sin(th)
+            v = -(X - cx) * math.sin(th) + (Y - cy) * math.cos(th)
+            m2d = _stadium(u, v, 0.0, 0.0, cfg.length, cfg.width).to(dtype)
+            lay = torch.zeros(nx, ny, nz, dtype=dtype, device=_dev(device))
+            lay[:, :, z0:z1] = m2d.unsqueeze(-1)
+            parts.append(lay); keys.append((i, k))
+            full = torch.maximum(full, lay)
+    return full.unsqueeze(-1), torch.stack(parts), keys, (X, Y)
+
+
+class ASVIVertex:
+    """N dipolar-coupled multilayered islands meeting at a square-ASI vertex.
+
+    Same solver path as ASVIIsland -- nz > 1 was already general and PBC is
+    already plumbed -- but the readouts are per (island, layer) rather than per
+    layer, because the state space is now 16^N and a per-layer average over
+    islands would destroy exactly the distinction being measured.
+    """
+
+    def __init__(self, cfg: ASVIVertexConfig, timesteps: int, device=None,
+                 dtype=torch.float64):
+        self.cfg = cfg
+        nx, ny, nz = cfg.grid
+        mesh = MeshConfig(nx=nx, ny=ny, nz=nz, dx=cfg.dx, dy=cfg.dx, dz=cfg.dz)
+        solver = SolverConfig(dt=cfg.dt, timesteps=timesteps, checkpoint=False,
+                              renormalize=True, demag=True)
+        self.mask, self.part_masks, self.keys, (self._X, self._Y) = \
+            asvi_vertex_masks(cfg, device, dtype)
+        alpha = torch.full_like(self.mask, cfg.alpha) * self.mask
+        self.rollout = LLGRollout(mesh, solver, A=cfg.A, alpha=alpha,
+                                  Ms_ref=cfg.Ms)
+        self.rollout.set_Ms(cfg.Ms * self.mask)
+        self.h_zero = torch.zeros(nx, ny, nz, 3, device=_dev(device), dtype=dtype)
+        self.m0 = None
+
+    @property
+    def n_parts(self) -> int:
+        return len(self.keys)
+
+    def initial_state(self, states, polarities=None, dtype=torch.float64):
+        """`states` is one label per (island, layer), in self.keys order."""
+        cfg = self.cfg
+        if len(states) != self.n_parts:
+            raise ValueError(f"{len(states)} states for {self.n_parts} "
+                             f"island-layers {self.keys}")
+        pol = polarities or [1] * self.n_parts
+        nx, ny, nz = cfg.grid
+        m = torch.zeros(nx, ny, nz, 3, dtype=dtype)
+        m[:, :, :, 0] = 1.0
+        for j, ((i, k), st) in enumerate(zip(self.keys, states)):
+            cx, cy, ang = cfg.island_layer_cy(i, k)
+            th = math.radians(ang)
+            # Build the pattern in the ISLAND's frame, then rotate it back, so
+            # a y-island's macrospin points along its own long axis rather than
+            # along x. Getting this wrong would initialise every second island
+            # transverse to its shape anisotropy and it would relax somewhere
+            # else entirely -- which reads as physics, not as a bug.
+            u = (self._X - cx) * math.cos(th) + (self._Y - cy) * math.sin(th)
+            v = -(self._X - cx) * math.sin(th) + (self._Y - cy) * math.cos(th)
+            pat = layer_state(st, u, v, 0.0, cfg, pol[j], dtype)
+            gx = pat[:, :, 0] * math.cos(th) - pat[:, :, 1] * math.sin(th)
+            gy = pat[:, :, 0] * math.sin(th) + pat[:, :, 1] * math.cos(th)
+            rot = torch.stack([gx, gy, pat[:, :, 2]], dim=-1)
+            sel = self.part_masks[j] > 0
+            for c in range(3):
+                m[:, :, :, c] = torch.where(
+                    sel, rot[:, :, c:c+1].expand(-1, -1, nz), m[:, :, :, c])
+        m = m / m.norm(dim=-1, keepdim=True).clamp_min(1e-12) * self.mask
+        return m
+
+    def relax(self, states, steps=8000, alpha_relax=0.5, dtype=torch.float64):
+        m = self.initial_state(states, dtype=dtype)
+        self.m0 = self.rollout.relax(m, self.h_zero, steps, alpha_relax)
+        return self.m0
+
+    def part_state(self, m, j):
+        """Classify island-layer `j`, in its OWN frame."""
+        cfg = self.cfg
+        i, k = self.keys[j]
+        cx, cy, ang = cfg.island_layer_cy(i, k)
+        th = math.radians(ang)
+        w = self.part_masks[j]
+        tot = w.sum().clamp_min(1e-30)
+        mz = m[:, :, :, 2] * w
+        pk = float(mz.abs().max())
+        # longitudinal component along the island's own axis
+        gl = (m[:, :, :, 0] * math.cos(th) + m[:, :, :, 1] * math.sin(th)) * w
+        gt = (-m[:, :, :, 0] * math.sin(th) + m[:, :, :, 1] * math.cos(th)) * w
+        ml, mt = float(gl.sum() / tot), float(gt.sum() / tot)
+        ip = (ml**2 + mt**2) ** 0.5
+        u = (self._X - cx) * math.cos(th) + (self._Y - cy) * math.sin(th)
+        v = -(self._X - cx) * math.sin(th) + (self._Y - cy) * math.cos(th)
+        r = torch.sqrt(u**2 + v**2).clamp_min(1e-18)
+        # (r_hat x m)_z in the island's own frame: gl and gt already carry the
+        # mask, so this is the masked circulation directly.
+        circ = float(((u.unsqueeze(-1) * gt - v.unsqueeze(-1) * gl)
+                      / r.unsqueeze(-1)).sum() / tot)
+        return {"peak_mz": pk, "m_long": ml, "m_trans": mt, "ip": ip,
+                "circ": circ}
+
+    def label(self, m):
+        """Compact per-island-layer label string, e.g. '++|+-'."""
+        out = []
+        for j in range(self.n_parts):
+            c = self.part_state(m, j)
+            if c["ip"] < 0.5 and c["peak_mz"] >= 0.5:
+                out.append("A" if c["circ"] > 0 else "C")
+            elif c["ip"] >= 0.5:
+                out.append("+" if c["m_long"] > 0 else "-")
+            else:
+                out.append("?")
+        # group by island: keys are (island, layer) in order
+        s, prev = "", None
+        for (i, k), ch in zip(self.keys, out):
+            if prev is not None and i != prev:
+                s += "|"
+            s += ch; prev = i
+        return s

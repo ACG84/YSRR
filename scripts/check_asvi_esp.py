@@ -38,7 +38,7 @@ merely saturated. Both are reported, and the verdict requires both.
     python scripts/check_asvi_esp.py --device cuda --amps-mT 30 45 55 70
 """
 from __future__ import annotations
-import argparse, json, sys, time
+import argparse, json, math, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
@@ -78,6 +78,12 @@ def main():
                         "time at alpha_relax or the input never lands")
     p.add_argument("--alpha-relax", type=float, default=0.5)
     p.add_argument("--relax-steps", type=int, default=8000)
+    p.add_argument("--field-deg", type=float, default=None,
+                   help="in-plane field direction in degrees from +x. Square ASI\n"
+                        "has TWO sublattices at 90 degrees, so a field along a\n"
+                        "lattice axis drives one and leaves the other transverse\n"
+                        "to its own shape anisotropy, unable to switch at any\n"
+                        "amplitude. 45 degrees addresses both. Overrides --axis.")
     p.add_argument("--axis", type=int, default=0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--starts", nargs="+",
@@ -118,8 +124,15 @@ def main():
     n_mag = float(mask.sum())
     print(f"ASVI island, mesh {nx}x{ny}x{nz} = {nx*ny*nz:,} cells, "
           f"{int(n_mag):,} magnetic")
+    fdir = (f"{a.field_deg:g} deg from +x" if a.field_deg is not None
+            else f"along {'xyz'[a.axis]}")
     print(f"starts {a.starts}, {a.n_steps} inputs, {a.settle} steps each, "
-          f"seed {a.seed}", flush=True)
+          f"field {fdir}, seed {a.seed}", flush=True)
+    if a.vertex and a.field_deg is None and a.vertex > 1:
+        print("  WARNING: a vertex has two sublattices at 90 degrees and the\n"
+              "  field is along a lattice axis, so the transverse sublattice\n"
+              "  cannot switch at any amplitude and will latch. Pass\n"
+              "  --field-deg 45 to address both.", flush=True)
 
     # ONE input sequence, shared by every amplitude and every start, so a
     # difference between rows is the amplitude and not a different draw.
@@ -162,7 +175,13 @@ def main():
         hist, seen, t0 = [], set(), time.time()
         for n in range(a.n_steps):
             h = torch.zeros(nx, ny, nz, 3, dtype=dtype)
-            h[:, :, :, a.axis] = (float(u[n]) * amp * 1e-3 / MU_0) * mask[:, :, :, 0]
+            amp_am = float(u[n]) * amp * 1e-3 / MU_0
+            if a.field_deg is None:
+                h[:, :, :, a.axis] = amp_am * mask[:, :, :, 0]
+            else:
+                th = math.radians(a.field_deg)
+                h[:, :, :, 0] = amp_am * math.cos(th) * mask[:, :, :, 0]
+                h[:, :, :, 1] = amp_am * math.sin(th) * mask[:, :, :, 0]
             ms = [isl.rollout.relax(m, h, a.settle, a.alpha_relax) for m in ms]
             d = float((ms[0] - ms[1]).norm() / (2 * n_mag) ** 0.5)
             labs = [lab(m) for m in ms]

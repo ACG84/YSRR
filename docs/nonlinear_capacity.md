@@ -3524,3 +3524,56 @@ from TWO separate one-hour sessions that never coexisted, and the combiner
 refuses to correlate across different record lengths rather than silently
 comparing mismatched frequency grids. The local combiner was checked against
 the on-VM matrix and reproduces it exactly before being relied on.
+
+### The echo state property: it holds, at 70-90 mT, and the cost is memory depth
+
+The reservoir question for a non-volatile device. State contraction: the same
+pseudorandom field sequence through two maximally different initial states,
+measuring whether the distance decays. Bracketed by the measured switching
+fields -- 40 mT soft, 60 mT hard, 20 mT apart.
+
+| peak drive | converges at | post-conv states | changes | last 5 | verdict |
+|---|---|---|---|---|---|
+| 30 mT | never | - | - | - | ESP FAILS (latched) |
+| 45 mT | never | - | - | - | ESP FAILS (latched) |
+| 55 mT | step 4 | 3 | 2 | frozen | converges then freezes |
+| 70 mT | step 4 | 5 | 6 | varies | **USEFUL** |
+| 90 mT | step 3 | 3 | 5 | varies | **USEFUL** |
+
+Below the hard coercivity the two-layer structure BREAKS ESP, and structurally
+rather than by mistuning: at 45 mT the soft layer tracks the input while the
+hard layer holds its initial condition for all 25 steps, relative distance 0.99
+throughout. The coercive offset that makes the layers independently addressable
+-- the thing that gives 16 states per island instead of 4 -- is exactly what
+latches. Any field that moves one layer and not the other leaves the other
+holding the initial condition indefinitely, and a readout reading it is reading
+initial conditions rather than input.
+
+Above it, ESP holds and is NOT trivial. At 70 mT the device forgets two
+maximally different starts in four steps and keeps responding: five distinct
+post-convergence microstates, including transient vortex states, changing six
+times over the following twelve inputs. The state is not merely tracking the
+input sign, because the inter-layer coupling shifts each layer's effective
+switching field according to the other's state.
+
+THE COST, and it is the ESP-memory trade made concrete: convergence in 3-4
+steps bounds the memory horizon at 3-4 input samples. ESP demands forgetting,
+and this device forgets fast. The poly-tap bus had linear memory past lag 20;
+this has perhaps a fifth of that, in exchange for genuine nonlinearity, 16
+states per island, and a power-spectrum readout with no parity blindness.
+NARMA-10 needs about 10 samples, so on this evidence a single island cannot
+reach it.
+
+Two corrections this run forced on the previous entry. The window above 60 mT
+was predicted to be trivially saturated with zero capacity; it is the only
+useful window found. And the verdict logic initially counted states visited
+BEFORE convergence -- which are the transient from two deliberately different
+initial conditions, not computation -- and on that basis scored 55 mT USEFUL
+when it converges at step 4 and then sits on one state for ten inputs. Scoring
+now uses post-convergence responsiveness only.
+
+Not established: memory DEPTH beyond the 3-4 sample bound implied by the
+convergence rate, which needs a memory-capacity measurement rather than a
+contraction test; and anything about an array, where each island's switching
+field is set by its neighbours' state-dependent dipolar field and the
+contraction behaviour need not resemble one island's.

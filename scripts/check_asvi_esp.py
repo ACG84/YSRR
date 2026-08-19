@@ -158,29 +158,37 @@ def main():
     for r in rows:
         rel = [h["rel"] for h in r["history"]]
         hit = next((h["n"] for h in r["history"] if h["rel"] <= CONV), None)
-        div = len(r["states_seen"])
-        # Convergence alone is not a pass. A device that saturates to one state
-        # converges perfectly and computes nothing, which is the trivial-ESP
-        # failure the amplitude sweep exists to separate from the useful case.
+        # POST-CONVERGENCE only. States visited BEFORE convergence are the
+        # transient from two deliberately different initial conditions, not
+        # computation, and counting them scored a run USEFUL that converges at
+        # step 4 and then sits on one state for the next ten inputs. What
+        # matters is whether the state still moves once the initial condition
+        # has been forgotten.
+        post = [h for h in r["history"] if hit is not None and h["n"] >= hit]
+        st = [h["labels"][0] for h in post]
+        nstate, live = len(set(st)), len(set(st[-5:])) > 1
         if hit is None:
             v = "ESP FAILS"
-        elif div <= 1:
+        elif nstate <= 1:
             v = "trivial"
-        elif hit <= 1:
-            v = "near-triv"
+        elif not live:
+            v = "FREEZES"
         else:
             v = "USEFUL"
         print(f"{r['amp_mT']:>8.0f} {rel[-1]:>10.3f} "
               f"{(str(hit) if hit else 'never'):>13} "
-              f"{','.join(r['states_seen']):>28} {v:>10}")
+              f"{','.join(sorted(set(st))) if post else '-':>28} {v:>10}")
     print(f"\nconverged = relative distance <= {CONV:g}. A run that converges but\n"
           "visits one state has saturated, not computed: it forgets the input as\n"
           "completely as it forgets the initial condition. USEFUL needs both\n"
           "convergence and more than one state, over more than one step.")
-    good = [r["amp_mT"] for r in rows
-            if any(h["rel"] <= CONV for h in r["history"])
-            and len(r["states_seen"]) > 1
-            and next(h["n"] for h in r["history"] if h["rel"] <= CONV) > 1]
+    def useful(r):
+        hit = next((h["n"] for h in r["history"] if h["rel"] <= CONV), None)
+        if hit is None:
+            return False
+        st = [h["labels"][0] for h in r["history"] if h["n"] >= hit]
+        return len(set(st)) > 1 and len(set(st[-5:])) > 1
+    good = [r["amp_mT"] for r in rows if useful(r)]
     print(f"\namplitudes with fading memory AND state diversity: "
           f"{good if good else 'NONE'}")
     if not good:

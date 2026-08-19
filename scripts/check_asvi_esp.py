@@ -114,11 +114,19 @@ def main():
     print(f"input u[n] (shared): " + " ".join(f"{v:+.2f}" for v in u[:10])
           + (" ..." if a.n_steps > 10 else ""), flush=True)
 
+    # Relax each start ONCE. The initial states do not depend on the drive, and
+    # re-relaxing them per amplitude was a quarter of a run that has now been
+    # killed mid-sweep by the host three times. Cloned per amplitude, in
+    # process -- not reloaded from disk, which is the CUDA corruption path.
+    starts0 = [isl.relax(s.split("/"), steps=a.relax_steps, dtype=dtype).clone()
+               for s in a.starts]
+    print("relaxed starts: " + "  ".join(
+        f"{s} -> {label(isl, m)}" for s, m in zip(a.starts, starts0)), flush=True)
+
     rows = []
     for amp in a.amps_mT:
         print(f"\n===== peak {amp:g} mT =====", flush=True)
-        ms = [isl.relax(s.split("/"), steps=a.relax_steps, dtype=dtype).clone()
-              for s in a.starts]
+        ms = [m.clone() for m in starts0]
         d0 = float((ms[0] - ms[1]).norm() / (2 * n_mag) ** 0.5)
         print(f"{'n':>4} {'u':>7} " + " ".join(f"{'st'+str(i):>5}" for i in
                                                range(len(ms)))

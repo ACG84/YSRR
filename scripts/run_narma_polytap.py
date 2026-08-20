@@ -90,7 +90,8 @@ def save_ckpt(cache, feats, m):
 
 
 @torch.no_grad()
-def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128):
+def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128,
+                      mask_mode="constant"):
     """J[n] = sum_j M_j[n] * s[n - d_j], every term in the SAME frame.
 
     The device's only measured products are s[n-5]*s[n-6] and s[n-5]*s[n-7] --
@@ -119,6 +120,31 @@ def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128):
     # where a linear readout scores it and the run reports a nonlinearity that
     # never happened. The mask is a free design choice, so it is chosen to be
     # orthogonal to the target rather than hoped to be.
+    # MASK MODE. The binary mask is borrowed from delay-based reservoir
+    # computing, where it indexes the VIRTUAL NODES WITHIN one input period and
+    # is the SAME every period, so the readout learns a fixed weight per node.
+    # Applying a mask that varies FRAME TO FRAME is a different object
+    # entirely: a quadratic nonlinearity turns J = M1 s[n] + M2 s[n-d] into
+    # s[n]^2 + s[n-d]^2 + 2 M1[n] M2[n] s[n] s[n-d], so the product arrives
+    # multiplied by a random +-1 sequence and its correlation with the target
+    # s[n]s[n-d] is zero. Measured: degree-1 capacity 0.00 and the lag-9
+    # product 0.146 against a 0.13 floor -- the mask randomised the linear
+    # terms and the product alike.
+    #
+    # "constant" is therefore the default: J[n] = s[n] + s[n-d], both emitted
+    # in the same frame, product unmodulated and recoverable.
+    if mask_mode == "constant":
+        n = len(u)
+        s_ = 2.0 * np.asarray(u, dtype=float) - 1.0
+        out = np.zeros(n)
+        masks = []
+        for d in delays:
+            M = np.full(n, span)
+            masks.append(M)
+            sh = np.concatenate([np.zeros(int(d)), s_])[:n] if d > 0 else s_
+            out += M * sh
+        peak = np.max(np.abs(out)) or 1.0
+        return out / peak, masks
     best = None
     for t in range(max(1, tries)):
         cand = _draw_masks(u, delays, seed + 1000 * t, span)
@@ -465,6 +491,13 @@ def main():
                         "own zero-mean binary mask, so both operands of a product\n"
                         "reach one node together and the separation becomes a\n"
                         "software parameter rather than a transport problem.")
+    p.add_argument("--mask-mode", choices=("constant", "binary"),
+                   default="constant",
+                   help="constant: J[n] = s[n] + s[n-d], product unmodulated and\n"
+                        "recoverable. binary: a fresh +-1 mask per FRAME, which\n"
+                        "randomises the product it was meant to separate -- the\n"
+                        "delay-RC mask indexes virtual nodes within a period and\n"
+                        "repeats every period, which is not the same object.")
     p.add_argument("--n-taps", type=int, default=4)
     p.add_argument("--lags", type=float, nargs="+", default=[5, 8, 11, 14])
     p.add_argument("--gap", type=float, default=15.0)
@@ -600,11 +633,14 @@ def main():
     # points" for a point that never ran.
     if a.multi_delay:
         tag = f"{tag}_md" + "-".join(str(d) for d in a.multi_delay)
+        if a.mask_mode != "constant":
+            tag = f"{tag}_{a.mask_mode}"
     if list(a.tones_ghz) != [9.9, 10.3, 13.7, 24.0]:
         tag = f"{tag}_t" + "-".join(f"{t:g}" for t in a.tones_ghz)
     dseq = None
     if a.multi_delay:
-        dseq, _ = multi_delay_drive(u, a.multi_delay, seed=a.seed)
+        dseq, _ = multi_delay_drive(u, a.multi_delay, seed=a.seed,
+                                    mask_mode=a.mask_mode)
         print(f"multi-delay drive: delays {a.multi_delay}, independent zero-mean\n"
               f"  binary masks, all terms in the SAME frame. Pairwise separations\n"
               f"  formed at the node: "

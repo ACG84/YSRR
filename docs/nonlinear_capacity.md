@@ -3694,3 +3694,36 @@ converged in 3-4 steps and then followed the drive; this decays over 9+ steps
 with structure, which is what a longer memory horizon looks like. Whether it
 converges at all is not yet established -- 0.415 and falling is not 0.05 -- and
 a run that never converges has not passed, it has only failed differently.
+
+### Angle encoding: ESP holds, the transient is 4x longer, the attractor is dead
+
+Vertex, 55 mT fixed magnitude, direction carrying the input over +-90 degrees
+about 45. Completed 20 steps.
+
+| step | 9 | 12 | 14 | 15-20 |
+|---|---|---|---|---|
+| relative distance | 0.415 | 0.199 | **0.035** | 0.000 |
+
+ESP HOLDS, and it takes 14 steps to converge against 3-4 for every
+amplitude-encoded run that passed. That is the longest contraction measured in
+this project and it confirms the mechanism: a constant-magnitude rotating field
+walks around the easy-axis landscape rather than pushing along one axis of it,
+so it leaves a trap without erasing the state on the way.
+
+But the endpoint is a single frozen attractor. From step 14 the state sits at
+`+-|+-` for all six remaining inputs while the field direction swings from +86
+to -13 degrees -- the interlayer-antiparallel configuration again, reached by a
+longer path and just as stable once reached. Verdict: converges then freezes.
+
+The distinction matters for what "memory" means here. The 14 steps measure how
+long the INITIAL CONDITION persists, which is the ESP timescale. A long
+transient into a dead attractor forgets the input as thoroughly as it forgets
+where it started, so a slow contraction is necessary for memory and not
+sufficient for it.
+
+So angle encoding buys the transient but not the dynamics, at 55 mT. The open
+question is whether a larger fixed magnitude destabilises the antiparallel trap
+while the rotation keeps the long transient -- the combination neither encoding
+has produced alone. Amplitude at 90 mT escaped the trap and became a
+sign-follower with a one-step horizon; angle at 55 mT kept a 14-step horizon and
+never escaped.

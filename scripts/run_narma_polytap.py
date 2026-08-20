@@ -90,9 +90,104 @@ def save_ckpt(cache, feats, m):
 
 
 @torch.no_grad()
+def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128):
+    """J[n] = sum_j M_j[n] * s[n - d_j], every term in the SAME frame.
+
+    The device's only measured products are s[n-5]*s[n-6] and s[n-5]*s[n-7] --
+    a node mixing an arrival with its own ring-down, which is the separation
+    worth least, since |i-j| <= 2 scores 0.1215 against a 0.1243 baseline. It
+    has no way to form a LONG-separation product because each tap sees one
+    arrival at a time: the bus delays and the disk mixes, in that order, and
+    two operands separated by d in the data index never meet.
+
+    Every working reservoir family solves this the same way -- many taps, ONE
+    nonlinearity, both operands arriving together. Here that costs no
+    fabrication at all: emit both samples in the same frame and the separation
+    becomes a software parameter instead of a transport problem. The node then
+    forms every pairwise separation among the delays at once.
+
+    Masks are independent zero-mean binary sequences, one per delay, because a
+    constant mask makes the terms inseparable at the readout and Appeltant 2014
+    measures a constant-mask delay reservoir as scoring WORSE than a purely
+    linear one.
+    """
+    # SELECT the mask, do not merely draw it. Balancing the +-1 counts makes
+    # each mask exactly zero-mean, but the correlation between the drive and
+    # the PRODUCT s[n]s[n-d] is still a finite-sample random quantity of order
+    # 1/sqrt(n) -- 0.059 at n = 300, and measured at -0.069 on a balanced draw.
+    # That residual is not harmless: it is the product sitting in the drive,
+    # where a linear readout scores it and the run reports a nonlinearity that
+    # never happened. The mask is a free design choice, so it is chosen to be
+    # orthogonal to the target rather than hoped to be.
+    best = None
+    for t in range(max(1, tries)):
+        cand = _draw_masks(u, delays, seed + 1000 * t, span)
+        w = _worst_product_confound(cand[0], u, delays)
+        if best is None or w < best[0]:
+            best = (w, cand)
+    return best[1]
+
+
+def _draw_masks(u, delays, seed, span):
+    rng = np.random.default_rng(seed)
+    n = len(u)
+    s = 2.0 * np.asarray(u, dtype=float) - 1.0        # zero-mean drive symbol
+    out = np.zeros(n)
+    masks = []
+    for j, d in enumerate(delays):
+        # EXACTLY balanced, not merely random. A random +-1 draw of length 300
+        # has a mean of order 1/sqrt(300) = 0.06, and that residual puts the
+        # PRODUCT s[n]s[n-d] into the drive itself -- measured at r = -0.11 on
+        # the unbalanced version. A linear readout would then score the product
+        # with no nonlinearity involved anywhere, which is the artifact this
+        # whole experiment exists to detect. pkino's delay-RC code enforces the
+        # same thing, rejecting any mask with |sum| > 1e-5.
+        M = np.ones(n); M[: n // 2] = -1.0
+        rng.shuffle(M)
+        M = M * span
+        masks.append(M)
+        sh = np.concatenate([np.zeros(int(d)), s])[:n] if d > 0 else s
+        out += M * sh
+    # normalise so the peak drive is comparable to the single-sample case and
+    # the amplitude sweep still means what it did
+    peak = np.max(np.abs(out)) or 1.0
+    return out / peak, masks
+
+
+def _worst_product_confound(dseq, u, delays):
+    s = 2.0 * np.asarray(u, dtype=float) - 1.0
+    w = 0.0
+    for d in delays:
+        if d <= 0:
+            continue
+        c = abs(float(np.corrcoef(dseq[d:], s[d:] * s[:-d])[0, 1]))
+        w = max(w, c)
+    return w
+
+
+def drive_confounds(dseq, u, delays):
+    """How much of each target already sits in the DRIVE.
+
+    If the product is in the drive, a linear readout scores it and the run
+    reports a nonlinearity that never happened. This is the primary artifact
+    channel for the multi-delay experiment and it is checked before the run,
+    not argued about after it.
+    """
+    s = 2.0 * np.asarray(u, dtype=float) - 1.0
+    out = {}
+    for d in delays:
+        if d <= 0:
+            continue
+        a_, b_ = s[d:], s[:-d]
+        out[f"s[n]*s[n-{d}]"] = float(np.corrcoef(dseq[d:], a_ * b_)[0, 1])
+        out[f"s[n-{d}]"] = float(np.corrcoef(dseq[d:], b_)[0, 1])
+    out["s[n]"] = float(np.corrcoef(dseq, s)[0, 1])
+    return out
+
+
 def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
                   cache=None, tones=(), drive="both", fresh_scale=None,
-                  quench_frac=0.0, quench_gain=1.0):
+                  quench_frac=0.0, quench_gain=1.0, drive_seq=None):
     """Drive frame by frame with no reset; return (n_frames, features)."""
     done, m_resume = [], None
     if cache is not None and cache.exists():
@@ -157,7 +252,13 @@ def run_reservoir(arr, cfg, u, spf, carrier, amp_lo, amp_hi, dtype,
     for j, un in enumerate(u):
         if j < start:
             continue
-        amp = (amp_lo + (amp_hi - amp_lo) * float(un)) * 1e-3 / MU_0
+        if drive_seq is not None:
+            # drive_seq is already zero-mean and normalised to +-1, so it spans
+            # the same amplitude range the single-sample encoding did
+            amp = (0.5 * (amp_lo + amp_hi)
+                   + 0.5 * (amp_hi - amp_lo) * float(drive_seq[j])) * 1e-3 / MU_0
+        else:
+            amp = (amp_lo + (amp_hi - amp_lo) * float(un)) * 1e-3 / MU_0
         accI = torch.zeros(len(ws), n_sig, dtype=torch.float64)
         accQ = torch.zeros(len(ws), n_sig, dtype=torch.float64)
         for k in range(spf):
@@ -359,6 +460,11 @@ def main():
                    help="extra lock-in tones; must match the chain runs or the\n"
                         "numbers this is compared against are a different\n"
                         "instrument")
+    p.add_argument("--multi-delay", type=int, nargs="*", default=None,
+                   help="emit s[n-d] for each d in the SAME frame, each with its\n"
+                        "own zero-mean binary mask, so both operands of a product\n"
+                        "reach one node together and the separation becomes a\n"
+                        "software parameter rather than a transport problem.")
     p.add_argument("--n-taps", type=int, default=4)
     p.add_argument("--lags", type=float, nargs="+", default=[5, 8, 11, 14])
     p.add_argument("--gap", type=float, default=15.0)
@@ -487,12 +593,44 @@ def main():
           + ", ".join(f"{x:.4f}" for x in fresh), flush=True)
 
     tag = f"{run}_{a.drive}"
+    # THE DRIVE BELONGS IN THE TAG. The feature cache is keyed by it, and a
+    # multi-delay run reusing a single-sample run's features would report the
+    # old drive's numbers under the new drive's name -- which is exactly how
+    # lags 5,8,11,14 once reused lags 3,5,7,9 and a verdict announced "2 of 2
+    # points" for a point that never ran.
+    if a.multi_delay:
+        tag = f"{tag}_md" + "-".join(str(d) for d in a.multi_delay)
+    if list(a.tones_ghz) != [9.9, 10.3, 13.7, 24.0]:
+        tag = f"{tag}_t" + "-".join(f"{t:g}" for t in a.tones_ghz)
+    dseq = None
+    if a.multi_delay:
+        dseq, _ = multi_delay_drive(u, a.multi_delay, seed=a.seed)
+        print(f"multi-delay drive: delays {a.multi_delay}, independent zero-mean\n"
+              f"  binary masks, all terms in the SAME frame. Pairwise separations\n"
+              f"  formed at the node: "
+              f"{sorted({abs(x-y) for x in a.multi_delay for y in a.multi_delay if x!=y})}",
+              flush=True)
+        cf = drive_confounds(dseq, u, a.multi_delay)
+        print("  drive confounds (target already present IN THE DRIVE): "
+              + "  ".join(f"{k} {v:+.3f}" for k, v in cf.items()), flush=True)
+        worst = max((abs(v) for k, v in cf.items() if "*" in k), default=0.0)
+        if worst > 0.05:
+            print(f"  WARNING: a product correlates {worst:.3f} with the drive.\n"
+                  f"  A linear readout would score it with no nonlinearity\n"
+                  f"  anywhere, which is exactly the false positive this run is\n"
+                  f"  meant to avoid.", flush=True)
+        if 0.0 not in a.tones_ghz:
+            print("  WARNING: --tones-ghz has no zero-frequency bin. A degree-2\n"
+                  "  cross term s[n]s[n-d] lives at DC and 2w, NEVER at the\n"
+                  "  carrier, so this run cannot detect the family it is testing.",
+                  flush=True)
     F = run_reservoir(arr, cfg, u, a.steps_per_frame, a.carrier_ghz * 1e9,
                       a.amp_lo_mT, a.amp_hi_mT, dtype,
                       cache=outdir / f"features_{tag}.pt",
                       tones=[t * 1e9 for t in a.tones_ghz],
                       drive=a.drive, fresh_scale=fresh,
-                      quench_frac=a.quench_frac, quench_gain=a.quench_gain)
+                      quench_frac=a.quench_frac, quench_gain=a.quench_gain,
+                      drive_seq=dseq)
     X = F.cpu().numpy()
     X = (X - X.mean(0)) / X.std(0).clip(1e-12)
     ac1 = float(np.nanmean([np.corrcoef(X[:-1, i], X[1:, i])[0, 1]

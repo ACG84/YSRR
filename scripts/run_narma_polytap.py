@@ -135,7 +135,7 @@ def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128,
     # in the same frame, product unmodulated and recoverable.
     if mask_mode == "constant":
         n = len(u)
-        s_ = 2.0 * np.asarray(u, dtype=float) - 1.0
+        s_ = 4.0 * np.asarray(u, dtype=float) - 1.0
         out = np.zeros(n)
         masks = []
         for d in delays:
@@ -157,7 +157,7 @@ def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128,
 def _draw_masks(u, delays, seed, span):
     rng = np.random.default_rng(seed)
     n = len(u)
-    s = 2.0 * np.asarray(u, dtype=float) - 1.0        # zero-mean drive symbol
+    s = 4.0 * np.asarray(u, dtype=float) - 1.0        # zero-mean drive symbol
     out = np.zeros(n)
     masks = []
     for j, d in enumerate(delays):
@@ -181,7 +181,7 @@ def _draw_masks(u, delays, seed, span):
 
 
 def _worst_product_confound(dseq, u, delays):
-    s = 2.0 * np.asarray(u, dtype=float) - 1.0
+    s = 4.0 * np.asarray(u, dtype=float) - 1.0
     w = 0.0
     for d in delays:
         if d <= 0:
@@ -199,7 +199,7 @@ def drive_confounds(dseq, u, delays):
     channel for the multi-delay experiment and it is checked before the run,
     not argued about after it.
     """
-    s = 2.0 * np.asarray(u, dtype=float) - 1.0
+    s = 4.0 * np.asarray(u, dtype=float) - 1.0
     out = {}
     for d in delays:
         if d <= 0:

@@ -3761,3 +3761,39 @@ bounds the memory horizon at about 6 samples -- better than the single island's
 3-4 and the vertex's 3 under amplitude, still well short of the 10 NARMA-10
 needs. And this is one amplitude at one seed on a two-island vertex; the
 window's width on the angle axis is unmeasured.
+
+### Multi-delay drive: no cross-lag products, on the strongest version of the test
+
+Both operands emitted in the SAME frame at 12 GHz with 200-step frames, constant
+gains, the symbol centred, and --tones-ghz 0 so the DC bin degree-2 lives in is
+demodulated.
+
+| point | drive confound | deg1 | s[n]*s[n-k] |
+|---|---|---|---|
+| d = 1 | +0.110 | 11.19 | 0.07 |
+| d = 9 | -0.080 | 8.35 | 0.00 |
+
+Degree-1 capacity is healthy, so the device and the estimator both work. Cross-
+lag product capacity is 0.07 and 0.00. The per-lag table at d = 9 puts 0.159 at
+lag 9 -- the peak of its column, and exactly where the drive placed the pairing
+-- but the floor, set by the shifted-target score of a device with deg1 = 8.35,
+is the same size. It is at the noise.
+
+NEITHER registered branch is supported. Flat in d would have meant simultaneous
+arrival works and separation is a software parameter; falling as a^(2d) would
+have meant the node is only mixing an arrival with its own ring-down. What is
+measured is no detectable degree-2 capacity at either delay, on the version of
+the experiment designed to give it every chance:
+
+  operands together    both terms in one frame, so the transport problem that
+                       kept them apart is removed by construction
+  constant gains       the product is not randomised by a per-frame mask, which
+                       cost the previous attempt its entire degree-1 capacity
+  centred symbol       the product target is orthogonal to the linear family,
+                       so a linear device cannot score it
+  DC bin present       the readout can see a family that lives at DC and 2w and
+                       never at the carrier
+
+That closes the survey's headline recommendation for this device. The poly-tap
+element does not form a degree-2 product from two operands even when they are
+handed to it simultaneously and the readout is able to see the result.

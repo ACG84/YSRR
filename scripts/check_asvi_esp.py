@@ -78,6 +78,15 @@ def main():
                         "time at alpha_relax or the input never lands")
     p.add_argument("--alpha-relax", type=float, default=0.5)
     p.add_argument("--relax-steps", type=int, default=8000)
+    p.add_argument("--angle-input", type=float, default=None,
+                   help="encode the input as field ANGLE at FIXED magnitude,\n"
+                        "sweeping u[n] over +-this many degrees about --field-deg.\n"
+                        "Amplitude encoding drives along ONE axis of a state\n"
+                        "space whose traps sit off that axis: the vertex falls\n"
+                        "into the interlayer-antiparallel state below 90 mT and\n"
+                        "saturates above it, with no window between. A rotating\n"
+                        "field can walk between states without saturating, which\n"
+                        "is why ASI reservoir work uses angle.")
     p.add_argument("--field-deg", type=float, default=None,
                    help="in-plane field direction in degrees from +x. Square ASI\n"
                         "has TWO sublattices at 90 degrees, so a field along a\n"
@@ -124,11 +133,13 @@ def main():
     n_mag = float(mask.sum())
     print(f"ASVI island, mesh {nx}x{ny}x{nz} = {nx*ny*nz:,} cells, "
           f"{int(n_mag):,} magnetic")
-    fdir = (f"{a.field_deg:g} deg from +x" if a.field_deg is not None
+    fdir = (f"angle-encoded, {a.field_deg or 45:g} +- {a.angle_input:g} deg at "
+            f"fixed magnitude" if a.angle_input is not None
+            else f"{a.field_deg:g} deg from +x" if a.field_deg is not None
             else f"along {'xyz'[a.axis]}")
     print(f"starts {a.starts}, {a.n_steps} inputs, {a.settle} steps each, "
           f"field {fdir}, seed {a.seed}", flush=True)
-    if a.vertex and a.field_deg is None and a.vertex > 1:
+    if a.vertex and a.vertex > 1 and a.field_deg is None and a.angle_input is None:
         print("  WARNING: a vertex has two sublattices at 90 degrees and the\n"
               "  field is along a lattice axis, so the transverse sublattice\n"
               "  cannot switch at any amplitude and will latch. Pass\n"
@@ -175,6 +186,24 @@ def main():
         hist, seen, t0 = [], set(), time.time()
         for n in range(a.n_steps):
             h = torch.zeros(nx, ny, nz, 3, dtype=dtype)
+            if a.angle_input is not None:
+                # Constant magnitude, direction carries the input. The state is
+                # then walked around the easy-axis landscape rather than driven
+                # along one axis of it.
+                base = a.field_deg if a.field_deg is not None else 45.0
+                th = math.radians(base + float(u[n]) * a.angle_input)
+                g = amp * 1e-3 / MU_0
+                h[:, :, :, 0] = g * math.cos(th) * mask[:, :, :, 0]
+                h[:, :, :, 1] = g * math.sin(th) * mask[:, :, :, 0]
+                ms = [isl.rollout.relax(m, h, a.settle, a.alpha_relax) for m in ms]
+                d = float((ms[0] - ms[1]).norm() / (2 * n_mag) ** 0.5)
+                labs = [lab(m) for m in ms]
+                seen.update(labs)
+                hist.append({"n": n + 1, "u": float(u[n]), "labels": labs,
+                             "distance": d, "rel": d / max(d0, 1e-30)})
+                print(f"{n+1:>4} {u[n]:>+7.2f} " + " ".join(f"{l:>9}" for l in labs)
+                      + f" {d:>10.4f} {d/max(d0,1e-30):>7.3f}", flush=True)
+                continue
             amp_am = float(u[n]) * amp * 1e-3 / MU_0
             if a.field_deg is None:
                 h[:, :, :, a.axis] = amp_am * mask[:, :, :, 0]

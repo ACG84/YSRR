@@ -3727,3 +3727,37 @@ while the rotation keeps the long transient -- the combination neither encoding
 has produced alone. Amplitude at 90 mT escaped the trap and became a
 sign-follower with a one-step horizon; angle at 55 mT kept a 14-step horizon and
 never escaped.
+
+### Angle encoding at 70 mT: the first configuration that passes
+
+Vertex, fixed 70 mT magnitude, direction carrying the input over +-90 degrees
+about 45. Twenty steps, converged at step 6, verdict USEFUL.
+
+| encoding | converges at | post-conv states | behaviour |
+|---|---|---|---|
+| amplitude 90 mT | 3 | 2 | pure sign-follower, one-step horizon |
+| angle 55 mT | 14 | 1 | frozen in the antiparallel trap |
+| **angle 70 mT** | **6** | **4** | **actively responding** |
+
+Post-convergence it visits `++|++`, `++|+-`, `++|A-`, `+-|++`, changing at
+steps 9, 10, 12, 13, 14, 15, 16 and 17. Step 12 is `++|A-` -- a VORTEX state
+entered during operation, not merely reachable by the artificial initialisation
+gate one used. That matters: it is the first evidence the four-states-per-layer
+space is exercised by the input channel rather than only by hand.
+
+Why this point works when neither neighbour does. The interlayer-antiparallel
+configuration is flux-closed and therefore a deep trap; at 55 mT the rotating
+field cannot leave it, and at 90 mT amplitude the field is strong enough to
+leave but also strong enough to overwrite everything, giving a state that
+merely tracks sign(u). A rotating field at 70 mT is above the trap and below
+saturation -- a window that exists on the ANGLE axis and does not exist on the
+amplitude axis at all, which is why the amplitude sweep found "no window
+between trapped and saturated" and was right about its own axis.
+
+Caveats held. The last three inputs are |u| <= 0.40 and the state does not move
+for them, which is consistent with small angle excursions not switching rather
+than with a late freeze, but twenty steps is short. The convergence at step 6
+bounds the memory horizon at about 6 samples -- better than the single island's
+3-4 and the vertex's 3 under amplitude, still well short of the 10 NARMA-10
+needs. And this is one amplitude at one seed on a two-island vertex; the
+window's width on the angle axis is unmeasured.

@@ -90,6 +90,17 @@ def save_ckpt(cache, feats, m):
 
 
 @torch.no_grad()
+def _centred(u):
+    """4u-1, centred on its SAMPLE mean.
+
+    The population mean of 4u-1 on U[0,0.5] is zero; a 300-sample draw's is
+    not, and seed 0 gives +0.0805. An uncentred symbol puts a linear term into
+    every cross-lag target, so a linear device scores the product family.
+    """
+    x = 4.0 * np.asarray(u, dtype=float) - 1.0
+    return x - x.mean()
+
+
 def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128,
                       mask_mode="constant"):
     """J[n] = sum_j M_j[n] * s[n - d_j], every term in the SAME frame.
@@ -135,7 +146,7 @@ def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128,
     # in the same frame, product unmodulated and recoverable.
     if mask_mode == "constant":
         n = len(u)
-        s_ = 4.0 * np.asarray(u, dtype=float) - 1.0
+        s_ = _centred(u)
         out = np.zeros(n)
         masks = []
         for d in delays:
@@ -157,7 +168,7 @@ def multi_delay_drive(u, delays, seed=0, span=1.0, tries=128,
 def _draw_masks(u, delays, seed, span):
     rng = np.random.default_rng(seed)
     n = len(u)
-    s = 4.0 * np.asarray(u, dtype=float) - 1.0        # zero-mean drive symbol
+    s = _centred(u)        # zero-mean drive symbol
     out = np.zeros(n)
     masks = []
     for j, d in enumerate(delays):
@@ -181,7 +192,7 @@ def _draw_masks(u, delays, seed, span):
 
 
 def _worst_product_confound(dseq, u, delays):
-    s = 4.0 * np.asarray(u, dtype=float) - 1.0
+    s = _centred(u)
     w = 0.0
     for d in delays:
         if d <= 0:
@@ -199,7 +210,7 @@ def drive_confounds(dseq, u, delays):
     channel for the multi-delay experiment and it is checked before the run,
     not argued about after it.
     """
-    s = 4.0 * np.asarray(u, dtype=float) - 1.0
+    s = _centred(u)
     out = {}
     for d in delays:
         if d <= 0:

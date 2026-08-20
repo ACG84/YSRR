@@ -135,6 +135,20 @@ def main():
 
     u, y = narma10(a.frames, seed=a.seed)
     s = 4.0 * u - 1.0                     # U[0, 0.5] -> [-1, 1]
+    # CENTRE ON THE SAMPLE MEAN, not just the population mean. 4u-1 is zero-mean
+    # in expectation, but a 300-sample draw is not: seed 0 gives +0.0805, which
+    # is 2.4 sigma. That is not cosmetic. The cross-lag target expands as
+    #     s[n]s[n-d] = s'[n]s'[n-d] + mu*(s'[n] + s'[n-d]) + mu^2
+    # so with mu != 0 the "product" family contains a LINEAR term, and a purely
+    # linear device scores it. Measured on the drive alone at seed 0, a linear
+    # sum s[n] + s[n-1] correlates +0.286 with its own product target -- 5 sigma
+    # of sampling noise, entirely explained by mu.
+    #
+    # The Legendre basis is orthogonal only for centred s, so this restores the
+    # property the decomposition assumes. It also means product capacities
+    # measured before this fix carried some degree-1 leakage, in an amount set
+    # by whatever mu that run's seed happened to draw.
+    s = s - s.mean()
     n_wash, n_train, n_val = a.splits
     tr = slice(n_wash, n_wash + n_train)
     va = slice(n_wash + n_train, n_wash + n_train + n_val)

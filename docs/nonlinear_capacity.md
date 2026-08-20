@@ -3661,3 +3661,36 @@ walk a system between states without saturating it. That is a different input
 channel on the same hardware, it is cheap to test with the machinery already
 built, and it is the honest next question before concluding the architecture
 cannot hold memory.
+
+### Angle encoding escapes the trap where amplitude encoding cannot
+
+Partial result -- the run was killed at step 9 of 20 -- but the comparison is
+already clean, because it is against the amplitude run at the SAME 55 mT on the
+same vertex.
+
+| step | amplitude-encoded rel | angle-encoded rel |
+|---|---|---|
+| 0 | 1.000 | 1.000 |
+| 1 | 0.988 | 0.686 |
+| 3 | 0.700 | 0.565 |
+| 5 | 0.832 | 0.643 |
+| 7 | 0.977 | 0.418 |
+| 9 | 0.986 | 0.415 |
+
+Amplitude encoding at 55 mT never converges: both trajectories fall into
+mirror images of the flux-closed interlayer-antiparallel state and hold
+0.92-0.99 for the rest of the run. Angle encoding at the same magnitude decays
+to 0.415 by step 9 and is still falling, while visiting states the amplitude
+run never reached -- A+|-+, ++|C+, +-|++, --|C+.
+
+The reason is geometric. The traps sit off the drive axis, so pushing harder
+ALONG that axis either fails to leave them or overshoots into saturation, which
+is exactly the "no window between 90 mT and trapped" result. A constant-magnitude
+rotating field walks around the easy-axis landscape instead of pushing along one
+direction of it, so it can leave a trap without also erasing the state.
+
+Crucially the convergence is GRADUAL. The amplitude runs that did satisfy ESP
+converged in 3-4 steps and then followed the drive; this decays over 9+ steps
+with structure, which is what a longer memory horizon looks like. Whether it
+converges at all is not yet established -- 0.415 and falling is not 0.05 -- and
+a run that never converges has not passed, it has only failed differently.

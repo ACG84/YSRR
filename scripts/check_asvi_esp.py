@@ -200,11 +200,16 @@ def main():
     def pack(ts):
         return [t[idx].cpu().clone() for t in ts]
     def unpack(packed):
+        # Pin BOTH sides to idx.device. torch.zeros here inherits magnum.np's
+        # device context, so on a GPU run it lands on cuda while the tensors
+        # just loaded from disk are cpu -- and the assignment then dies with
+        # "found at least two devices". The CPU round-trip test could not catch
+        # that, because on CPU the two devices are the same one.
         out = []
         for q in packed:
-            full = torch.zeros(nx, ny, nz, 3, dtype=dtype)
-            full[idx] = q.to(full.dtype)
-            out.append(full.to(mask.device) if hasattr(mask, "device") else full)
+            full = torch.zeros(nx, ny, nz, 3, dtype=dtype, device=idx.device)
+            full[idx] = q.to(device=idx.device, dtype=dtype)
+            out.append(full)
         return out
     def save_ckpt(**kw):
         if not a.ckpt:

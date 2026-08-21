@@ -104,6 +104,10 @@ def main():
     p.add_argument("--offset-nm", type=float, default=50.0)
     p.add_argument("--alpha", type=float, default=0.001)
     p.add_argument("--dx-nm", type=float, default=5.0)
+    p.add_argument("--lattice", type=int, nargs=2, default=None,
+                   metavar=("NVX", "NVY"),
+                   help="islands on the bonds of an NVX x NVY VERTEX lattice:\n"
+                        "2*n*(n-1) islands, so 24 for 4x4. Overrides --vertex.")
     p.add_argument("--vertex", type=int, default=0,
                    help="islands meeting at a square-ASI vertex. 0 = the single\n"
                         "island; 2 = the minimal motif (one x-island, one\n"
@@ -118,10 +122,11 @@ def main():
     kw = dict(length=a.length_nm * 1e-9, width=a.width_nm * 1e-9,
               layer_offset=a.offset_nm * 1e-9, alpha=a.alpha,
               dx=a.dx_nm * 1e-9, dz=a.dx_nm * 1e-9)
-    if a.vertex:
-        cfg = ASVIVertexConfig(
-            placements=ASVIVertexConfig.square_vertex(a.length_nm, 125.0,
-                                                      a.vertex), **kw)
+    if a.lattice or a.vertex:
+        P = (ASVIVertexConfig.square_lattice(*a.lattice, a.length_nm, 125.0)
+             if a.lattice else
+             ASVIVertexConfig.square_vertex(a.length_nm, 125.0, a.vertex))
+        cfg = ASVIVertexConfig(placements=P, **kw)
         isl = ASVIVertex(cfg, timesteps=32, dtype=dtype)
         n_parts, lab = isl.n_parts, isl.label
     else:

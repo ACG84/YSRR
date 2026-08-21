@@ -392,6 +392,29 @@ class ASVIVertexConfig(ASVIConfig):
             out.append((-d * math.cos(th), -d * math.sin(th), a))
         return tuple(out)
 
+    @staticmethod
+    def square_lattice(nvx, nvy, length_nm=550.0, gap_nm=125.0):
+        """Islands on the EDGES of an nvx x nvy vertex lattice.
+
+        Square ASI puts islands on the bonds of a square lattice, not its
+        sites, so an nvx x nvy array of VERTICES carries the horizontal bonds
+        between columns and the vertical bonds between rows -- 2*n*(n-1)
+        islands for an n x n vertex array, 24 at n = 4. Vertex spacing is the
+        island length plus two end gaps.
+        """
+        a = length_nm + 2 * gap_nm
+        P = []
+        for i in range(nvx):
+            for j in range(nvy):
+                vx, vy = i * a, j * a
+                if i < nvx - 1:
+                    P.append((vx + a / 2, vy, 0.0))
+                if j < nvy - 1:
+                    P.append((vx, vy + a / 2, 90.0))
+        cx = sum(q[0] for q in P) / len(P)
+        cy = sum(q[1] for q in P) / len(P)
+        return tuple((q[0] - cx, q[1] - cy, q[2]) for q in P)
+
     def n_islands(self) -> int:
         return len(self.placements)
 

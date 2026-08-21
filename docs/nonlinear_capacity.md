@@ -4071,3 +4071,48 @@ Horizon should be reported as a distribution over seeds with the WORST case
 governing, since an operating point that fails on one input sequence in four is
 not an operating point. A shorter horizon that holds for every seed beats a 10
 that exists for one.
+
+### Two statistics were measuring the run, not the device
+
+Four seeds at settle 500, 20 inputs:
+
+| mT | seeds | fail | horizon per seed | censored | switch rate | states |
+|---|---|---|---|---|---|---|
+| 62 | 4 | 0 | 9,15,19,19 | 2 | 0.34 | 2.0 |
+| 64 | 4 | 0 | 8,13,17,19 | 1 | 0.39 | 2.5 |
+| 66 | 4 | 0 | 7,13,15,18 | 1 | 0.41 | 3.0 |
+| 68 | 4 | 0 | 7,10,10,18 | 1 | 0.40 | 3.0 |
+| **70** | 4 | 0 | 7,9,13,16 | **0** | 0.39 | 3.2 |
+| 80 | 1 | 0 | 4 | 0 | 0.69 | 8.0 |
+
+HORIZON IS RIGHT-CENSORED. A 20-input run reporting horizon 19 has two
+post-convergence samples and a true horizon that might be 25. Values within two
+of n_steps are floors, and 62 mT has two of them. 70 mT is the only amplitude
+in this range with no failures and no censored seeds, which makes it the only
+one whose numbers can be ranked at all.
+
+THE LAST-5 LIVENESS TEST WAS READING THE INPUT DRAW. USEFUL versus FREEZES
+asked whether the final five post-convergence inputs visit more than one state.
+At a switch rate near 0.4, five consecutive non-switches have probability about
+0.13, so across thirty amplitude-seed combinations several FREEZE by chance --
+and they did, which is why seed 3 read FREEZES at every amplitude from 64 to 70
+while its trajectories plainly switch mid-window. Switch rate replaces it: it
+pools every post-convergence transition, so its error falls with run length
+instead of staying fixed.
+
+A CLAIM MADE FROM TWO TRAJECTORIES AND WRONG. Reading individual runs by eye
+suggested a clean threshold -- "only |u| above about 0.9 switches the state" --
+which would have made the device a poor reservoir, responding to a tenth of its
+input. Pooled over every post-convergence transition the smallest |u| that DID
+switch is 0.08 and the largest that did NOT is 0.93, AT THE SAME AMPLITUDE. The
+ranges overlap at every amplitude measured. There is no threshold: the same
+input magnitude goes either way depending on the state it arrives at, which is
+history dependence, and is the property that makes the element worth using.
+Measured switch rate is 0.28-0.41 across 60-70 mT, not 0.10.
+
+AND THE TRADE-OFF WAS PARTLY AN ARTEFACT. Switch rate is FLAT at 0.32-0.41
+across 60-70 mT, so weakening the drive from 70 to 62 does not make the device
+respond less often. It lengthens the horizon while adding censoring and seed
+instability, and the apparent loss of state diversity at low amplitude was
+mostly the short run starving the count. Diversity genuinely rises only at
+80-90 mT, where switch rate jumps to 0.69-0.75 and the horizon collapses to 4.

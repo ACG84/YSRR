@@ -3908,3 +3908,62 @@ Caveat on the round-trip test: it ran at settle 5 on a single island and the
 state never switched, so it proves exact state restoration and exact continued
 integration, over a short non-switching trajectory. Bit-exactness is what makes
 it convincing rather than the trajectory's richness.
+
+### 4x4 lattice result: ESP holds, vortices engage, and the horizon does not grow
+
+24 islands on the bonds of a 4x4 vertex array, 5,036,688 cells, 70 mT constant
+magnitude with the input in the field direction over +-90 degrees about 45.
+Two maximally separated starts, all-`++` against all-`--`. Run in four chunks
+across four separate A100 leases; 13.1 min of solver time per the run's own
+clock, about 63 min wall including setup and state transfer.
+
+| n | u | rel | state (islands 1-2 of 24) |
+|---|---|---|---|
+| 1 | +0.27 | 0.480 | `++\|++` vs `-+\|++` |
+| 2 | -0.46 | 0.224 | labels agree, state does not |
+| 3 | -0.92 | 0.411 | `++\|+-` vs `++\|--` |
+| 4 | -0.97 | 0.210 | labels agree |
+| 5 | +0.63 | 0.211 | labels agree |
+| 6 | +0.83 | **0.0002** | converged |
+| 7-11 | | 0.0000 | |
+| 12 | -0.99 | 0.0000 | `++\|A-` -- NINE islands vortex |
+
+VERDICT: USEFUL. Converged at input 6, three distinct post-convergence states
+over seven post-convergence inputs, still moving in the last five.
+
+THE REGISTERED QUESTION IS ANSWERED, AND THE ANSWER IS NO. The two-island
+vertex converges at step 6. The 4x4 lattice converges at step 6. Twelve times
+the islands, and six state-dependent neighbours per interior bond instead of
+one, bought exactly no additional memory. The counter-case registered before
+the run -- that more coupling need not mean more memory -- is what happened,
+though in its mildest form: the horizon did not shorten either, as it did going
+from one island to two under amplitude encoding.
+
+That makes the ~6-sample horizon look like a property of the ELEMENT AND THE
+DRIVE rather than of array size, which matters for what to do next. Scaling the
+array is the wrong lever for reaching NARMA-10's 10 samples: a 4x4 already
+costs 9.6x the vertex and returns the same horizon, so 8x8 is not a plan. The
+drive and the element are where the lever is.
+
+A MISREAD, RECORDED. Between inputs 2 and 5 the two trajectories carried
+IDENTICAL macrospin labels while relative distance sat at 0.21 and appeared to
+stop falling. Three readings were offered: a genuine stall (ESP fails), a slow
+descent needing more inputs, or a hidden degree of freedom invisible to the
+label. The third was the interesting one and it was wrong. At input 6 the
+residual collapsed 0.211 -> 0.0002 in a single step -- not a stall and not a
+slow descent, but a sharp transition. The residual was a transient with a
+lifetime of a few inputs, and reading a flat stretch of five points as a
+plateau was reading noise-free data too eagerly.
+
+THE VORTICES ENGAGE UNDER DRIVE. At input 12, u = -0.99, nine of the 24 islands
+sit in `A-`: layer 0 an anticlockwise vortex, layer 1 macrospin. This is the
+first time in this project that vortex states have been ENTERED DURING
+OPERATION rather than initialised and tested for survival. The four-states-per-
+layer multiplicity the ASVI is named for is reachable by the drive, which is
+the premise the whole redirection rests on and had not previously been shown.
+
+Note the sublattice pattern in that state: the vortex islands alternate, and
+the last three islands stay `+-`. The drive is at 45 degrees to both
+sublattices by construction, so an alternating response is the two sublattices
+answering a common field differently through their neighbours, not an artefact
+of the field addressing one of them.

@@ -3853,3 +3853,58 @@ log on the VM. The launcher now hard-resets the clone to origin so a kept
 session cannot serve stale code, and watches the real log until it either
 fails or prints the mesh line, rather than reporting "detached" on the strength
 of having called Popen.
+
+### The GPU lease is shorter than the run, and detaching does not fix it
+
+The 4x4 run was launched detached on the VM on the reasoning that a process
+started with `nohup` would keep computing across a host container restart. It
+did not, and the reasoning was wrong in a way worth writing down, because the
+same mistake is available on any rented-compute setup.
+
+`colab`'s keep-alive is a DAEMON IN THE CALLING CONTAINER. The CLI log shows it
+pinging every ~70 s and then stopping dead:
+
+    15:55:57  15:57:07  15:58:18  15:59:28   ... nothing until the poll at 16:21
+
+Container uptime at the next check was two minutes. The container restarted,
+the keep-alive daemon died with everything else local, and Colab reclaimed the
+A100. Detaching the solver moved the dependency from the solver PROCESS to the
+LEASE DAEMON. Both are local, so nothing was decoupled and the run was lost.
+
+Two measurement errors made this look fine for an hour:
+
+  pgrep -fc check_asvi_esp     counts the /bin/sh that is running the pgrep,
+                               because that shell's own cmdline contains the
+                               pattern. It reported "alive: 1" for a run that
+                               had already died. Anchoring on
+                               `python.*check_asvi_esp.py` excludes the shell.
+  reporting Popen as success   the first launch cloned the branch BEFORE the
+                               --lattice flag was pushed, so argparse rejected
+                               it at t=0. The launcher had reported "DETACHED"
+                               on the strength of having called Popen rather
+                               than on anything the run itself printed.
+
+WHAT REPLACES IT. No amount of shrinking fits a ~121 min run into a ~60 min
+lease, so the run is chunked. `--ckpt` writes state after every input step and
+`--chunk` stops cleanly after a set number of inputs. The checkpoint lives in
+the local scratchpad, NOT on the VM: the scratchpad and the server-side
+check-in schedule survive container restarts, and the VM does not. The VM
+becomes disposable compute -- create, push state up, run one chunk with the
+kernel genuinely busy, pull state back -- so losing a VM costs one chunk.
+
+VERIFIED, not assumed:
+
+  round trip   a 2+2 chunked run against an uninterrupted 4-input reference.
+               Inputs 3 and 4 were computed from the RESTORED state and match
+               the reference to the last bit of float32: worst distance
+               difference 0.000e+00 across all steps. If packing to magnetic
+               cells and back lost anything the low bits would differ at once.
+  guard        the same checkpoint offered to a run with a different seed is
+               refused, naming the differing key: "differs in ['seed']". A
+               stale checkpoint silently resumed under changed geometry is the
+               m0 reuse bug again, which announced itself only by luck.
+
+Caveat on the round-trip test: it ran at settle 5 on a single island and the
+state never switched, so it proves exact state restoration and exact continued
+integration, over a short non-switching trajectory. Bit-exactness is what makes
+it convincing rather than the trajectory's richness.

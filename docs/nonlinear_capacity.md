@@ -3967,3 +3967,44 @@ the last three islands stay `+-`. The drive is at 45 degrees to both
 sublattices by construction, so an alternating response is the two sublattices
 answering a common field differently through their neighbours, not an artefact
 of the field addressing one of them.
+
+### The drive: settle time is the handle array size was not
+
+The 4x4 result licensed a cheap test bed. 24 islands converge at input 6 and 2
+islands converge at input 6, so the horizon is not set by array size and the
+vertex measures the same number at 1/9.6 the cost. Every point below is the
+2-island vertex, 20 inputs (not 12 -- a horizon past 6 cannot be seen in 12),
+70 mT, angle-encoded +-90 degrees about 45.
+
+SETTLE is the number of solver steps each input gets before the next arrives.
+At 1000 every input relaxes essentially to completion, so the state is a
+function of the current input and little else. Shortening it leaves more of the
+previous state alive -- and costs proportionally LESS, which is the opposite of
+the array-scaling lever.
+
+| settle | alpha | horizon | post-conv states | min | verdict |
+|---|---|---|---|---|---|
+| 1000 | 0.5 | 6 | 4 | 6.7 | USEFUL |
+| **500** | 0.5 | **7** | **6** | **3.4** | **USEFUL** |
+| 250 | 0.5 | never | - | 1.7 | ESP FAILS |
+| 125 | 0.5 | never | - | 0.8 | ESP FAILS |
+| 250 | 0.1 | never | - | 1.7 | ESP FAILS |
+
+Settle 500 beats the baseline on every axis at half the cost: horizon 6 -> 7,
+post-convergence state diversity 4 -> 6. The sweep was looking for where
+convergence BREAKS rather than for a monotone improvement, and it found a sharp
+cliff between 500 and 250 -- not a gentle trade-off. Below it the two initial
+conditions never contract and the run keeps a permanent trace of which state it
+started in, which is not long memory but no memory: nothing it reports is about
+the input.
+
+One point separates duration from damping. At settle 250, dropping alpha_relax
+from 0.5 to 0.1 moved the final relative distance from 0.405 to 0.263 -- closer
+to converging, not further. Less damping over the same number of steps ought to
+mean less relaxation, so damping is not simply a slower version of the same
+knob and deserves its own axis once the settle cliff is located.
+
+Honest reading of the size of this. 6 -> 7 is one sample on a target of 10, so
+settle alone does not reach NARMA-10. What it establishes is that the horizon
+MOVES with the drive at all, which array size did not do, and that it moves in
+the direction that costs less compute rather than more.

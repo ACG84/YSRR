@@ -38,7 +38,7 @@ merely saturated. Both are reported, and the verdict requires both.
     python scripts/check_asvi_esp.py --device cuda --amps-mT 30 45 55 70
 """
 from __future__ import annotations
-import argparse, json, math, sys, time
+import argparse, json, math, os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np, torch
@@ -112,6 +112,14 @@ def main():
                    help="islands meeting at a square-ASI vertex. 0 = the single\n"
                         "island; 2 = the minimal motif (one x-island, one\n"
                         "y-island); 4 = the full vertex.")
+    p.add_argument("--ckpt", default=None,
+                   help="checkpoint file. Written after EVERY input step and\n"
+                        "reloaded on restart, so a run longer than the host's\n"
+                        "uptime survives being killed part-way.")
+    p.add_argument("--chunk", type=int, default=0,
+                   help="stop cleanly after this many input steps this\n"
+                        "invocation (0 = run to the end). Sizes one leg of the\n"
+                        "run to fit inside the window the host actually gives.")
     p.add_argument("--outdir", default="runs/asvi_esp")
     a = p.parse_args()
 
@@ -173,8 +181,57 @@ def main():
         raise SystemExit(f"start {spec!r} has {len(parts)} labels; need "
                          f"{n_parts} or a divisor of it")
 
-    starts0 = [isl.relax(expand(s), steps=a.relax_steps, dtype=dtype).clone()
-               for s in a.starts]
+    # ------------------------------------------------------- checkpointing
+    # A 4x4 lattice ESP run is about two hours and the host gives roughly one,
+    # so the run has to survive being killed. It is NOT enough to write state:
+    # a stale checkpoint silently resumed under different geometry is the same
+    # class of bug as the m0 reuse that corrupted two delay points sharing an
+    # outdir. So every checkpoint carries a fingerprint of the things that
+    # would make it meaningless, and a mismatch refuses rather than resumes.
+    idx = mask[..., 0].bool()          # store magnetic cells only: 700k not 5M
+    def fingerprint():
+        return {"grid": [nx, ny, nz], "n_mag": int(n_mag), "n_parts": n_parts,
+                "starts": list(a.starts), "seed": a.seed,
+                "n_steps": a.n_steps, "settle": a.settle,
+                "relax_steps": a.relax_steps, "amps": list(a.amps_mT),
+                "angle_input": a.angle_input, "field_deg": a.field_deg,
+                "alpha_relax": a.alpha_relax, "lattice": a.lattice,
+                "vertex": a.vertex, "dx_nm": a.dx_nm}
+    def pack(ts):
+        return [t[idx].cpu().clone() for t in ts]
+    def unpack(packed):
+        out = []
+        for q in packed:
+            full = torch.zeros(nx, ny, nz, 3, dtype=dtype)
+            full[idx] = q.to(full.dtype)
+            out.append(full.to(mask.device) if hasattr(mask, "device") else full)
+        return out
+    def save_ckpt(**kw):
+        if not a.ckpt:
+            return
+        tmp = str(a.ckpt) + ".tmp"
+        torch.save({"fp": fingerprint(), **kw}, tmp)
+        os.replace(tmp, a.ckpt)          # atomic: a kill mid-write cannot
+                                         # leave a half-file that loads
+    ck = None
+    if a.ckpt and os.path.exists(a.ckpt):
+        ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)
+        if ck.get("fp") != fingerprint():
+            diff = [k for k, v in fingerprint().items()
+                    if ck.get("fp", {}).get(k) != v]
+            raise SystemExit(
+                f"checkpoint {a.ckpt} does not match this run; differs in "
+                f"{diff}.\nRefusing to resume -- delete it to start over. "
+                "Resuming a mismatched\nstate is how the m0 reuse corrupted a "
+                "sweep without announcing it.")
+        print(f"resumed from {a.ckpt}: {ck['done']}/{a.n_steps} inputs done",
+              flush=True)
+
+    if ck is not None:
+        starts0 = unpack(ck["starts0"])
+    else:
+        starts0 = [isl.relax(expand(s), steps=a.relax_steps, dtype=dtype).clone()
+                   for s in a.starts]
     print("relaxed starts: " + "  ".join(
         f"{s} -> {lab(m)}" for s, m in zip(a.starts, starts0)), flush=True)
 
@@ -183,13 +240,21 @@ def main():
         print(f"\n===== peak {amp:g} mT =====", flush=True)
         ms = [m.clone() for m in starts0]
         d0 = float((ms[0] - ms[1]).norm() / (2 * n_mag) ** 0.5)
+        n_done, hist0, seen0 = 0, [], []
+        if ck is not None and ck["amp"] == amp:
+            ms, n_done = unpack(ck["ms"]), ck["done"]
+            hist0, seen0, d0 = ck["hist"], ck["seen"], ck["d0"]
         print(f"{'n':>4} {'u':>7} " + " ".join(f"{'st'+str(i):>9}" for i in
                                                range(len(ms)))
               + f" {'distance':>10} {'rel':>7}")
         print(f"{0:>4} {'':>7} " + " ".join(f"{lab(m):>9}" for m in ms)
               + f" {d0:>10.4f} {1.0:>7.3f}", flush=True)
-        hist, seen, t0 = [], set(), time.time()
-        for n in range(a.n_steps):
+        hist, seen, t0 = list(hist0), set(seen0), time.time()
+        for h_ in hist:
+            print(f"{h_['n']:>4} {h_['u']:>+7.2f} "
+                  + " ".join(f"{l:>9}" for l in h_["labels"])
+                  + f" {h_['distance']:>10.4f} {h_['rel']:>7.3f}", flush=True)
+        for n in range(n_done, a.n_steps):
             h = torch.zeros(nx, ny, nz, 3, dtype=dtype)
             if a.angle_input is not None:
                 # Constant magnitude, direction carries the input. The state is
@@ -208,6 +273,14 @@ def main():
                              "distance": d, "rel": d / max(d0, 1e-30)})
                 print(f"{n+1:>4} {u[n]:>+7.2f} " + " ".join(f"{l:>9}" for l in labs)
                       + f" {d:>10.4f} {d/max(d0,1e-30):>7.3f}", flush=True)
+                save_ckpt(amp=amp, done=n + 1, ms=pack(ms), hist=hist,
+                          seen=sorted(seen), d0=d0,
+                          starts0=pack(starts0))
+                if a.chunk and (n + 1 - n_done) >= a.chunk and n + 1 < a.n_steps:
+                    print(f"\nCHUNK DONE: {n+1}/{a.n_steps} inputs, state saved "
+                          f"to {a.ckpt}.\nRe-run the same command to continue.",
+                          flush=True)
+                    return 0
                 continue
             amp_am = float(u[n]) * amp * 1e-3 / MU_0
             if a.field_deg is None:

@@ -4008,3 +4008,66 @@ Honest reading of the size of this. 6 -> 7 is one sample on a target of 10, so
 settle alone does not reach NARMA-10. What it establishes is that the horizon
 MOVES with the drive at all, which array size did not do, and that it moves in
 the direction that costs less compute rather than more.
+
+### Amplitude is the stronger knob, and it works by sitting on the ESP boundary
+
+Settle needed a 2.9x change to move the horizon 6 -> 8. Amplitude moves it
+further with a 10 mT change. Settle 500, seed 0, 2-island vertex, 20 inputs:
+
+| mT | 50 | 60 | 62 | 64 | 66 | 68 | 70 | 80 | 90 |
+|---|---|---|---|---|---|---|---|---|---|
+| horizon | fails | 10* | **9** | 8 | 7 | 7 | 7 | 4 | 4 |
+| states | - | 3 | 4 | 5 | 5 | 4 | 6 | 8 | 7 |
+
+*FREEZES rather than USEFUL. Best genuinely useful point: 62 mT, horizon 9.
+
+Monotone: the horizon rises as the drive weakens, because a weaker drive
+perturbs the state less per input. The cost is state diversity, which falls the
+same way -- 8 states at 80 mT against 4 at 62. That trade is the physical
+content: memory length and state richness are bought from the same budget.
+
+THE TWO KNOBS DO NOT STACK. Settle 350 was better than 500 at 70 mT, so the
+obvious move was to combine short settle with weak drive. It fails:
+
+| settle | 60 | 62 | 65 | 68 | 70 |
+|---|---|---|---|---|---|
+| 500 | 10* | 9 | - | 7 | 7 |
+| 350 | fails | fails | fails | 8 | 8 |
+
+Shortening the settle RAISES the amplitude at which ESP breaks. Both knobs push
+toward the same boundary, so combining them crosses it, and the best horizon at
+settle 350 (8, at 68-70 mT) is what settle 500 already gives at 64 mT. These
+are points on one iso-horizon contour, not two independent gains.
+
+### The horizon numbers above are single draws, and near the boundary that is not enough
+
+At 60 mT, settle 500, three input seeds give three different answers:
+
+| seed | horizon | verdict |
+|---|---|---|
+| 0 | 10 | FREEZES |
+| 1 | 17 | USEFUL |
+| 2 | never | ESP FAILS |
+
+The full range, from complete failure to the best result in the campaign, from
+the same device under the same drive. This is what sitting ON the ESP boundary
+looks like: whether the two initial conditions contract at all depends on the
+input sequence.
+
+Two consequences, the second more damaging than the first.
+
+  60 mT is not an operating point. The horizon of 10 that appeared to meet
+  NARMA-10's requirement was a property of one input draw. A different draw
+  does not converge.
+
+  EVERY horizon in this document is a single-seed measurement. Horizon 6 at
+  settle 1000, 7 at 500, 8 at 350, 9 at 62 mT -- all one draw each. Points
+  further from the boundary are presumably more stable, but presumably is not
+  measured, and the whole reason the horizon grows is PROXIMITY to that
+  boundary. The long-memory regime and the no-memory regime are adjacent, which
+  is exactly the configuration in which a single draw misleads.
+
+Horizon should be reported as a distribution over seeds with the WORST case
+governing, since an operating point that fails on one input sequence in four is
+not an operating point. A shorter horizon that holds for every seed beats a 10
+that exists for one.

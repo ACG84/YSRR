@@ -3797,3 +3797,59 @@ the experiment designed to give it every chance:
 That closes the survey's headline recommendation for this device. The poly-tap
 element does not form a degree-2 product from two operands even when they are
 handed to it simultaneously and the readout is able to see the result.
+
+### The 4x4 lattice: does an interior island remember longer than a vertex?
+
+Square ASI is a BOND lattice -- islands sit on the edges between vertex sites,
+not on the sites. `square_vertex` builds the motif meeting at one vertex, which
+was the right object for asking whether coupling exists, but it cannot ask
+whether memory accumulates, because every island in it shares one neighbourhood.
+`square_lattice` walks an NVX x NVY array of vertex sites and emits the
+horizontal bond between adjacent columns and the vertical bond between adjacent
+rows: 2*n*(n-1) islands, so 4 at 2x2, 12 at 3x3, 24 at 4x4, with the two
+sublattices balanced by construction (12 and 12 at 4x4). Balance matters --
+a field along a lattice axis leaves one sublattice unswitchable at any
+amplitude, which is what vetoed the first amplitude sweep.
+
+Cost measured rather than guessed:
+
+| config | islands | cells | x vertex | ms/step |
+|---|---|---|---|---|
+| 2-island vertex | 2 | 525,888 | 1.0x | 27 |
+| full 4-island vertex | 4 | 1,544,832 | 2.9x | 79 |
+| 2x2 vertex lattice | 4 | 800,928 | 1.5x | 41 |
+| 3x3 vertex lattice | 12 | 2,477,088 | 4.7x | 127 |
+| 4x4 vertex lattice | 24 | 5,036,688 | 9.6x | 259 |
+
+Demagnetisation tensors are about 1 GB, so memory is not the constraint.
+Wall-clock is: an ESP run at 4x4 is roughly two hours against a container that
+restarts hourly, so the run is detached on the VM and polled, and a supervisor
+retry loop would not have helped -- a two-hour job does not fit in a one-hour
+window however many times it is restarted.
+
+THE REGISTERED QUESTION. The two-island vertex converges at step 6, bounding
+its memory horizon at about 6 samples. An interior bond at 4x4 touches six
+other islands through its two end vertices instead of one, so its switching
+field is set by a much richer state-dependent bias. Does that lengthen the
+horizon toward the 10 that NARMA-10 needs?
+
+This is NOT a safe extrapolation, and the reason is already in this document:
+going from one island to two made memory WORSE under amplitude encoding, 3
+samples against 3-4. More coupling is not automatically more memory -- coupling
+can just as easily accelerate the collapse onto a common attractor, which is
+convergence, which is the thing ESP measures and memory pays for. A shorter
+horizon at 4x4 is a real possible outcome and would say the lattice contracts
+harder than the motif.
+
+Operating point is the one the vertex passed at: 70 mT constant magnitude with
+the input in the field DIRECTION over +-90 degrees about 45. Amplitude encoding
+has no window -- trapped in the flux-closed interlayer-antiparallel state below
+90 mT, sign-following above it.
+
+A NOTE ON THE FIRST LAUNCH, since it cost an hour of idle GPU. The launcher
+clones the branch from GitHub, and it ran while the `--lattice` flag was still
+uncommitted locally. argparse rejected the run at t=0 and the failure sat in a
+log on the VM. The launcher now hard-resets the clone to origin so a kept
+session cannot serve stale code, and watches the real log until it either
+fails or prints the mesh line, rather than reporting "detached" on the strength
+of having called Popen.

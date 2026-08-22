@@ -96,6 +96,39 @@ def main():
     print("\ncensored = horizon within 2 of n_steps, so a floor not a value.")
     print("An amplitude with any censored seed cannot be ranked on horizon.")
 
+    # ------------------------------------------------------- paired by seed
+    # The seed IS the input sequence: one draw of u is shared by every
+    # amplitude in a run and by every run with that seed. So the seed is a
+    # nuisance factor COMMON to the amplitudes being compared, and it cancels
+    # in a per-seed difference.
+    #
+    # This matters because the seed effect is larger than the amplitude effect.
+    # Unpaired, 62 mT spans horizon 9-19 and 70 mT spans 7-16: the ranges
+    # overlap so heavily they look like one distribution, and four rounds of
+    # this sweep were spent adding seeds to average the variance down. Paired,
+    # 62 mT wins on every seed. The variance was never irreducible noise --
+    # it was removable by construction, by differencing instead of averaging.
+    hz = collections.defaultdict(dict)
+    for r in rows:
+        hz[r["amp"]][r["seed"]] = summarise(r)["horizon"]
+    amps = sorted(hz)
+    pairs = [(a, b) for i, a in enumerate(amps) for b in amps[i + 1:]
+             if len(set(hz[a]) & set(hz[b])) >= 2]
+    if pairs:
+        print("\npaired by seed (same input sequence at both amplitudes)")
+        print(f"{'pair':>12}{'per-seed difference':>26}{'mean':>8}  consistent?")
+        for a, b in pairs:
+            sd = sorted(set(hz[a]) & set(hz[b]))
+            d = [hz[a][s] - hz[b][s] for s in sd
+                 if hz[a][s] and hz[b][s]]
+            if not d:
+                continue
+            sign = ("all favour %g mT" % a if all(x > 0 for x in d)
+                    else "all favour %g mT" % b if all(x < 0 for x in d)
+                    else "MIXED -- no consistent winner")
+            ds = ",".join(f"{x:+d}" for x in d)
+            print(f"{f'{a:g} vs {b:g}':>12}{ds:>26}{sum(d)/len(d):>+8.1f}  {sign}")
+
     # Pooled switch statistics: is there an amplitude threshold on |u|?
     lo, hi = collections.defaultdict(list), collections.defaultdict(list)
     for r in rows:

@@ -4116,3 +4116,54 @@ respond less often. It lengthens the horizon while adding censoring and seed
 instability, and the apparent loss of state diversity at low amplitude was
 mostly the short run starving the count. Diversity genuinely rises only at
 80-90 mT, where switch rate jumps to 0.69-0.75 and the horizon collapses to 4.
+
+### 40 inputs, four seeds, paired: 62 mT is the operating point
+
+The 20-input runs could not settle anything -- horizons of 19 out of 20 were
+floors, state counts were starved by whatever few post-convergence inputs a
+long horizon left, and the seed spread swamped the differences between
+amplitudes. Re-measured at 40 inputs, settle 500, alpha_relax 0.5:
+
+| mT | seeds | horizon per seed | censored | switch rate | states |
+|---|---|---|---|---|---|
+| 62 | 4 | 9,15,19,19 | 0 | 0.48 | 6.2 |
+| 66 | 1 | 7 | 0 | 0.42 | 9.0 |
+| 70 | 4 | 7,9,13,16 | 0 | 0.55 | 7.0 |
+| 80 | 1 | 4 | 0 | 0.67 | 13.0 |
+
+Nothing is censored now, so these are values rather than lower bounds. The
+seed spread survives decensoring -- 62 mT runs 9 to 19, 70 mT runs 7 to 16,
+both about 2.2x -- so it is a real property of the device under a random drive
+and not an artefact of the run length.
+
+PAIRING BY SEED. The seed IS the input sequence: one draw of u is shared by
+every amplitude in a run and by every run carrying that seed. So the seed is a
+nuisance factor COMMON to the amplitudes being compared, and it cancels in a
+per-seed difference.
+
+| seed | 62 mT | 70 mT | difference |
+|---|---|---|---|
+| 0 | 9 | 7 | +2 |
+| 1 | 15 | 9 | +6 |
+| 2 | 19 | 16 | +3 |
+| 3 | 19 | 13 | +6 |
+
+62 mT wins on every seed, mean +4.2 samples, at comparable state diversity
+(6.2 against 7.0). Unpaired those ranges overlap so heavily they read as one
+distribution and as evidence the amplitudes are indistinguishable. Four rounds
+of this sweep were spent adding seeds to average that variance down, on the
+assumption it was irreducible. It was removable by construction.
+
+THE TRADE-OFF IS REAL ONLY AT THE EXTREMES. Between 62 and 70 mT, state counts
+are 6.2 and 7.0 -- no meaningful loss for four samples of memory. The trade
+appears at 80 mT: horizon collapses to 4 while diversity rises to 13 states and
+switch rate to 0.67. The earlier claim that weakening the drive costs diversity
+was measured at 20 inputs, where a long horizon starved the state count; at 62
+mT the count goes 2.0 -> 6.2 on run length alone.
+
+WHERE THIS LEAVES THE TARGET. NARMA-10 needs 10 samples. At 62 mT the horizon
+is 9, 15, 19, 19 across four input draws -- at or above target on three of
+four, below on one. That is not "10 samples achieved"; it is a device whose
+memory depends on what it is fed, and the honest summary is a distribution
+with a floor of 9, not a single number. The floor is what a task has to live
+with, and one more sample of floor would be worth more than ten of ceiling.

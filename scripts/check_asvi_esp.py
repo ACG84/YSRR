@@ -130,6 +130,13 @@ def main():
     kw = dict(length=a.length_nm * 1e-9, width=a.width_nm * 1e-9,
               layer_offset=a.offset_nm * 1e-9, alpha=a.alpha,
               dx=a.dx_nm * 1e-9, dz=a.dx_nm * 1e-9)
+    # ---- vector readout ------------------------------------------------
+    # label() reduces each island-layer to ONE CHARACTER, and part_state has
+    # already computed m_long, m_trans and circ to get there. Recording the
+    # vector costs nothing and keeps a continuous state the coarse label
+    # cannot represent -- the 4x4 run spent five inputs with IDENTICAL labels
+    # and a relative distance of 0.21, which is precisely the information the
+    # character throws away.
     if a.lattice or a.vertex:
         P = (ASVIVertexConfig.square_lattice(*a.lattice, a.length_nm, 125.0)
              if a.lattice else
@@ -137,10 +144,33 @@ def main():
         cfg = ASVIVertexConfig(placements=P, **kw)
         isl = ASVIVertex(cfg, timesteps=32, dtype=dtype)
         n_parts, lab = isl.n_parts, isl.label
+
+        def vec(m):
+            """Per-island-layer (m_long, m_trans, circ) in the island frame,
+            plus the lab-frame (mx, my) the island axis maps them onto."""
+            out = []
+            for j in range(isl.n_parts):
+                c = isl.part_state(m, j)
+                th = math.radians(cfg.island_layer_cy(*isl.keys[j])[2])
+                out.append({
+                    "ml": c["m_long"], "mt": c["m_trans"], "circ": c["circ"],
+                    "pk": c["peak_mz"],
+                    "mx": c["m_long"] * math.cos(th) - c["m_trans"] * math.sin(th),
+                    "my": c["m_long"] * math.sin(th) + c["m_trans"] * math.cos(th)})
+            return out
     else:
         cfg = ASVIConfig(**kw)
         isl = ASVIIsland(cfg, timesteps=32, dtype=dtype)
         n_parts, lab = isl.n_layers, lambda m: label(isl, m)
+
+        def vec(m):
+            out = []
+            for k in range(isl.n_layers):
+                mx, my = isl.layer_moment(m, k)
+                pk, _ = isl.layer_core(m, k)
+                out.append({"ml": mx, "mt": my, "mx": mx, "my": my,
+                            "circ": isl.layer_circulation(m, k), "pk": pk})
+            return out
     nx, ny, nz = cfg.grid
     mask = isl.mask
     n_mag = float(mask.sum())
@@ -275,7 +305,9 @@ def main():
                 labs = [lab(m) for m in ms]
                 seen.update(labs)
                 hist.append({"n": n + 1, "u": float(u[n]), "labels": labs,
-                             "distance": d, "rel": d / max(d0, 1e-30)})
+                             "distance": d, "rel": d / max(d0, 1e-30),
+                             "theta_deg": base + float(u[n]) * a.angle_input,
+                             "parts": [vec(m) for m in ms]})
                 print(f"{n+1:>4} {u[n]:>+7.2f} " + " ".join(f"{l:>9}" for l in labs)
                       + f" {d:>10.4f} {d/max(d0,1e-30):>7.3f}", flush=True)
                 save_ckpt(amp=amp, done=n + 1, ms=pack(ms), hist=hist,
@@ -299,7 +331,8 @@ def main():
             labs = [lab(m) for m in ms]
             seen.update(labs)
             hist.append({"n": n + 1, "u": float(u[n]), "labels": labs,
-                         "distance": d, "rel": d / max(d0, 1e-30)})
+                         "distance": d, "rel": d / max(d0, 1e-30),
+                         "parts": [vec(m) for m in ms]})
             print(f"{n+1:>4} {u[n]:>+7.2f} " + " ".join(f"{l:>5}" for l in labs)
                   + f" {d:>10.4f} {d/max(d0,1e-30):>7.3f}", flush=True)
         rows.append({"amp_mT": amp, "d0": d0, "history": hist,

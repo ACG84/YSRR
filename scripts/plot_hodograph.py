@@ -198,6 +198,35 @@ def main():
         ax3.set_title("per island-layer (longitudinal, transverse)",
                       fontsize=10, pad=16)
 
+    # ---- the number behind the middle panel ------------------------------
+    # A picture of scatter is an argument only if the scatter is bigger than
+    # the trend. For a memoryless device lag would be a single-valued function
+    # of drive angle, so two nearly equal drives would give nearly equal lags.
+    # Reporting the closest pair is fit-free: it assumes no model of the trend
+    # and cannot be inflated by choosing a poor one.
+    print("\nstate dependence in the lag (memoryless => lag is a function of "
+          "drive angle alone)")
+    for r in runs:
+        h = r["history"]
+        if "theta_deg" not in h[0]:
+            continue
+        wrap = lambda d: (d + 180.0) % 360.0 - 180.0
+        dr = np.array([x["theta_deg"] for x in h])
+        lag = np.array([wrap(math.degrees(math.atan2(*net(x["parts"][0])[::-1]))
+                             - x["theta_deg"]) for x in h])
+        res = lag - np.polyval(np.polyfit(dr, lag, 5), dr)
+        o = np.argsort(dr); ds, ls = dr[o], lag[o]
+        near = [(abs(ls[i + 1] - ls[i]), ds[i], ds[i + 1])
+                for i in range(len(ds) - 1) if ds[i + 1] - ds[i] < 5.0]
+        best = max(near) if near else None
+        print(f"  {r['amp_mT']:g} mT: lag spans {lag.min():+.1f} to "
+              f"{lag.max():+.1f} deg; residual after a smooth fit "
+              f"{res.std():.1f} deg std")
+        if best:
+            print(f"           drives {best[1]:.1f} and {best[2]:.1f} deg "
+                  f"({best[2]-best[1]:.1f} apart) differ in lag by "
+                  f"{best[0]:.1f} deg")
+
     fig.suptitle("ASVI reservoir — contraction geometry and input/response lag",
                  fontsize=13)
     fig.savefig(a.out, dpi=140, bbox_inches="tight")

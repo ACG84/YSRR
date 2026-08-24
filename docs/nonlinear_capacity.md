@@ -4167,3 +4167,57 @@ four, below on one. That is not "10 samples achieved"; it is a device whose
 memory depends on what it is fed, and the honest summary is a distribution
 with a floor of 9, not a single number. The floor is what a task has to live
 with, and one more sample of floor would be worth more than ten of ceiling.
+
+### The response lag is a picture, not an instrument
+
+The hodograph's lag panel looked like a cheap memory probe. At seed 4 the
+long-memory point spread over 83 degrees of lag against the short-memory
+point's 49, and drives 1.8 degrees apart differed in lag by 25 -- state
+dependence visible in ONE trajectory, with no second initial condition and no
+convergence threshold. Horizon needs 40 inputs, two starts and a threshold, and
+that threshold produced the censoring and window-length artefacts that consumed
+four rounds of this sweep. A per-input substitute would have been worth a lot.
+
+It does not survive its own test.
+
+    PARTIAL correlation, amplitude regressed out (n = 9, df = 6)
+      r(horizon, lag span  | amplitude) = +0.05   p ~ 0.89
+      r(horizon, lag resid | amplitude) = -0.37   p ~ 0.33
+      amplitude alone: r(amp, horizon) = -0.78, r(amp, resid) = -0.60
+
+Amplitude drives BOTH quantities, and once it is removed the lag carries no
+information about the horizon. The seed-4 ordering was the drive, exactly as
+the pre-registered confound said it would be: a weaker field turns the state
+less per input, so the response sits further from the drive direction whether
+or not anything is being remembered.
+
+TWO HONEST QUALIFICATIONS, neither of which rescues it.
+
+  power   n = 9 with one covariate detects |r| > 0.71 at p < 0.05, so a
+          moderate correlation cannot be excluded. The test provides no
+          support; it does not prove independence. The point estimate for
+          span is +0.05, which is not a suppressed signal, it is nothing.
+  method  the registered test was within-amplitude stratification. Partial
+          correlation is a post-hoc change of ANALYSIS, not of hypothesis --
+          same question, better power, controlling for amplitude instead of
+          slicing on it. Both give the same answer, so nothing turns on the
+          switch: stratified gave +0.33/-0.43, -0.14/+0.88, -0.89/-0.86, signs
+          flipping in every direction.
+
+WHY THE TEST WAS WEAKER THAN DESIGNED, which is a mistake worth recording. It
+needs within-amplitude horizon variance, and it was designed around the 7-to-19
+spread at 70 mT. That spread came from the 20-INPUT runs -- where horizon was
+RIGHT-CENSORED by the run length, a defect already identified and written up
+two sections above. Given 40 inputs, 70 and 80 mT converge in six every time
+(6,6,8 and 5,6,6). The variance chosen as the instrument was substantially an
+artefact of a measurement already known to be broken, and it was carried into a
+new experiment without rechecking it. Only 62 mT retains real variance
+(17, 24, 34), so two of the three amplitudes could never have contributed.
+
+The hodograph keeps its value as a REPRESENTATION. The difference hodograph
+shows the echo state property as a spiral into the origin and distinguishes a
+clean contraction from one that hovers near zero for thirty inputs before
+settling -- at 62 mT the threshold reports horizon 34 while the geometry shows
+it was marginal from about input 8, which is where the seed-to-seed spread
+comes from. That is genuine insight the scalar `rel` cannot express. What it
+does not do is measure memory in a number.

@@ -113,6 +113,37 @@ def main():
         line = "  ".join(f"{a:g} mT {np.mean(v):.1f}" for a, v in sorted(byamp.items()))
         print(f"  mean {k}: {line}")
 
+    # ---- partial correlation, controlling for amplitude ------------------
+    # Stratifying into one group per amplitude throws away power: three groups
+    # of three, two of which have no horizon variance to correlate against.
+    # Regressing BOTH variables on amplitude and correlating what is left uses
+    # every run at once and removes the confound explicitly rather than by
+    # slicing. With n runs and one covariate the test has n-3 degrees of
+    # freedom, which is stated alongside the number so it cannot be read as
+    # more than it is.
+    e = [r for r in rows if r["horizon"]]
+    if len(e) >= 6:
+        A = np.array([r["amp"] for r in e], float)
+        H = np.array([r["horizon"] for r in e], float)
+        print(f"\nPARTIAL correlation with amplitude regressed out (n={len(e)}, "
+              f"df={len(e)-3})")
+        for k in ("span", "resid"):
+            Y = np.array([r[k] for r in e], float)
+            hr = H - np.polyval(np.polyfit(A, H, 1), A)
+            yr = Y - np.polyval(np.polyfit(A, Y, 1), A)
+            r_ = pearson(hr, yr)
+            # two-sided t on n-3 df, normal approximation for the tail
+            if np.isfinite(r_) and abs(r_) < 1:
+                t = r_ * math.sqrt((len(e) - 3) / max(1 - r_ * r_, 1e-12))
+                pv = math.erfc(abs(t) / math.sqrt(2))
+            else:
+                t, pv = float("nan"), float("nan")
+            print(f"  r(horizon, {k} | amplitude) = {r_:+.2f}  "
+                  f"t={t:+.2f}  p~{pv:.2f}")
+        print("  amplitude alone explains: "
+              f"r(amp,horizon)={pearson(A, H):+.2f}, "
+              f"r(amp,resid)={pearson(A, [r['resid'] for r in e]):+.2f}")
+
     print("\nverdict")
     if not allp:
         print("  not enough seeds per amplitude to run the within-amplitude test")

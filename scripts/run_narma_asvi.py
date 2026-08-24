@@ -95,7 +95,9 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--device", default="cpu")
     p.add_argument("--n-steps", type=int, default=400)
-    p.add_argument("--washout", type=int, default=40)
+    p.add_argument("--washout", type=int, default=40,
+                   help="discarded transient. Must be >= --baseline-taps\n"
+                        "so the delay-line baseline has real history.")
     p.add_argument("--settle", type=int, default=500)
     p.add_argument("--alpha-relax", type=float, default=0.5)
     p.add_argument("--relax-steps", type=int, default=2000)
@@ -224,16 +226,23 @@ def main():
     np.save(outdir / "input.npy", u)
 
     # ------------------------------------------------------------ readout
-    W = a.washout
-    Xr, yr, ur = X[W:], y[W:], u[W:]
+    W, K = a.washout, a.baseline_taps
+    if W < K:
+        raise SystemExit(f"--washout {W} must be at least --baseline-taps {K}, "
+                         "or the delay line has no real history to draw on")
+    # Index the lags on the FULL series rather than padding a washed-out one
+    # with zeros. Zero padding fabricates K rows whose history is zeros while
+    # their target is real, and those are severe outliers: on a synthetic check
+    # they moved an ORACLE readout -- one handed NARMA's own terms, which fits
+    # to 3e-15 when indexed properly -- all the way to 0.12. Worse, this
+    # baseline is the bar the reservoir has to clear, so corrupting it would
+    # have flattered the reservoir rather than penalising it.
+    t = np.arange(W, a.n_steps)
+    Xr, yr = X[t], y[t]
+    U = np.column_stack([u[t - k] for k in range(K)])
     ntr, nva = int(0.5 * len(yr)), int(0.25 * len(yr))
     sl = (slice(0, ntr), slice(ntr, ntr + nva), slice(ntr + nva, None))
     alphas = [10.0 ** k for k in range(-8, 4)]
-
-    # delay-line baseline: a pure linear filter on recent inputs
-    K = a.baseline_taps
-    U = np.column_stack([np.concatenate([np.zeros(k), ur[:len(ur) - k]])
-                         for k in range(K)])
 
     res = {}
     res["linear on u"] = fit_report(U[sl[0]], yr[sl[0]], U[sl[1]], yr[sl[1]],
@@ -260,10 +269,15 @@ def main():
         print(f"{k:>16}{al:>10}{tr:>9}{va:>9}{r['test_nrmse']:>9.3f}")
 
     lin, rsv = res["linear on u"]["test_nrmse"], res["reservoir"]["test_nrmse"]
+    mn = res["mean"]["test_nrmse"]
     print("\nverdict")
-    if rsv >= 1.0:
-        print("  The reservoir readout does no better than predicting the mean.\n"
-              "  Its state carries nothing about the target.")
+    # Compare against the MEASURED mean-predictor score. Predicting the training
+    # mean on a test block whose mean differs scores above 1.0, so a nominal 1.0
+    # is the wrong threshold and would call a useless readout useful.
+    if rsv >= mn:
+        print(f"  The reservoir ({rsv:.3f}) does no better than predicting the\n"
+              f"  training mean ({mn:.3f}). Its state carries nothing about the\n"
+              "  target.")
     elif rsv >= lin:
         print(f"  The reservoir ({rsv:.3f}) does NOT beat a linear filter on the\n"
               f"  last {K} inputs ({lin:.3f}). Whatever it computes, a delay line\n"

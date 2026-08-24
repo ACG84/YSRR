@@ -271,6 +271,23 @@ def main():
     lin, rsv = res["linear on u"]["test_nrmse"], res["reservoir"]["test_nrmse"]
     mn = res["mean"]["test_nrmse"]
     print("\nverdict")
+    # Refuse to conclude anything from a degenerate split. A one-sample test
+    # block has zero variance, so every NRMSE is nan -- and `nan >= mn` is
+    # False, which walked the comparison chain straight into "the reservoir
+    # beats the delay line" on a 16-step smoke run. A harness that announces a
+    # win from nan will eventually put a false claim in the record.
+    n_test = len(yr[sl[2]])
+    if n_test < 20 or not all(math.isfinite(v) for v in (lin, rsv, mn)):
+        print(f"  NO VERDICT: {n_test} test samples and scores "
+              f"(linear {lin:.3f}, reservoir {rsv:.3f}, mean {mn:.3f}).\n"
+              "  A test block needs at least 20 samples with finite variance\n"
+              "  before any comparison between readouts means anything.")
+        (outdir / "narma.json").write_text(json.dumps(
+            {"results": res, "n_features": int(X.shape[1]),
+             "n_test": n_test, "verdict": "insufficient data",
+             "args": vars(a)}, indent=2, default=str))
+        print(f"\nwrote {outdir/'narma.json'}")
+        return 0
     # Compare against the MEASURED mean-predictor score. Predicting the training
     # mean on a test block whose mean differs scores above 1.0, so a nominal 1.0
     # is the wrong threshold and would call a useless readout useful.

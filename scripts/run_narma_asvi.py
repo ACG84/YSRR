@@ -180,7 +180,7 @@ def main():
                 "angle": a.angle_input, "field_deg": a.field_deg,
                 "start": a.start, "relax": a.relax_steps, "dx": a.dx_nm,
                 "lattice": a.lattice, "vertex": a.vertex}
-    ck, done, feats, m = None, 0, [], None
+    ck, done, feats, thetas, m = None, 0, [], [], None
     if a.ckpt and os.path.exists(a.ckpt):
         ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)
         if ck.get("fp") != fp():
@@ -188,6 +188,7 @@ def main():
             raise SystemExit(f"checkpoint {a.ckpt} is for a different run; "
                              f"differs in {bad}. Delete it to start over.")
         done, feats = ck["done"], ck["feats"]
+        thetas = ck.get("thetas", [])
         full = torch.zeros(nx, ny, nz, 3, dtype=dtype, device=idx.device)
         full[idx] = ck["m"].to(device=idx.device, dtype=dtype)
         m = full
@@ -223,13 +224,14 @@ def main():
         h[:, :, :, 1] = g * math.sin(th) * mask[:, :, :, 0]
         m = isl.rollout.relax(m, h, a.settle, a.alpha_relax)
         feats.append(feat(m))
+        thetas.append(a.field_deg + us * a.angle_input)
         if (n + 1) % 20 == 0 or n + 1 == a.n_steps:
             print(f"  {n+1}/{a.n_steps}  {(time.time()-t0)/60:.1f} min",
                   flush=True)
         if a.ckpt:
             tmp = a.ckpt + ".tmp"
             torch.save({"fp": fp(), "done": n + 1, "feats": feats,
-                        "m": m[idx].cpu().clone()}, tmp)
+                        "thetas": thetas, "m": m[idx].cpu().clone()}, tmp)
             os.replace(tmp, a.ckpt)
         if a.chunk and (n + 1 - done) >= a.chunk and n + 1 < a.n_steps:
             print(f"\nCHUNK DONE: {n+1}/{a.n_steps}, state saved to {a.ckpt}",

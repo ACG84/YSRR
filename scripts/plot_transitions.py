@@ -90,13 +90,16 @@ def main():
             ck = torch.load(f, map_location="cpu", weights_only=False)
             F = np.asarray(ck["feats"], dtype=float)
             J = F.shape[1] // 4
+            th = ck.get("thetas", [])
             hist = [{"parts": [[{"ml": row[4*j], "mt": row[4*j+1],
                                  "circ": row[4*j+2], "pk": row[4*j+3]}
-                                for j in range(J)]]} for row in F]
+                                for j in range(J)]],
+                     **({"theta_deg": th[i]} if i < len(th) else {})}
+                    for i, row in enumerate(F)]
             runs.append({"amp_mT": ck["fp"].get("amp", float("nan")),
                          "history": hist})
-            print(f"{f}: {len(hist)} inputs, {J} island-layers "
-                  "(no drive angle stored; middle panel will be empty)")
+            print(f"{f}: {len(hist)} inputs, {J} island-layers, "
+                  f"drive angle {'stored' if th else 'MISSING (middle panel empty)'}")
             continue
         for r in json.load(open(f)):
             if r["history"] and "parts" in r["history"][0]:

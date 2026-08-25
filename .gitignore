@@ -1,5 +1,11 @@
 # Training artefacts: checkpoints are large and regenerable from the scripts.
 runs/
+# ...but keep small result files. Everything copied into runs/ was lost
+# with a container restart because the directory is ignored, and hours of
+# GPU output went with it. Checkpoints and .npy stay ignored; the JSON
+# summaries are kilobytes and are the only durable record of a run.
+!runs/**/
+!runs/**/*.json
 *.pt
 *.vti
 *.vtr

@@ -118,6 +118,10 @@ def main():
     p.add_argument("--vertex", type=int, default=2)
     p.add_argument("--ckpt", default=None)
     p.add_argument("--chunk", type=int, default=0)
+    p.add_argument("--eval-only", action="store_true",
+                   help="score whatever the checkpoint already holds and stop.\n"
+                        "A CPU run of this is tens of hours, so it has to be\n"
+                        "readable at a prefix rather than all-or-nothing.")
     p.add_argument("--outdir", default="runs/narma_asvi")
     a = p.parse_args()
 
@@ -196,8 +200,19 @@ def main():
         m = isl.relax(parts, steps=a.relax_steps, dtype=dtype).clone()
         print("relaxed initial state", flush=True)
 
+    if a.eval_only:
+        if not feats:
+            raise SystemExit("--eval-only needs a checkpoint with features")
+        # Score the prefix that exists. n_steps is rewritten to what was
+        # actually run so every downstream index -- splits, lag construction,
+        # the sample-count guard -- refers to real data and not to the length
+        # the run was aiming at.
+        a.n_steps = len(feats)
+        u, y = u[:a.n_steps], y[:a.n_steps]
+        print(f"eval-only: scoring {a.n_steps} completed inputs", flush=True)
+
     t0 = time.time()
-    for n in range(done, a.n_steps):
+    for n in range(done if not a.eval_only else a.n_steps, a.n_steps):
         # u is on [0, 0.5]; centre and scale to [-1, 1] before the angle map so
         # the drive sweeps the same range the ESP sweep characterised.
         us = (float(u[n]) - 0.25) / 0.25
